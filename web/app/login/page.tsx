@@ -1,9 +1,13 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
+type UserRole = "admin" | "dispatcher" | "driver";
+
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -14,15 +18,59 @@ export default function LoginPage() {
     setErrorMessage("");
     setIsLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { data: authData, error: authError } =
+      await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    if (error) {
-      setErrorMessage(error.message);
+    if (authError) {
+      setErrorMessage(authError.message);
+      setIsLoading(false);
+      return;
     }
 
+    if (!authData.user) {
+      setErrorMessage("Unable to find the signed-in user.");
+      setIsLoading(false);
+      return;
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", authData.user.id)
+      .maybeSingle<{ role: UserRole }>();
+
+    if (profileError) {
+      setErrorMessage(profileError.message);
+      setIsLoading(false);
+      return;
+    }
+
+    if (!profile) {
+      setErrorMessage("No profile was found for this account.");
+      setIsLoading(false);
+      return;
+    }
+
+    if (profile.role === "admin") {
+      router.replace("/admin");
+      return;
+    }
+
+    if (profile.role === "dispatcher") {
+      router.replace("/dispatcher");
+      return;
+    }
+
+    if (profile.role === "driver") {
+      setErrorMessage("Drivers must use the mobile app.");
+      setIsLoading(false);
+      return;
+    }
+
+    setErrorMessage("Your account role is not supported for web access.");
     setIsLoading(false);
   }
 
