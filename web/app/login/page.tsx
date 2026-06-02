@@ -31,7 +31,7 @@ export default function LoginPage() {
     }
 
     if (!authData.user) {
-      setErrorMessage("Unable to find the signed-in user.");
+      setErrorMessage("Unable to sign in user.");
       setIsLoading(false);
       return;
     }

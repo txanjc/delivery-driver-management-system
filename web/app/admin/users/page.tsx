@@ -35,6 +35,7 @@ type UserFormState = {
   phone: string;
   role: UserRole;
   isActive: boolean;
+  temporaryPassword: string;
 };
 
 type UserPayload = {
@@ -53,13 +54,20 @@ const emptyUserForm: UserFormState = {
   phone: "",
   role: "driver",
   isActive: true,
+  temporaryPassword: "",
 };
 
 const roleOptions: UserRole[] = ["admin", "dispatcher", "driver"];
 
 function toUserRole(role: string | null): UserRole {
-  if (role === "admin" || role === "dispatcher" || role === "driver") {
-    return role;
+  const normalizedRole = role?.trim().toLowerCase();
+
+  if (
+    normalizedRole === "admin" ||
+    normalizedRole === "dispatcher" ||
+    normalizedRole === "driver"
+  ) {
+    return normalizedRole;
   }
 
   return "driver";
@@ -86,6 +94,7 @@ function toUserForm(user: UserRecord): UserFormState {
     phone: user.phone,
     role: user.role,
     isActive: user.isActive,
+    temporaryPassword: "",
   };
 }
 
@@ -120,6 +129,19 @@ function formatCreatedDate(value: string | null) {
     day: "numeric",
     year: "numeric",
   }).format(new Date(value));
+}
+
+function readApiError(responseBody: unknown) {
+  if (
+    typeof responseBody === "object" &&
+    responseBody !== null &&
+    "error" in responseBody &&
+    typeof responseBody.error === "string"
+  ) {
+    return responseBody.error;
+  }
+
+  return "Unable to create user.";
 }
 
 function UserKpiCard({
@@ -220,8 +242,8 @@ function UserModal({
 
         <form className="mt-5 space-y-5" onSubmit={onSubmit}>
           <div className="rounded-2xl border border-lime-400/20 bg-lime-400/10 px-4 py-3 text-sm text-lime-100">
-            Authentication account creation will be connected in a later secure
-            server-side flow.
+            Authentication account creation is handled by a secure server-side
+            flow.
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -264,6 +286,23 @@ function UserModal({
                 value={formState.phone}
               />
             </label>
+            {isCreateMode ? (
+              <label className="block md:col-span-2">
+                <span className="text-sm font-medium text-zinc-300">
+                  Temporary Password
+                </span>
+                <input
+                  className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
+                  minLength={8}
+                  onChange={(event) =>
+                    onChange("temporaryPassword", event.target.value)
+                  }
+                  required
+                  type="password"
+                  value={formState.temporaryPassword}
+                />
+              </label>
+            ) : null}
             <label className="block">
               <span className="text-sm font-medium text-zinc-300">Role</span>
               <select
@@ -345,14 +384,15 @@ export default function AdminUsersPage() {
       .returns<ProfileRow[]>();
 
     if (error) {
-      setErrorMessage(error.message);
+      setErrorMessage(`Unable to load user profiles: ${error.message}`);
       setUsers([]);
       setIsLoading(false);
-      return;
+      return false;
     }
 
     setUsers((data ?? []).map(toUserRecord));
     setIsLoading(false);
+    return true;
   }, []);
 
   useEffect(() => {
@@ -417,26 +457,72 @@ export default function AdminUsersPage() {
       return;
     }
 
-    const { error } = editingUser
-      ? await supabase
-          .from("profiles")
-          .update({
-            first_name: payload.first_name,
-            last_name: payload.last_name,
-            phone: payload.phone,
-            role: payload.role,
-            is_active: payload.is_active,
-          })
-          .eq("id", editingUser.id)
-      : await supabase.from("profiles").insert(payload);
+    if (editingUser) {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          first_name: payload.first_name,
+          last_name: payload.last_name,
+          phone: payload.phone,
+          role: payload.role,
+          is_active: payload.is_active,
+        })
+        .eq("id", editingUser.id);
 
-    if (error) {
-      setErrorMessage(error.message);
+      if (error) {
+        setErrorMessage(error.message);
+        setIsSaving(false);
+        return;
+      }
+    } else {
+      if (formState.temporaryPassword.length < 8) {
+        setErrorMessage("Temporary password must be at least 8 characters.");
+        setIsSaving(false);
+        return;
+      }
+
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+
+      if (sessionError || !sessionData.session) {
+        setErrorMessage("You must be signed in as an admin to create users.");
+        setIsSaving(false);
+        return;
+      }
+
+      const response = await fetch("/api/admin/users", {
+        body: JSON.stringify({
+          firstName: formState.firstName,
+          lastName: formState.lastName,
+          email: formState.email,
+          phone: formState.phone,
+          role: formState.role,
+          isActive: formState.isActive,
+          temporaryPassword: formState.temporaryPassword,
+        }),
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      });
+
+      const responseBody: unknown = await response.json();
+
+      if (!response.ok) {
+        setErrorMessage(readApiError(responseBody));
+        setIsSaving(false);
+        return;
+      }
+    }
+
+    const didLoadUsers = await loadUsers();
+
+    if (!didLoadUsers) {
       setIsSaving(false);
       return;
     }
 
-    await loadUsers();
     setSuccessMessage(
       editingUser
         ? "User profile updated successfully."
@@ -471,8 +557,8 @@ export default function AdminUsersPage() {
       </div>
 
       <div className="rounded-3xl border border-lime-400/20 bg-lime-400/10 px-5 py-4 text-sm text-lime-100">
-        Authentication account creation will be connected in a later secure
-        server-side flow.
+        Authentication account creation is handled by a secure server-side
+        flow.
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
