@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 type IconName =
   | "brand"
   | "dashboard"
+  | "users"
   | "drivers"
   | "vehicles"
   | "schedules"
@@ -26,6 +27,7 @@ const navigationItems: Array<{
   icon: IconName;
 }> = [
   { label: "Dashboard", href: "/admin", icon: "dashboard" },
+  { label: "Users", href: "/admin/users", icon: "users" },
   { label: "Drivers", href: "/admin/drivers", icon: "drivers" },
   { label: "Vehicles", href: "/admin/vehicles", icon: "vehicles" },
   { label: "Schedules", href: "/admin/schedules", icon: "schedules" },
@@ -69,6 +71,14 @@ function Icon({ name }: { name: IconName }) {
         <path d="M13 4h7v4h-7z" />
         <path d="M13 10h7v10h-7z" />
         <path d="M4 13h7v7H4z" />
+      </>
+    ),
+    users: (
+      <>
+        <path d="M16 21v-2a4 4 0 0 0-8 0v2" />
+        <path d="M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" />
+        <path d="M22 21v-2a4 4 0 0 0-3-3.8" />
+        <path d="M16 3.1a4 4 0 0 1 0 7.8" />
       </>
     ),
     drivers: (

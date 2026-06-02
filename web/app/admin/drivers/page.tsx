@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+
 import { supabase } from "@/lib/supabase";
 
 type DriverProfile = {
@@ -26,6 +27,7 @@ type DriverRow = {
 
 type DriverRecord = {
   id: string;
+  userId: string;
   firstName: string;
   lastName: string;
   email: string;
@@ -36,8 +38,37 @@ type DriverRecord = {
   licenseExpiry: string;
   availability: string;
   performanceScore: string;
-  assignedVehicleId: string;
 };
+
+type DriverFormState = {
+  selectedProfileId: string;
+  licenseNumber: string;
+  licenseExpiry: string;
+  availability: string;
+  performanceScore: string;
+};
+
+type DriverPayload = {
+  user_id?: string;
+  license_number: string | null;
+  license_expiry: string | null;
+  availability: string | null;
+  performance_score: number | null;
+};
+
+const emptyDriverForm: DriverFormState = {
+  selectedProfileId: "",
+  licenseNumber: "",
+  licenseExpiry: "",
+  availability: "available",
+  performanceScore: "",
+};
+
+const availabilityOptions = [
+  { label: "Available", value: "available" },
+  { label: "On Delivery", value: "on_delivery" },
+  { label: "Unavailable", value: "unavailable" },
+];
 
 function normalizeProfile(profile: DriverRow["profiles"]) {
   if (Array.isArray(profile)) {
@@ -52,6 +83,7 @@ function toDriverRecord(driver: DriverRow): DriverRecord {
 
   return {
     id: driver.id,
+    userId: driver.user_id,
     firstName: profile?.first_name ?? "",
     lastName: profile?.last_name ?? "",
     email: profile?.email ?? "",
@@ -63,23 +95,91 @@ function toDriverRecord(driver: DriverRow): DriverRecord {
     availability: driver.availability ?? "",
     performanceScore:
       driver.performance_score === null ? "" : String(driver.performance_score),
-    assignedVehicleId: driver.assigned_vehicle_id ?? "",
   };
+}
+
+function toDriverForm(driver: DriverRecord): DriverFormState {
+  return {
+    selectedProfileId: driver.userId,
+    licenseNumber: driver.licenseNumber,
+    licenseExpiry: driver.licenseExpiry,
+    availability: driver.availability || "available",
+    performanceScore: driver.performanceScore,
+  };
+}
+
+function toNullableNumber(value: string): number | null {
+  const trimmedValue = value.trim();
+
+  if (!trimmedValue) {
+    return null;
+  }
+
+  const numericValue = Number(trimmedValue);
+
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function toDriverPayload(formState: DriverFormState): DriverPayload {
+  return {
+    license_number: formState.licenseNumber.trim() || null,
+    license_expiry: formState.licenseExpiry || null,
+    availability: formState.availability || null,
+    performance_score: toNullableNumber(formState.performanceScore),
+  };
+}
+
+function getProfileName(profile: DriverProfile) {
+  const profileName = [profile.first_name, profile.last_name]
+    .filter(Boolean)
+    .join(" ");
+
+  return profileName || profile.email || "Unnamed driver profile";
+}
+
+function getDriverName(driver: DriverRecord) {
+  const driverName = [driver.firstName, driver.lastName]
+    .filter(Boolean)
+    .join(" ");
+
+  return driverName || "Unnamed driver";
+}
+
+function formatAvailability(availability: string) {
+  const option = availabilityOptions.find(
+    (availabilityOption) => availabilityOption.value === availability,
+  );
+
+  if (option) {
+    return option.label;
+  }
+
+  return availability
+    ? availability
+        .trim()
+        .toLowerCase()
+        .replace(/[_-]+/g, " ")
+        .replace(/\b\w/g, (character) => character.toUpperCase())
+    : "Not set";
 }
 
 function DriverKpiCard({
   label,
   value,
   detail,
-  accent = "bg-[#222222]",
+  accent = false,
 }: {
   label: string;
   value: string;
   detail: string;
-  accent?: string;
+  accent?: boolean;
 }) {
   return (
-    <div className={`rounded-2xl p-5 text-white ${accent}`}>
+    <div
+      className={`rounded-2xl p-5 ${
+        accent ? "bg-white text-black" : "bg-[#222222] text-white"
+      }`}
+    >
       <p className="text-xs text-zinc-400">{label}</p>
       <p className="mt-4 text-3xl font-semibold tracking-tight">{value}</p>
       <p className="mt-1 text-xs text-zinc-500">{detail}</p>
@@ -99,8 +199,10 @@ function AvailabilityBadge({ availability }: { availability: string }) {
           : "bg-zinc-500/15 text-zinc-300";
 
   return (
-    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${badgeClass}`}>
-      {availability || "Not set"}
+    <span
+      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
+    >
+      {formatAvailability(availability)}
     </span>
   );
 }
@@ -143,36 +245,230 @@ function PerformanceMeter({ score }: { score: string }) {
   );
 }
 
+function DriverModal({
+  availableProfiles,
+  formState,
+  isSaving,
+  mode,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  availableProfiles: DriverProfile[];
+  formState: DriverFormState;
+  isSaving: boolean;
+  mode: "create" | "edit";
+  onChange: (field: keyof DriverFormState, value: string) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const isCreateMode = mode === "create";
+
+  return (
+    <div
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      role="dialog"
+    >
+      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-white/10 bg-[#222222] p-5 text-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-4">
+          <div>
+            <h2 className="text-xl font-semibold">
+              {isCreateMode ? "Add Driver" : "Edit Driver"}
+            </h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              Link an existing driver profile to operational driver details.
+            </p>
+          </div>
+          <button
+            className="rounded-full border border-white/10 px-3 py-1.5 text-sm text-zinc-300 transition hover:bg-white/10"
+            onClick={onClose}
+            type="button"
+          >
+            Close
+          </button>
+        </div>
+
+        <form className="mt-5 space-y-5" onSubmit={onSubmit}>
+          <div className="grid gap-4 md:grid-cols-2">
+            {isCreateMode ? (
+              <label className="block md:col-span-2">
+                <span className="text-sm font-medium text-zinc-300">
+                  Driver Profile
+                </span>
+                <select
+                  className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
+                  onChange={(event) =>
+                    onChange("selectedProfileId", event.target.value)
+                  }
+                  required
+                  value={formState.selectedProfileId}
+                >
+                  <option value="">Select an existing driver profile</option>
+                  {availableProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {getProfileName(profile)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <label className="block">
+              <span className="text-sm font-medium text-zinc-300">
+                License Number
+              </span>
+              <input
+                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
+                onChange={(event) =>
+                  onChange("licenseNumber", event.target.value)
+                }
+                required
+                value={formState.licenseNumber}
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-zinc-300">
+                License Expiry
+              </span>
+              <input
+                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
+                onChange={(event) =>
+                  onChange("licenseExpiry", event.target.value)
+                }
+                type="date"
+                value={formState.licenseExpiry}
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-zinc-300">
+                Availability
+              </span>
+              <select
+                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
+                onChange={(event) =>
+                  onChange("availability", event.target.value)
+                }
+                value={formState.availability}
+              >
+                {availabilityOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-zinc-300">
+                Performance Score
+              </span>
+              <input
+                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
+                max="100"
+                min="0"
+                onChange={(event) =>
+                  onChange("performanceScore", event.target.value)
+                }
+                type="number"
+                value={formState.performanceScore}
+              />
+            </label>
+          </div>
+
+          {isCreateMode && availableProfiles.length === 0 ? (
+            <p className="rounded-2xl border border-orange-500/20 bg-orange-500/10 px-4 py-3 text-sm text-orange-100">
+              Create a driver user in Supabase Auth and profiles first.
+            </p>
+          ) : null}
+
+          <div className="flex flex-col-reverse gap-3 border-t border-white/10 pt-5 sm:flex-row sm:justify-end">
+            <button
+              className="rounded-full border border-white/10 px-5 py-2.5 text-sm font-semibold text-zinc-300 transition hover:bg-white/10"
+              disabled={isSaving}
+              onClick={onClose}
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isSaving || (isCreateMode && availableProfiles.length === 0)}
+              type="submit"
+            >
+              {isSaving
+                ? "Saving..."
+                : isCreateMode
+                  ? "Create Driver"
+                  : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminDriversPage() {
   const [drivers, setDrivers] = useState<DriverRecord[]>([]);
+  const [driverProfiles, setDriverProfiles] = useState<DriverProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingDriver, setEditingDriver] = useState<DriverRecord | null>(null);
+  const [formState, setFormState] =
+    useState<DriverFormState>(emptyDriverForm);
 
-  const loadDrivers = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("drivers")
-      .select(
-        "id, user_id, license_number, license_expiry, availability, performance_score, assigned_vehicle_id, profiles:user_id (id, first_name, last_name, email, phone, role, is_active)",
-      )
-      .order("created_at", { ascending: false })
-      .returns<DriverRow[]>();
+  const loadDriverData = useCallback(async () => {
+    setIsLoading(true);
+    setErrorMessage("");
 
-    if (error) {
-      setErrorMessage(error.message);
+    const [driversResponse, profilesResponse] = await Promise.all([
+      supabase
+        .from("drivers")
+        .select(
+          "id, user_id, license_number, license_expiry, availability, performance_score, assigned_vehicle_id, profiles:user_id (id, first_name, last_name, email, phone, role, is_active)",
+        )
+        .order("created_at", { ascending: false })
+        .returns<DriverRow[]>(),
+      supabase
+        .from("profiles")
+        .select("id, first_name, last_name, email, phone, role, is_active")
+        .eq("role", "driver")
+        .order("first_name", { ascending: true })
+        .returns<DriverProfile[]>(),
+    ]);
+
+    if (driversResponse.error) {
+      setErrorMessage(driversResponse.error.message);
       setDrivers([]);
       setIsLoading(false);
       return;
     }
 
-    setDrivers((data ?? []).map(toDriverRecord));
+    if (profilesResponse.error) {
+      setErrorMessage(profilesResponse.error.message);
+      setDriverProfiles([]);
+      setIsLoading(false);
+      return;
+    }
+
+    setDrivers((driversResponse.data ?? []).map(toDriverRecord));
+    setDriverProfiles(profilesResponse.data ?? []);
     setIsLoading(false);
   }, []);
 
   useEffect(() => {
     queueMicrotask(() => {
-      void loadDrivers();
+      void loadDriverData();
     });
-  }, [loadDrivers]);
+  }, [loadDriverData]);
+
+  const availableProfiles = useMemo(() => {
+    const driverUserIds = new Set(drivers.map((driver) => driver.userId));
+
+    return driverProfiles.filter((profile) => !driverUserIds.has(profile.id));
+  }, [driverProfiles, drivers]);
 
   const driverStats = useMemo(() => {
     const activeDrivers = drivers.filter((driver) => driver.isActive).length;
@@ -192,6 +488,113 @@ export default function AdminDriversPage() {
     };
   }, [drivers]);
 
+  function openCreateModal() {
+    setEditingDriver(null);
+    setFormState({
+      ...emptyDriverForm,
+      selectedProfileId: availableProfiles[0]?.id ?? "",
+    });
+    setErrorMessage("");
+    setSuccessMessage("");
+    setIsModalOpen(true);
+  }
+
+  function openEditModal(driver: DriverRecord) {
+    setEditingDriver(driver);
+    setFormState(toDriverForm(driver));
+    setErrorMessage("");
+    setSuccessMessage("");
+    setIsModalOpen(true);
+  }
+
+  function closeModal() {
+    if (isSaving) {
+      return;
+    }
+
+    setIsModalOpen(false);
+    setEditingDriver(null);
+    setFormState(emptyDriverForm);
+  }
+
+  function updateFormState(field: keyof DriverFormState, value: string) {
+    setFormState((currentFormState) => ({
+      ...currentFormState,
+      [field]: value,
+    }));
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSaving(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    const payload = toDriverPayload(formState);
+
+    if (!payload.license_number) {
+      setErrorMessage("License Number is required.");
+      setIsSaving(false);
+      return;
+    }
+
+    if (!editingDriver && !formState.selectedProfileId) {
+      setErrorMessage("Select an existing driver profile.");
+      setIsSaving(false);
+      return;
+    }
+
+    const { error } = editingDriver
+      ? await supabase.from("drivers").update(payload).eq("id", editingDriver.id)
+      : await supabase.from("drivers").insert({
+          ...payload,
+          user_id: formState.selectedProfileId,
+        });
+
+    if (error) {
+      setErrorMessage(error.message);
+      setIsSaving(false);
+      return;
+    }
+
+    await loadDriverData();
+    setSuccessMessage(
+      editingDriver
+        ? "Driver updated successfully."
+        : "Driver record created successfully.",
+    );
+    setIsSaving(false);
+    setIsModalOpen(false);
+    setEditingDriver(null);
+    setFormState(emptyDriverForm);
+  }
+
+  async function deactivateDriver(driver: DriverRecord) {
+    setIsSaving(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({ is_active: false })
+      .eq("id", driver.userId);
+
+    if (error) {
+      setErrorMessage(error.message);
+      setIsSaving(false);
+      return;
+    }
+
+    await loadDriverData();
+    setSuccessMessage("Driver profile marked inactive.");
+    setIsSaving(false);
+  }
+
+  const emptyStateMessage =
+    driverProfiles.length === 0
+      ? "Create a driver user in Supabase Auth and profiles first."
+      : "Driver profiles exist, but no driver records have been created yet.";
+
   return (
     <section className="space-y-5 text-white">
       <div className="flex flex-col gap-4 rounded-3xl bg-[#222222] p-5 md:flex-row md:items-center md:justify-between">
@@ -203,12 +606,13 @@ export default function AdminDriversPage() {
             Drivers
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
-            Monitor driver profiles, license readiness, availability, assigned
-            vehicles, and active status across the delivery network.
+            Monitor driver profiles, license readiness, availability,
+            performance, and active status across the delivery network.
           </p>
         </div>
         <button
           className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-200"
+          onClick={openCreateModal}
           type="button"
         >
           Add Driver
@@ -217,7 +621,7 @@ export default function AdminDriversPage() {
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <DriverKpiCard
-          accent="bg-white text-black"
+          accent
           detail="Profiles marked active"
           label="Active Drivers"
           value={String(driverStats.activeDrivers)}
@@ -256,9 +660,11 @@ export default function AdminDriversPage() {
               defaultValue=""
             >
               <option value="">Availability</option>
-              <option value="available">Available</option>
-              <option value="on_delivery">On Delivery</option>
-              <option value="unavailable">Unavailable</option>
+              {availabilityOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </label>
           <label className="block">
@@ -275,6 +681,12 @@ export default function AdminDriversPage() {
         </div>
       </div>
 
+      {successMessage ? (
+        <p className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+          {successMessage}
+        </p>
+      ) : null}
+
       {errorMessage ? (
         <p className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
           {errorMessage}
@@ -286,7 +698,7 @@ export default function AdminDriversPage() {
           <div>
             <h2 className="text-xl font-medium">Driver Records</h2>
             <p className="mt-1 text-sm text-zinc-500">
-              Read-only records currently allowed by Supabase RLS.
+              Driver records joined to profiles through drivers.user_id.
             </p>
           </div>
         </div>
@@ -301,9 +713,8 @@ export default function AdminDriversPage() {
               DE
             </div>
             <h3 className="mt-4 text-lg font-semibold">No drivers found.</h3>
-            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-zinc-400">
-              Driver account creation will be handled through the user
-              management flow.
+            <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-zinc-400">
+              {emptyStateMessage}
             </p>
           </div>
         ) : (
@@ -312,12 +723,13 @@ export default function AdminDriversPage() {
               <thead className="text-left text-xs text-zinc-500">
                 <tr>
                   <th className="px-5 py-4 font-medium">Driver</th>
-                  <th className="px-5 py-4 font-medium">Contact</th>
-                  <th className="px-5 py-4 font-medium">License</th>
+                  <th className="px-5 py-4 font-medium">Email</th>
+                  <th className="px-5 py-4 font-medium">Phone</th>
+                  <th className="px-5 py-4 font-medium">License Number</th>
+                  <th className="px-5 py-4 font-medium">License Expiry</th>
                   <th className="px-5 py-4 font-medium">Availability</th>
-                  <th className="px-5 py-4 font-medium">Assigned Vehicle</th>
                   <th className="px-5 py-4 font-medium">Performance Score</th>
-                  <th className="px-5 py-4 font-medium">Status</th>
+                  <th className="px-5 py-4 font-medium">Active Status</th>
                   <th className="px-5 py-4 text-right font-medium">Actions</th>
                 </tr>
               </thead>
@@ -331,9 +743,7 @@ export default function AdminDriversPage() {
                         </div>
                         <div>
                           <p className="font-semibold text-white">
-                            {driver.firstName || driver.lastName
-                              ? `${driver.firstName} ${driver.lastName}`.trim()
-                              : "Unnamed driver"}
+                            {getDriverName(driver)}
                           </p>
                           <p className="text-xs text-zinc-500">
                             {driver.role || "No role"}
@@ -341,23 +751,16 @@ export default function AdminDriversPage() {
                         </div>
                       </div>
                     </td>
+                    <td className="px-5 py-4">{driver.email || "No email"}</td>
+                    <td className="px-5 py-4">{driver.phone || "No phone"}</td>
                     <td className="px-5 py-4">
-                      <div>{driver.email || "No email"}</div>
-                      <div className="text-xs text-zinc-500">
-                        {driver.phone || "No phone"}
-                      </div>
+                      {driver.licenseNumber || "No license"}
                     </td>
                     <td className="px-5 py-4">
-                      <div>{driver.licenseNumber || "No license"}</div>
-                      <div className="text-xs text-zinc-500">
-                        Expires {driver.licenseExpiry || "not set"}
-                      </div>
+                      {driver.licenseExpiry || "Not set"}
                     </td>
                     <td className="px-5 py-4">
                       <AvailabilityBadge availability={driver.availability} />
-                    </td>
-                    <td className="px-5 py-4">
-                      {driver.assignedVehicleId || "Unassigned"}
                     </td>
                     <td className="px-5 py-4">
                       <PerformanceMeter score={driver.performanceScore} />
@@ -366,13 +769,23 @@ export default function AdminDriversPage() {
                       <ProfileStatusBadge isActive={driver.isActive} />
                     </td>
                     <td className="px-5 py-4 text-right">
-                      <button
-                        className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold text-zinc-400"
-                        disabled
-                        type="button"
-                      >
-                        Planned
-                      </button>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-white/10"
+                          onClick={() => openEditModal(driver)}
+                          type="button"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="rounded-full border border-red-400/20 px-3 py-1.5 text-xs font-semibold text-red-200 transition hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={isSaving || !driver.isActive}
+                          onClick={() => void deactivateDriver(driver)}
+                          type="button"
+                        >
+                          Deactivate
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -381,6 +794,18 @@ export default function AdminDriversPage() {
           </div>
         )}
       </div>
+
+      {isModalOpen ? (
+        <DriverModal
+          availableProfiles={availableProfiles}
+          formState={formState}
+          isSaving={isSaving}
+          mode={editingDriver ? "edit" : "create"}
+          onChange={updateFormState}
+          onClose={closeModal}
+          onSubmit={handleSubmit}
+        />
+      ) : null}
     </section>
   );
 }
