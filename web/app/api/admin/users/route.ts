@@ -91,13 +91,53 @@ function getBearerToken(request: Request) {
 
 export async function POST(request: Request) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!supabaseUrl || !serviceRoleKey) {
+  if (!supabaseUrl || !publishableKey || !serviceRoleKey) {
     return jsonResponse(
       { error: "Server Supabase configuration is missing." },
       500,
     );
+  }
+
+  const accessToken = getBearerToken(request);
+
+  if (!accessToken) {
+    return jsonResponse({ error: "Authentication is required." }, 401);
+  }
+
+  const requesterSupabase = createClient(supabaseUrl, publishableKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  });
+
+  const { data: requesterData, error: requesterError } =
+    await requesterSupabase.auth.getUser(accessToken);
+
+  if (requesterError || !requesterData.user) {
+    return jsonResponse({ error: "Authentication is required." }, 401);
+  }
+
+  const { data: adminProfile, error: profileError } = await requesterSupabase
+    .from("profiles")
+    .select("role, is_active")
+    .eq("id", requesterData.user.id)
+    .maybeSingle<AdminProfile>();
+
+  if (profileError) {
+    return jsonResponse({ error: "Unable to verify admin access." }, 403);
+  }
+
+  if (adminProfile?.role !== "admin" || adminProfile.is_active !== true) {
+    return jsonResponse({ error: "Only active admins may create users." }, 403);
   }
 
   let requestBody: unknown;
@@ -125,42 +165,13 @@ export async function POST(request: Request) {
     );
   }
 
-  const accessToken = getBearerToken(request);
-
-  if (!accessToken) {
-    return jsonResponse({ error: "Authentication is required." }, 401);
-  }
-
+  // Server-only privileged client. Never import or expose this key in browser code.
   const adminSupabase = createClient(supabaseUrl, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
     },
   });
-
-  const { data: requesterData, error: requesterError } =
-    await adminSupabase.auth.getUser(accessToken);
-
-  if (requesterError || !requesterData.user) {
-    return jsonResponse({ error: "Authentication is required." }, 401);
-  }
-
-  const { data: adminProfile, error: profileError } = await adminSupabase
-    .from("profiles")
-    .select("role, is_active")
-    .eq("id", requesterData.user.id)
-    .maybeSingle<AdminProfile>();
-
-  if (profileError) {
-    return jsonResponse({ error: profileError.message }, 500);
-  }
-
-  if (
-    adminProfile?.role !== "admin" ||
-    adminProfile.is_active !== true
-  ) {
-    return jsonResponse({ error: "Only active admins may create users." }, 403);
-  }
 
   const { data: authUserData, error: authUserError } =
     await adminSupabase.auth.admin.createUser({

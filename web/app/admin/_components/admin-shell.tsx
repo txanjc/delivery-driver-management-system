@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import type { ReactNode } from "react";
+
+import { supabase } from "@/lib/supabase";
 
 type IconName =
   | "brand"
@@ -42,7 +44,6 @@ const profileItems = [
   { label: "My Profile", href: "/admin/settings" },
   { label: "Account Settings", href: "/admin/settings" },
   { label: "Preferences", href: "/admin/settings" },
-  { label: "Logout", href: "/login" },
 ];
 
 function Icon({ name }: { name: IconName }) {
@@ -163,7 +164,28 @@ function Icon({ name }: { name: IconName }) {
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
+
+  async function handleLogout() {
+    setIsLoggingOut(true);
+    setLogoutError("");
+
+    const { error } = await supabase.auth.signOut({ scope: "global" });
+
+    if (error) {
+      console.error("Unable to sign out:", error.message);
+      setLogoutError(`Unable to sign out: ${error.message}`);
+      setIsLoggingOut(false);
+      return;
+    }
+
+    setIsProfileOpen(false);
+    router.replace("/login");
+    router.refresh();
+  }
 
   return (
     <div className="min-h-screen bg-[#111111] text-white">
@@ -271,6 +293,19 @@ export function AdminShell({ children }: { children: ReactNode }) {
                           {item.label}
                         </Link>
                       ))}
+                      <button
+                        className="block w-full rounded-xl px-3 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={isLoggingOut}
+                        onClick={() => void handleLogout()}
+                        type="button"
+                      >
+                        {isLoggingOut ? "Logging out..." : "Logout"}
+                      </button>
+                      {logoutError ? (
+                        <p className="mt-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-200">
+                          {logoutError}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                 ) : null}
