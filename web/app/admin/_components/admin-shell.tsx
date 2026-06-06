@@ -173,7 +173,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
     setIsLoggingOut(true);
     setLogoutError("");
 
-    const { error } = await supabase.auth.signOut({ scope: "global" });
+    const { error } = await supabase.auth.signOut({ scope: "local" });
 
     if (error) {
       console.error("Unable to sign out:", error.message);
@@ -185,6 +185,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
     setIsProfileOpen(false);
     router.replace("/login");
     router.refresh();
+    window.location.replace("/login");
   }
 
   return (

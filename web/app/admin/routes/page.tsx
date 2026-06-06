@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import { supabase } from "@/lib/supabase";
 
 type DeliveryRelation = {
   id: string;
   delivery_number: string | null;
+  status: string | null;
 };
 
 type RouteRow = {
@@ -15,24 +16,56 @@ type RouteRow = {
   origin: string | null;
   destination: string | null;
   estimated_distance: number | string | null;
-  estimated_time: number | string | null;
+  estimated_time_minutes: number | string | null;
   sequence_order: number | null;
   google_maps_url: string | null;
-  status: string | null;
   created_at: string | null;
   deliveries: DeliveryRelation | DeliveryRelation[] | null;
 };
 
 type RouteRecord = {
   id: string;
+  deliveryId: string;
   deliveryNumber: string;
+  origin: string;
+  destination: string;
+  estimatedDistance: string;
+  estimatedDistanceLabel: string;
+  estimatedTime: string;
+  estimatedTimeLabel: string;
+  sequenceOrder: string;
+  googleMapsUrl: string;
+  deliveryStatus: string;
+};
+
+type RouteFormState = {
+  deliveryId: string;
   origin: string;
   destination: string;
   estimatedDistance: string;
   estimatedTime: string;
   sequenceOrder: string;
-  googleMapsUrl: string | null;
-  status: string;
+  googleMapsUrl: string;
+};
+
+type RoutePayload = {
+  delivery_id: string | null;
+  origin: string;
+  destination: string;
+  estimated_distance: number | null;
+  estimated_time_minutes: number | null;
+  sequence_order: number | null;
+  google_maps_url: string | null;
+};
+
+const emptyRouteForm: RouteFormState = {
+  deliveryId: "",
+  origin: "",
+  destination: "",
+  estimatedDistance: "",
+  estimatedTime: "",
+  sequenceOrder: "",
+  googleMapsUrl: "",
 };
 
 function normalizeRelation<T>(relation: T | T[] | null): T | null {
@@ -41,18 +74,6 @@ function normalizeRelation<T>(relation: T | T[] | null): T | null {
   }
 
   return relation;
-}
-
-function formatRouteStatus(status: string | null): string {
-  if (!status) {
-    return "Planned";
-  }
-
-  return status
-    .trim()
-    .toLowerCase()
-    .replace(/[_-]+/g, " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function formatDistance(value: number | string | null): string {
@@ -83,21 +104,80 @@ function formatTravelTime(value: number | string | null): string {
   return String(value);
 }
 
+function toFormNumber(value: number | string | null): string {
+  if (value === null || value === "") {
+    return "";
+  }
+
+  return String(value);
+}
+
+function toNullableNumber(value: string): number | null {
+  const trimmedValue = value.trim();
+
+  if (!trimmedValue) {
+    return null;
+  }
+
+  const numericValue = Number(trimmedValue);
+
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function toNullableInteger(value: string): number | null {
+  const numericValue = toNullableNumber(value);
+
+  return numericValue === null ? null : Math.trunc(numericValue);
+}
+
 function toRouteRecord(route: RouteRow): RouteRecord {
   const delivery = normalizeRelation(route.deliveries);
+  const estimatedDistance = toFormNumber(route.estimated_distance);
+  const estimatedTime = toFormNumber(route.estimated_time_minutes);
 
   return {
     id: route.id,
+    deliveryId: route.delivery_id ?? "",
     deliveryNumber: delivery?.delivery_number ?? "Unassigned",
-    origin: route.origin ?? "Not provided",
-    destination: route.destination ?? "Not provided",
-    estimatedDistance: formatDistance(route.estimated_distance),
-    estimatedTime: formatTravelTime(route.estimated_time),
+    origin: route.origin ?? "",
+    destination: route.destination ?? "",
+    estimatedDistance,
+    estimatedDistanceLabel: formatDistance(route.estimated_distance),
+    estimatedTime,
+    estimatedTimeLabel: formatTravelTime(route.estimated_time_minutes),
     sequenceOrder:
-      route.sequence_order === null ? "Not set" : String(route.sequence_order),
-    googleMapsUrl: route.google_maps_url,
-    status: formatRouteStatus(route.status),
+      route.sequence_order === null ? "" : String(route.sequence_order),
+    googleMapsUrl: route.google_maps_url ?? "",
+    deliveryStatus: delivery?.status ?? "",
   };
+}
+
+function toRouteForm(route: RouteRecord): RouteFormState {
+  return {
+    deliveryId: route.deliveryId,
+    origin: route.origin,
+    destination: route.destination,
+    estimatedDistance: route.estimatedDistance,
+    estimatedTime: route.estimatedTime,
+    sequenceOrder: route.sequenceOrder,
+    googleMapsUrl: route.googleMapsUrl,
+  };
+}
+
+function toRoutePayload(formState: RouteFormState): RoutePayload {
+  return {
+    delivery_id: formState.deliveryId || null,
+    origin: formState.origin.trim(),
+    destination: formState.destination.trim(),
+    estimated_distance: toNullableNumber(formState.estimatedDistance),
+    estimated_time_minutes: toNullableInteger(formState.estimatedTime),
+    sequence_order: toNullableInteger(formState.sequenceOrder),
+    google_maps_url: formState.googleMapsUrl.trim() || null,
+  };
+}
+
+function getDeliveryOptionLabel(delivery: DeliveryRelation): string {
+  return delivery.delivery_number ?? "Unnumbered delivery";
 }
 
 function RouteKpiCard({
@@ -124,89 +204,262 @@ function RouteKpiCard({
   );
 }
 
-function RouteStatusBadge({ status }: { status: string }) {
-  const normalizedStatus = status.toLowerCase();
-  const tone =
-    normalizedStatus === "active"
-      ? "bg-blue-500/15 text-blue-300"
-      : normalizedStatus === "optimized"
-        ? "bg-emerald-500/15 text-emerald-300"
-        : normalizedStatus === "delayed"
-          ? "bg-orange-500/15 text-orange-300"
-          : "bg-zinc-500/15 text-zinc-300";
+function RouteModal({
+  deliveryOptions,
+  formState,
+  isSaving,
+  mode,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  deliveryOptions: DeliveryRelation[];
+  formState: RouteFormState;
+  isSaving: boolean;
+  mode: "create" | "edit";
+  onChange: (field: keyof RouteFormState, value: string) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const isCreateMode = mode === "create";
 
   return (
-    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}>
-      {status}
-    </span>
+    <div
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      role="dialog"
+    >
+      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl border border-white/10 bg-[#222222] p-5 text-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-4">
+          <div>
+            <h2 className="text-xl font-semibold">
+              {isCreateMode ? "Add Route" : "Edit Route"}
+            </h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              Maintain route details used for dispatch planning and driver
+              navigation.
+            </p>
+          </div>
+          <button
+            className="rounded-full border border-white/10 px-3 py-1.5 text-sm text-zinc-300 transition hover:bg-white/10"
+            onClick={onClose}
+            type="button"
+          >
+            Close
+          </button>
+        </div>
+
+        <form className="mt-5 space-y-5" onSubmit={onSubmit}>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block md:col-span-2">
+              <span className="text-sm font-medium text-zinc-300">
+                Delivery
+              </span>
+              <select
+                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
+                onChange={(event) => onChange("deliveryId", event.target.value)}
+                required
+                value={formState.deliveryId}
+              >
+                <option value="">Select delivery</option>
+                {deliveryOptions.map((delivery) => (
+                  <option key={delivery.id} value={delivery.id}>
+                    {getDeliveryOptionLabel(delivery)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-zinc-300">Origin</span>
+              <input
+                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                onChange={(event) => onChange("origin", event.target.value)}
+                required
+                value={formState.origin}
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-zinc-300">
+                Destination
+              </span>
+              <input
+                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                onChange={(event) =>
+                  onChange("destination", event.target.value)
+                }
+                required
+                value={formState.destination}
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-zinc-300">
+                Estimated Distance
+              </span>
+              <input
+                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                min="0"
+                onChange={(event) =>
+                  onChange("estimatedDistance", event.target.value)
+                }
+                step="0.1"
+                type="number"
+                value={formState.estimatedDistance}
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-zinc-300">
+                Estimated Time in Minutes
+              </span>
+              <input
+                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                min="0"
+                onChange={(event) =>
+                  onChange("estimatedTime", event.target.value)
+                }
+                type="number"
+                value={formState.estimatedTime}
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-zinc-300">
+                Sequence Order
+              </span>
+              <input
+                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                min="0"
+                onChange={(event) =>
+                  onChange("sequenceOrder", event.target.value)
+                }
+                type="number"
+                value={formState.sequenceOrder}
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-zinc-300">
+                Google Maps URL
+              </span>
+              <input
+                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                onChange={(event) =>
+                  onChange("googleMapsUrl", event.target.value)
+                }
+                type="url"
+                value={formState.googleMapsUrl}
+              />
+            </label>
+          </div>
+
+          {deliveryOptions.length === 0 ? (
+            <p className="rounded-2xl border border-orange-500/20 bg-orange-500/10 px-4 py-3 text-sm text-orange-100">
+              Create a delivery before adding a route.
+            </p>
+          ) : null}
+
+          <div className="flex flex-col-reverse gap-3 border-t border-white/10 pt-5 sm:flex-row sm:justify-end">
+            <button
+              className="rounded-full border border-white/10 px-5 py-2.5 text-sm font-semibold text-zinc-300 transition hover:bg-white/10"
+              disabled={isSaving}
+              onClick={onClose}
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isSaving || deliveryOptions.length === 0}
+              type="submit"
+            >
+              {isSaving
+                ? "Saving..."
+                : isCreateMode
+                  ? "Create Route"
+                  : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
-}
-
-function getNumericValue(value: string): number | null {
-  const numericValue = Number(value.replace(/[^\d.]/g, ""));
-
-  if (!Number.isFinite(numericValue)) {
-    return null;
-  }
-
-  return numericValue;
 }
 
 export default function AdminRoutesPage() {
   const [routes, setRoutes] = useState<RouteRecord[]>([]);
+  const [deliveryOptions, setDeliveryOptions] = useState<DeliveryRelation[]>(
+    [],
+  );
   const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingRoute, setEditingRoute] = useState<RouteRecord | null>(null);
+  const [formState, setFormState] = useState<RouteFormState>(emptyRouteForm);
 
-  const loadRoutes = useCallback(async () => {
+  const loadRouteData = useCallback(async () => {
     setIsLoading(true);
     setErrorMessage("");
 
-    const { data, error } = await supabase
-      .from("routes")
-      .select(
-        `
+    const [routesResponse, deliveriesResponse] = await Promise.all([
+      supabase
+        .from("routes")
+        .select(
+          `
         id,
         delivery_id,
         origin,
         destination,
         estimated_distance,
-        estimated_time,
+        estimated_time_minutes,
         sequence_order,
         google_maps_url,
-        status,
         created_at,
         deliveries:delivery_id (
           id,
-          delivery_number
+          delivery_number,
+          status
         )
       `,
-      )
-      .order("created_at", { ascending: false })
-      .returns<RouteRow[]>();
+        )
+        .order("created_at", { ascending: false })
+        .returns<RouteRow[]>(),
+      supabase
+        .from("deliveries")
+        .select("id, delivery_number, status")
+        .order("delivery_number", { ascending: true })
+        .returns<DeliveryRelation[]>(),
+    ]);
 
-    if (error) {
-      setErrorMessage(error.message);
+    if (routesResponse.error) {
+      setErrorMessage(routesResponse.error.message);
       setRoutes([]);
       setIsLoading(false);
       return;
     }
 
-    setRoutes((data ?? []).map(toRouteRecord));
+    if (deliveriesResponse.error) {
+      setErrorMessage(deliveriesResponse.error.message);
+      setDeliveryOptions([]);
+      setIsLoading(false);
+      return;
+    }
+
+    setRoutes((routesResponse.data ?? []).map(toRouteRecord));
+    setDeliveryOptions(deliveriesResponse.data ?? []);
     setIsLoading(false);
   }, []);
 
   useEffect(() => {
     queueMicrotask(() => {
-      void loadRoutes();
+      void loadRouteData();
     });
-  }, [loadRoutes]);
+  }, [loadRouteData]);
 
   const routeStats = useMemo(() => {
     const travelTimes = routes
-      .map((route) => getNumericValue(route.estimatedTime))
+      .map((route) => toNullableNumber(route.estimatedTime))
       .filter((time): time is number => time !== null);
     const distances = routes
-      .map((route) => getNumericValue(route.estimatedDistance))
+      .map((route) => toNullableNumber(route.estimatedDistance))
       .filter((distance): distance is number => distance !== null);
     const totalDistance = distances.reduce(
       (sum, distance) => sum + distance,
@@ -219,9 +472,13 @@ export default function AdminRoutesPage() {
           travelTimes.length;
 
     return {
-      active: routes.filter((route) => route.status === "Active").length,
-      optimized: routes.filter((route) => route.status === "Optimized").length,
+      active: routes.filter((route) =>
+        ["assigned", "in_transit"].includes(
+          route.deliveryStatus.trim().toLowerCase(),
+        ),
+      ).length,
       averageTime: averageTime === 0 ? "0 min" : `${Math.round(averageTime)} min`,
+      total: routes.length,
       totalDistance:
         totalDistance === 0 ? "0 mi" : `${Math.round(totalDistance)} mi`,
     };
@@ -239,22 +496,95 @@ export default function AdminRoutesPage() {
     [routes],
   );
 
-  const routeStatuses = useMemo(
-    () => Array.from(new Set(routes.map((route) => route.status))),
-    [routes],
-  );
-
   const sequenceOrders = useMemo(
     () =>
       Array.from(
         new Set(
           routes
             .map((route) => route.sequenceOrder)
-            .filter((sequenceOrder) => sequenceOrder !== "Not set"),
+            .filter((sequenceOrder) => sequenceOrder !== ""),
         ),
       ),
     [routes],
   );
+
+  function openCreateModal() {
+    setEditingRoute(null);
+    setFormState({
+      ...emptyRouteForm,
+      deliveryId: deliveryOptions[0]?.id ?? "",
+    });
+    setErrorMessage("");
+    setSuccessMessage("");
+    setIsModalOpen(true);
+  }
+
+  function openEditModal(route: RouteRecord) {
+    setEditingRoute(route);
+    setFormState(toRouteForm(route));
+    setErrorMessage("");
+    setSuccessMessage("");
+    setIsModalOpen(true);
+  }
+
+  function closeModal() {
+    if (isSaving) {
+      return;
+    }
+
+    setIsModalOpen(false);
+    setEditingRoute(null);
+    setFormState(emptyRouteForm);
+  }
+
+  function updateFormState(field: keyof RouteFormState, value: string) {
+    setFormState((currentFormState) => ({
+      ...currentFormState,
+      [field]: value,
+    }));
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSaving(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    const payload = toRoutePayload(formState);
+
+    if (!payload.delivery_id) {
+      setErrorMessage("Delivery is required.");
+      setIsSaving(false);
+      return;
+    }
+
+    if (!payload.origin || !payload.destination) {
+      setErrorMessage("Origin and Destination are required.");
+      setIsSaving(false);
+      return;
+    }
+
+    const { error } = editingRoute
+      ? await supabase.from("routes").update(payload).eq("id", editingRoute.id)
+      : await supabase.from("routes").insert(payload);
+
+    if (error) {
+      setErrorMessage(error.message);
+      setIsSaving(false);
+      return;
+    }
+
+    await loadRouteData();
+    setSuccessMessage(
+      editingRoute
+        ? "Route updated successfully."
+        : "Route created successfully.",
+    );
+    setIsSaving(false);
+    setIsModalOpen(false);
+    setEditingRoute(null);
+    setFormState(emptyRouteForm);
+  }
 
   return (
     <section className="space-y-5 text-white">
@@ -267,33 +597,34 @@ export default function AdminRoutesPage() {
             Routes
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
-            Review planned routes, delivery sequence, travel estimates, and map
-            links for active logistics operations.
+            Manage route origins, destinations, delivery sequence, travel
+            estimates, and map links for logistics operations.
           </p>
         </div>
         <button
           className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-200"
+          onClick={openCreateModal}
           type="button"
         >
-          Plan Route
+          Add Route
         </button>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <RouteKpiCard
           accent
-          detail="Routes currently in motion"
+          detail="All route records"
+          label="Total Routes"
+          value={String(routeStats.total)}
+        />
+        <RouteKpiCard
+          detail="Linked to assigned or in transit deliveries"
           label="Active Routes"
           value={String(routeStats.active)}
         />
         <RouteKpiCard
-          detail="Ready for efficient dispatch"
-          label="Optimized Routes"
-          value={String(routeStats.optimized)}
-        />
-        <RouteKpiCard
           detail="Across estimated route plans"
-          label="Avg. Travel Time"
+          label="Average Travel Time"
           value={routeStats.averageTime}
         />
         <RouteKpiCard
@@ -301,55 +632,6 @@ export default function AdminRoutesPage() {
           label="Total Distance"
           value={routeStats.totalDistance}
         />
-      </div>
-
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
-        <div className="overflow-hidden rounded-3xl bg-[#222222]">
-          <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-            <div>
-              <h2 className="text-xl font-medium">Route Map Preview</h2>
-              <p className="mt-1 text-sm text-zinc-500">
-                Live Google Maps integration will connect here later.
-              </p>
-            </div>
-          </div>
-          <div className="relative min-h-80 overflow-hidden bg-[#141414]">
-            <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:36px_36px]" />
-            <div className="absolute left-[12%] top-[58%] h-2 w-[72%] rotate-[-8deg] rounded-full bg-lime-300/70 shadow-[0_0_28px_rgba(190,242,100,0.45)]" />
-            <div className="absolute left-[18%] top-[55%] h-5 w-5 rounded-full border-4 border-[#141414] bg-lime-300" />
-            <div className="absolute left-[45%] top-[45%] h-5 w-5 rounded-full border-4 border-[#141414] bg-blue-400" />
-            <div className="absolute right-[16%] top-[38%] h-5 w-5 rounded-full border-4 border-[#141414] bg-orange-400" />
-            <div className="absolute bottom-5 left-5 rounded-full bg-white px-4 py-2 text-sm font-semibold text-black">
-              Route visualization placeholder
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-3xl bg-[#222222] p-5">
-          <h2 className="text-xl font-medium">Plan Route</h2>
-          <p className="mt-1 text-sm leading-6 text-zinc-500">
-            Route planning inputs are reserved for a later workflow. Database
-            inserts are intentionally not enabled yet.
-          </p>
-          <div className="mt-5 space-y-3">
-            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-400">
-              Select delivery
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-400">
-              Set origin and destination
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-400">
-              Estimate distance and travel time
-            </div>
-          </div>
-          <button
-            className="mt-5 w-full rounded-full border border-white/10 px-4 py-2.5 text-sm font-semibold text-zinc-400"
-            disabled
-            type="button"
-          >
-            Planning Coming Soon
-          </button>
-        </div>
       </div>
 
       <div className="rounded-3xl bg-[#222222] p-5">
@@ -375,18 +657,6 @@ export default function AdminRoutesPage() {
             </select>
           </label>
           <label className="block">
-            <span className="sr-only">Route status</span>
-            <select
-              className="h-11 w-full rounded-full border border-white/10 bg-black/30 px-4 text-sm text-zinc-300 outline-none transition focus:border-white/20"
-              defaultValue=""
-            >
-              <option value="">Route Status</option>
-              {routeStatuses.map((status) => (
-                <option key={status}>{status}</option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
             <span className="sr-only">Sequence order</span>
             <select
               className="h-11 w-full rounded-full border border-white/10 bg-black/30 px-4 text-sm text-zinc-300 outline-none transition focus:border-white/20"
@@ -401,6 +671,12 @@ export default function AdminRoutesPage() {
         </div>
       </div>
 
+      {successMessage ? (
+        <p className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+          {successMessage}
+        </p>
+      ) : null}
+
       {errorMessage ? (
         <p className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
           {errorMessage}
@@ -412,7 +688,7 @@ export default function AdminRoutesPage() {
           <div>
             <h2 className="text-xl font-medium">Route Records</h2>
             <p className="mt-1 text-sm text-zinc-500">
-              Route data loaded from Supabase with delivery number context.
+              Route records joined to deliveries through routes.delivery_id.
             </p>
           </div>
         </div>
@@ -428,8 +704,8 @@ export default function AdminRoutesPage() {
             </div>
             <h3 className="mt-4 text-lg font-semibold">No routes found.</h3>
             <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-zinc-400">
-              Route records will appear here once route plans are added to the
-              routes table.
+              Add your first route to connect a delivery with origin,
+              destination, travel estimates, and map details.
             </p>
           </div>
         ) : (
@@ -446,7 +722,6 @@ export default function AdminRoutesPage() {
                   <th className="px-5 py-4 font-medium">Estimated Time</th>
                   <th className="px-5 py-4 font-medium">Sequence Order</th>
                   <th className="px-5 py-4 font-medium">Google Maps Link</th>
-                  <th className="px-5 py-4 font-medium">Status</th>
                   <th className="px-5 py-4 text-right font-medium">Actions</th>
                 </tr>
               </thead>
@@ -456,13 +731,19 @@ export default function AdminRoutesPage() {
                     <td className="px-5 py-4 font-medium text-white">
                       {route.deliveryNumber}
                     </td>
-                    <td className="max-w-64 px-5 py-4">{route.origin}</td>
                     <td className="max-w-64 px-5 py-4">
-                      {route.destination}
+                      {route.origin || "Not provided"}
                     </td>
-                    <td className="px-5 py-4">{route.estimatedDistance}</td>
-                    <td className="px-5 py-4">{route.estimatedTime}</td>
-                    <td className="px-5 py-4">{route.sequenceOrder}</td>
+                    <td className="max-w-64 px-5 py-4">
+                      {route.destination || "Not provided"}
+                    </td>
+                    <td className="px-5 py-4">
+                      {route.estimatedDistanceLabel}
+                    </td>
+                    <td className="px-5 py-4">{route.estimatedTimeLabel}</td>
+                    <td className="px-5 py-4">
+                      {route.sequenceOrder || "Not set"}
+                    </td>
                     <td className="px-5 py-4">
                       {route.googleMapsUrl ? (
                         <a
@@ -477,16 +758,13 @@ export default function AdminRoutesPage() {
                         "Not provided"
                       )}
                     </td>
-                    <td className="px-5 py-4">
-                      <RouteStatusBadge status={route.status} />
-                    </td>
                     <td className="px-5 py-4 text-right">
                       <button
-                        className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold text-zinc-400"
-                        disabled
+                        className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-white/10"
+                        onClick={() => openEditModal(route)}
                         type="button"
                       >
-                        Planned
+                        Edit
                       </button>
                     </td>
                   </tr>
@@ -496,6 +774,18 @@ export default function AdminRoutesPage() {
           </div>
         )}
       </div>
+
+      {isModalOpen ? (
+        <RouteModal
+          deliveryOptions={deliveryOptions}
+          formState={formState}
+          isSaving={isSaving}
+          mode={editingRoute ? "edit" : "create"}
+          onChange={updateFormState}
+          onClose={closeModal}
+          onSubmit={handleSubmit}
+        />
+      ) : null}
     </section>
   );
 }

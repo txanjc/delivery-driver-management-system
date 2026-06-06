@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -11,9 +11,34 @@ type AdminProfile = {
   is_active: boolean | null;
 };
 
+type SupabaseSingleResponse<T> = {
+  data: T | null;
+  error: { message: string } | null;
+};
+
+const adminVerificationTimeoutMs = 5000;
+
+function redirectToLogin() {
+  window.location.replace("/login");
+}
+
+function redirectToUnauthorized() {
+  window.location.replace("/unauthorized");
+}
+
+function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number) {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      window.setTimeout(() => {
+        reject(new Error("Admin verification timed out."));
+      }, timeoutMs);
+    }),
+  ]);
+}
+
 export function AdminRouteGuard({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
   const [authorizedPathname, setAuthorizedPathname] = useState<string | null>(
     null,
   );
@@ -22,38 +47,66 @@ export function AdminRouteGuard({ children }: { children: ReactNode }) {
     let isMounted = true;
 
     async function verifyAdminAccess() {
-      const { data: userData, error: userError } = await supabase.auth.getUser();
+      try {
+        const { data: sessionData, error: sessionError } =
+          await supabase.auth.getSession();
 
-      if (!isMounted) {
-        return;
+        if (!isMounted) {
+          return;
+        }
+
+        if (sessionError || !sessionData.session) {
+          redirectToLogin();
+          return;
+        }
+
+        const { data: userData, error: userError } = await withTimeout(
+          supabase.auth.getUser(),
+          adminVerificationTimeoutMs,
+        );
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (userError || !userData.user) {
+          redirectToLogin();
+          return;
+        }
+
+        const profileResponse = await withTimeout<
+          SupabaseSingleResponse<AdminProfile>
+        >(
+          Promise.resolve(
+            supabase
+              .from("profiles")
+              .select("role, is_active")
+              .eq("id", userData.user.id)
+              .maybeSingle<AdminProfile>(),
+          ),
+          adminVerificationTimeoutMs,
+        );
+        const { data: profile, error: profileError } = profileResponse;
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (
+          profileError ||
+          !profile ||
+          profile.role !== "admin" ||
+          profile.is_active !== true
+        ) {
+          redirectToUnauthorized();
+          return;
+        }
+
+        setAuthorizedPathname(pathname);
+      } catch (error) {
+        console.error("Unable to verify admin access:", error);
+        redirectToLogin();
       }
-
-      if (userError || !userData.user) {
-        router.replace("/login");
-        return;
-      }
-
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("role, is_active")
-        .eq("id", userData.user.id)
-        .maybeSingle<AdminProfile>();
-
-      if (!isMounted) {
-        return;
-      }
-
-      if (
-        profileError ||
-        !profile ||
-        profile.role !== "admin" ||
-        profile.is_active !== true
-      ) {
-        router.replace("/unauthorized");
-        return;
-      }
-
-      setAuthorizedPathname(pathname);
     }
 
     void verifyAdminAccess();
@@ -63,7 +116,7 @@ export function AdminRouteGuard({ children }: { children: ReactNode }) {
     } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
         setAuthorizedPathname(null);
-        router.replace("/login");
+        redirectToLogin();
       }
     });
 
@@ -71,7 +124,7 @@ export function AdminRouteGuard({ children }: { children: ReactNode }) {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, [pathname, router]);
+  }, [pathname]);
 
   if (authorizedPathname !== pathname) {
     return (
