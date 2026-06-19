@@ -39,7 +39,7 @@ export default function LoginPage() {
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("role")
-      .eq("id", authData.user.id)
+      .eq("profile_id", authData.user.id)
       .maybeSingle<{ role: UserRole }>();
 
     if (profileError) {

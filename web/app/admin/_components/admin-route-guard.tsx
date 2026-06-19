@@ -81,7 +81,7 @@ export function AdminRouteGuard({ children }: { children: ReactNode }) {
             supabase
               .from("profiles")
               .select("role, is_active")
-              .eq("id", userData.user.id)
+              .eq("profile_id", userData.user.id)
               .maybeSingle<AdminProfile>(),
           ),
           adminVerificationTimeoutMs,

@@ -30,18 +30,18 @@ type DriverProfile = {
 };
 
 type DeliveryDriver = {
-  id: string;
+  driver_id: string;
   user_id: string | null;
   profiles: DriverProfile | DriverProfile[] | null;
 };
 
 type DeliveryVehicle = {
-  id: string;
-  plate_number: string | null;
+  vehicle_id: string;
+  license_plate: string | null;
 };
 
 type DeliveryRow = {
-  id: string;
+  delivery_id: string;
   delivery_number: string | null;
   customer_name: string | null;
   customer_phone: string | null;
@@ -58,7 +58,7 @@ type DeliveryRow = {
 };
 
 type DeliveryRecord = {
-  id: string;
+  deliveryId: string;
   deliveryNumber: string;
   customerName: string;
   customerPhone: string;
@@ -76,14 +76,14 @@ type DeliveryRecord = {
 };
 
 type DriverOption = {
-  id: string;
+  driver_id: string;
   user_id: string | null;
   profiles: DriverProfile | DriverProfile[] | null;
 };
 
 type VehicleOption = {
-  id: string;
-  plate_number: string | null;
+  vehicle_id: string;
+  license_plate: string | null;
   make: string | null;
   model: string | null;
 };
@@ -114,6 +114,10 @@ type DeliveryPayload = {
   notes: string | null;
 };
 
+type DeliveryInsertPayload = DeliveryPayload & {
+  created_by: string;
+};
+
 const deliveryStatusOptions: Array<{
   label: DeliveryStatus;
   value: DeliveryStatusValue;
@@ -127,7 +131,12 @@ const deliveryStatusOptions: Array<{
   { label: "Returned", value: "returned" },
 ];
 
-const priorityOptions = ["Low", "Normal", "Medium", "High", "Urgent"];
+const priorityOptions = [
+  { label: "Low", value: "low" },
+  { label: "Normal", value: "normal" },
+  { label: "High", value: "high" },
+  { label: "Urgent", value: "urgent" },
+];
 
 const emptyDeliveryForm: DeliveryFormState = {
   deliveryNumber: "",
@@ -138,7 +147,7 @@ const emptyDeliveryForm: DeliveryFormState = {
   assignedDriverId: "",
   assignedVehicleId: "",
   status: "pending",
-  priority: "Normal",
+  priority: "normal",
   notes: "",
 };
 
@@ -228,6 +237,20 @@ function formatPriority(priority: string | null): string {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+function toDeliveryPriorityValue(priority: string): string {
+  const normalizedPriority = priority.trim().toLowerCase();
+
+  if (
+    normalizedPriority === "low" ||
+    normalizedPriority === "high" ||
+    normalizedPriority === "urgent"
+  ) {
+    return normalizedPriority;
+  }
+
+  return "normal";
+}
+
 function formatCreatedDate(value: string | null): string {
   if (!value) {
     return "Not recorded";
@@ -249,7 +272,7 @@ function toDeliveryRecord(delivery: DeliveryRow): DeliveryRecord {
     .join(" ");
 
   return {
-    id: delivery.id,
+    deliveryId: delivery.delivery_id,
     deliveryNumber: delivery.delivery_number ?? "Unnumbered",
     customerName: delivery.customer_name ?? "",
     customerPhone: delivery.customer_phone ?? "",
@@ -259,7 +282,7 @@ function toDeliveryRecord(delivery: DeliveryRow): DeliveryRecord {
     assignedDriverId: delivery.assigned_driver_id ?? "",
     assignedVehicleId: delivery.assigned_vehicle_id ?? "",
     assignedDriver: driverName || profile?.email || "Unassigned",
-    assignedVehicle: vehicle?.plate_number ?? "Unassigned",
+    assignedVehicle: vehicle?.license_plate ?? "Unassigned",
     status: toDeliveryStatusValue(delivery.status),
     priority: formatPriority(delivery.priority),
     notes: delivery.notes ?? "",
@@ -295,9 +318,22 @@ function toDeliveryPayload(formState: DeliveryFormState): DeliveryPayload {
     assigned_driver_id: formState.assignedDriverId || null,
     assigned_vehicle_id: formState.assignedVehicleId || null,
     status: formState.status,
-    priority: formState.priority,
+    priority: toDeliveryPriorityValue(formState.priority),
     notes: formState.notes.trim() || null,
   };
+}
+
+async function getCurrentProfileId() {
+  const { data, error } = await supabase.auth.getUser();
+
+  if (error || !data.user) {
+    return {
+      errorMessage: "You must be signed in to save deliveries.",
+      profileId: "",
+    };
+  }
+
+  return { errorMessage: "", profileId: data.user.id };
 }
 
 function getDriverOptionName(driver: DriverOption): string {
@@ -310,7 +346,7 @@ function getDriverOptionName(driver: DriverOption): string {
 }
 
 function getVehicleOptionName(vehicle: VehicleOption): string {
-  const vehicleName = [vehicle.plate_number, vehicle.make, vehicle.model]
+  const vehicleName = [vehicle.license_plate, vehicle.make, vehicle.model]
     .filter(Boolean)
     .join(" - ");
 
@@ -461,7 +497,7 @@ function DeliveryModal({
               >
                 <option value="">Unassigned</option>
                 {driverOptions.map((driver) => (
-                  <option key={driver.id} value={driver.id}>
+                  <option key={driver.driver_id} value={driver.driver_id}>
                     {getDriverOptionName(driver)}
                   </option>
                 ))}
@@ -506,7 +542,7 @@ function DeliveryModal({
               >
                 <option value="">Unassigned</option>
                 {vehicleOptions.map((vehicle) => (
-                  <option key={vehicle.id} value={vehicle.id}>
+                  <option key={vehicle.vehicle_id} value={vehicle.vehicle_id}>
                     {getVehicleOptionName(vehicle)}
                   </option>
                 ))}
@@ -534,7 +570,9 @@ function DeliveryModal({
                 value={formState.priority}
               >
                 {priorityOptions.map((priority) => (
-                  <option key={priority}>{priority}</option>
+                  <option key={priority.value} value={priority.value}>
+                    {priority.label}
+                  </option>
                 ))}
               </select>
             </label>
@@ -599,7 +637,7 @@ export default function DeliveriesPage() {
           .from("deliveries")
           .select(
             `
-        id,
+        delivery_id,
         delivery_number,
         customer_name,
         customer_phone,
@@ -612,7 +650,7 @@ export default function DeliveriesPage() {
         notes,
         created_at,
         drivers:assigned_driver_id (
-          id,
+          driver_id,
           user_id,
           profiles:user_id (
             first_name,
@@ -621,8 +659,8 @@ export default function DeliveriesPage() {
           )
         ),
         vehicles:assigned_vehicle_id (
-          id,
-          plate_number
+          vehicle_id,
+          license_plate
         )
       `,
           )
@@ -631,14 +669,14 @@ export default function DeliveriesPage() {
         supabase
           .from("drivers")
           .select(
-            "id, user_id, profiles:user_id (first_name, last_name, email)",
+            "driver_id, user_id, profiles:user_id (first_name, last_name, email)",
           )
           .order("created_at", { ascending: false })
           .returns<DriverOption[]>(),
         supabase
           .from("vehicles")
-          .select("id, plate_number, make, model")
-          .order("plate_number", { ascending: true })
+          .select("vehicle_id, license_plate, make, model")
+          .order("license_plate", { ascending: true })
           .returns<VehicleOption[]>(),
       ]);
 
@@ -767,12 +805,33 @@ export default function DeliveriesPage() {
       return;
     }
 
-    const { error } = editingDelivery
+    let insertPayload: DeliveryInsertPayload | null = null;
+
+    if (!editingDelivery) {
+      const { errorMessage: profileErrorMessage, profileId } =
+        await getCurrentProfileId();
+
+      if (profileErrorMessage) {
+        setErrorMessage(profileErrorMessage);
+        setIsSaving(false);
+        return;
+      }
+
+      insertPayload = {
+        ...payload,
+        created_by: profileId,
+      };
+    }
+
+    const deliveryResponse = editingDelivery
       ? await supabase
           .from("deliveries")
           .update(payload)
-          .eq("id", editingDelivery.id)
-      : await supabase.from("deliveries").insert(payload);
+          .eq("delivery_id", editingDelivery.deliveryId)
+      : insertPayload
+        ? await supabase.from("deliveries").insert(insertPayload)
+        : { error: new Error("Delivery creator profile is required.") };
+    const { error } = deliveryResponse;
 
     if (error) {
       setErrorMessage(error.message);
@@ -839,7 +898,9 @@ export default function DeliveriesPage() {
           <select className="rounded-full border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-lime-300">
             <option>Priority</option>
             {priorityOptions.map((priority) => (
-              <option key={priority}>{priority}</option>
+              <option key={priority.value} value={priority.value}>
+                {priority.label}
+              </option>
             ))}
           </select>
           <select className="rounded-full border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-lime-300">
@@ -907,7 +968,7 @@ export default function DeliveriesPage() {
                 {deliveries.map((delivery) => (
                   <tr
                     className="text-neutral-200 transition hover:bg-white/[0.03]"
-                    key={delivery.id}
+                    key={delivery.deliveryId}
                   >
                     <td className="px-5 py-4 font-medium text-white">
                       {delivery.deliveryNumber}

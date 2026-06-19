@@ -5,26 +5,37 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 type DeliveryRelation = {
-  id: string;
+  delivery_id: string;
   delivery_number: string | null;
   status: string | null;
 };
 
 type RouteRow = {
-  id: string;
+  route_id: string;
   delivery_id: string | null;
-  origin: string | null;
-  destination: string | null;
-  estimated_distance: number | string | null;
-  estimated_time_minutes: number | string | null;
+  origin_name: string | null;
+  origin_address: string | null;
+  origin_latitude: number | string | null;
+  origin_longitude: number | string | null;
+  destination_name: string | null;
+  destination_address: string | null;
+  destination_latitude: number | string | null;
+  destination_longitude: number | string | null;
+  estimated_distance_km: number | string | null;
+  estimated_duration_minutes: number | string | null;
+  actual_distance_km: number | string | null;
+  actual_duration_minutes: number | string | null;
+  route_polyline: string | null;
+  maps_url: string | null;
+  route_provider: string | null;
+  route_generated_at: string | null;
   sequence_order: number | null;
-  google_maps_url: string | null;
   created_at: string | null;
   deliveries: DeliveryRelation | DeliveryRelation[] | null;
 };
 
 type RouteRecord = {
-  id: string;
+  routeId: string;
   deliveryId: string;
   deliveryNumber: string;
   origin: string;
@@ -50,12 +61,12 @@ type RouteFormState = {
 
 type RoutePayload = {
   delivery_id: string | null;
-  origin: string;
-  destination: string;
-  estimated_distance: number | null;
-  estimated_time_minutes: number | null;
+  origin_address: string;
+  destination_address: string;
+  estimated_distance_km: number | null;
+  estimated_duration_minutes: number | null;
   sequence_order: number | null;
-  google_maps_url: string | null;
+  maps_url: string | null;
 };
 
 const emptyRouteForm: RouteFormState = {
@@ -84,7 +95,7 @@ function formatDistance(value: number | string | null): string {
   const numericDistance = Number(value);
 
   if (Number.isFinite(numericDistance)) {
-    return `${numericDistance.toLocaleString()} mi`;
+    return `${numericDistance.toLocaleString()} km`;
   }
 
   return String(value);
@@ -132,22 +143,22 @@ function toNullableInteger(value: string): number | null {
 
 function toRouteRecord(route: RouteRow): RouteRecord {
   const delivery = normalizeRelation(route.deliveries);
-  const estimatedDistance = toFormNumber(route.estimated_distance);
-  const estimatedTime = toFormNumber(route.estimated_time_minutes);
+  const estimatedDistance = toFormNumber(route.estimated_distance_km);
+  const estimatedTime = toFormNumber(route.estimated_duration_minutes);
 
   return {
-    id: route.id,
+    routeId: route.route_id,
     deliveryId: route.delivery_id ?? "",
     deliveryNumber: delivery?.delivery_number ?? "Unassigned",
-    origin: route.origin ?? "",
-    destination: route.destination ?? "",
+    origin: route.origin_address ?? route.origin_name ?? "",
+    destination: route.destination_address ?? route.destination_name ?? "",
     estimatedDistance,
-    estimatedDistanceLabel: formatDistance(route.estimated_distance),
+    estimatedDistanceLabel: formatDistance(route.estimated_distance_km),
     estimatedTime,
-    estimatedTimeLabel: formatTravelTime(route.estimated_time_minutes),
+    estimatedTimeLabel: formatTravelTime(route.estimated_duration_minutes),
     sequenceOrder:
       route.sequence_order === null ? "" : String(route.sequence_order),
-    googleMapsUrl: route.google_maps_url ?? "",
+    googleMapsUrl: route.maps_url ?? "",
     deliveryStatus: delivery?.status ?? "",
   };
 }
@@ -167,12 +178,12 @@ function toRouteForm(route: RouteRecord): RouteFormState {
 function toRoutePayload(formState: RouteFormState): RoutePayload {
   return {
     delivery_id: formState.deliveryId || null,
-    origin: formState.origin.trim(),
-    destination: formState.destination.trim(),
-    estimated_distance: toNullableNumber(formState.estimatedDistance),
-    estimated_time_minutes: toNullableInteger(formState.estimatedTime),
+    origin_address: formState.origin.trim(),
+    destination_address: formState.destination.trim(),
+    estimated_distance_km: toNullableNumber(formState.estimatedDistance),
+    estimated_duration_minutes: toNullableInteger(formState.estimatedTime),
     sequence_order: toNullableInteger(formState.sequenceOrder),
-    google_maps_url: formState.googleMapsUrl.trim() || null,
+    maps_url: formState.googleMapsUrl.trim() || null,
   };
 }
 
@@ -263,7 +274,7 @@ function RouteModal({
               >
                 <option value="">Select delivery</option>
                 {deliveryOptions.map((delivery) => (
-                  <option key={delivery.id} value={delivery.id}>
+                  <option key={delivery.delivery_id} value={delivery.delivery_id}>
                     {getDeliveryOptionLabel(delivery)}
                   </option>
                 ))}
@@ -404,17 +415,28 @@ export default function AdminRoutesPage() {
         .from("routes")
         .select(
           `
-        id,
+        route_id,
         delivery_id,
-        origin,
-        destination,
-        estimated_distance,
-        estimated_time_minutes,
+        origin_name,
+        origin_address,
+        origin_latitude,
+        origin_longitude,
+        destination_name,
+        destination_address,
+        destination_latitude,
+        destination_longitude,
+        estimated_distance_km,
+        estimated_duration_minutes,
+        actual_distance_km,
+        actual_duration_minutes,
+        route_polyline,
+        maps_url,
+        route_provider,
+        route_generated_at,
         sequence_order,
-        google_maps_url,
         created_at,
         deliveries:delivery_id (
-          id,
+          delivery_id,
           delivery_number,
           status
         )
@@ -424,7 +446,7 @@ export default function AdminRoutesPage() {
         .returns<RouteRow[]>(),
       supabase
         .from("deliveries")
-        .select("id, delivery_number, status")
+        .select("delivery_id, delivery_number, status")
         .order("delivery_number", { ascending: true })
         .returns<DeliveryRelation[]>(),
     ]);
@@ -480,7 +502,7 @@ export default function AdminRoutesPage() {
       averageTime: averageTime === 0 ? "0 min" : `${Math.round(averageTime)} min`,
       total: routes.length,
       totalDistance:
-        totalDistance === 0 ? "0 mi" : `${Math.round(totalDistance)} mi`,
+        totalDistance === 0 ? "0 km" : `${Math.round(totalDistance)} km`,
     };
   }, [routes]);
 
@@ -512,7 +534,7 @@ export default function AdminRoutesPage() {
     setEditingRoute(null);
     setFormState({
       ...emptyRouteForm,
-      deliveryId: deliveryOptions[0]?.id ?? "",
+      deliveryId: deliveryOptions[0]?.delivery_id ?? "",
     });
     setErrorMessage("");
     setSuccessMessage("");
@@ -558,14 +580,17 @@ export default function AdminRoutesPage() {
       return;
     }
 
-    if (!payload.origin || !payload.destination) {
+    if (!payload.origin_address || !payload.destination_address) {
       setErrorMessage("Origin and Destination are required.");
       setIsSaving(false);
       return;
     }
 
     const { error } = editingRoute
-      ? await supabase.from("routes").update(payload).eq("id", editingRoute.id)
+      ? await supabase
+          .from("routes")
+          .update(payload)
+          .eq("route_id", editingRoute.routeId)
       : await supabase.from("routes").insert(payload);
 
     if (error) {
@@ -727,7 +752,7 @@ export default function AdminRoutesPage() {
               </thead>
               <tbody className="divide-y divide-white/5 text-zinc-300">
                 {routes.map((route) => (
-                  <tr className="transition hover:bg-white/5" key={route.id}>
+                  <tr className="transition hover:bg-white/5" key={route.routeId}>
                     <td className="px-5 py-4 font-medium text-white">
                       {route.deliveryNumber}
                     </td>

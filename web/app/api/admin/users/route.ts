@@ -18,7 +18,7 @@ type AdminProfile = {
 };
 
 type CreatedProfile = {
-  id: string;
+  profile_id: string;
   first_name: string | null;
   last_name: string | null;
   email: string | null;
@@ -129,7 +129,7 @@ export async function POST(request: Request) {
   const { data: adminProfile, error: profileError } = await requesterSupabase
     .from("profiles")
     .select("role, is_active")
-    .eq("id", requesterData.user.id)
+    .eq("profile_id", requesterData.user.id)
     .maybeSingle<AdminProfile>();
 
   if (profileError) {
@@ -193,7 +193,7 @@ export async function POST(request: Request) {
   }
 
   const profilePayload = {
-    id: authUserData.user.id,
+    profile_id: authUserData.user.id,
     first_name: userRequest.firstName || null,
     last_name: userRequest.lastName || null,
     email: userRequest.email,
@@ -229,9 +229,9 @@ export async function POST(request: Request) {
     await adminSupabase
       .from("profiles")
       .select(
-        "id, first_name, last_name, email, phone, role, is_active, created_at",
+        "profile_id, first_name, last_name, email, phone, role, is_active, created_at",
       )
-      .eq("id", authUserData.user.id)
+      .eq("profile_id", authUserData.user.id)
       .single<CreatedProfile>();
 
   if (verifyProfileError || !createdProfile) {

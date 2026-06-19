@@ -5,7 +5,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 type DriverProfile = {
-  id: string;
+  profile_id: string;
   first_name: string | null;
   last_name: string | null;
   email: string | null;
@@ -15,10 +15,10 @@ type DriverProfile = {
 };
 
 type DriverRow = {
-  id: string;
+  driver_id: string;
   user_id: string;
   license_number: string | null;
-  license_expiry: string | null;
+  license_expiry_date: string | null;
   availability: string | null;
   performance_score: number | null;
   assigned_vehicle_id: string | null;
@@ -26,7 +26,7 @@ type DriverRow = {
 };
 
 type DriverRecord = {
-  id: string;
+  driverId: string;
   userId: string;
   firstName: string;
   lastName: string;
@@ -51,7 +51,7 @@ type DriverFormState = {
 type DriverPayload = {
   user_id?: string;
   license_number: string | null;
-  license_expiry: string | null;
+  license_expiry_date: string | null;
   availability: string | null;
   performance_score: number | null;
 };
@@ -82,7 +82,7 @@ function toDriverRecord(driver: DriverRow): DriverRecord {
   const profile = normalizeProfile(driver.profiles);
 
   return {
-    id: driver.id,
+    driverId: driver.driver_id,
     userId: driver.user_id,
     firstName: profile?.first_name ?? "",
     lastName: profile?.last_name ?? "",
@@ -91,7 +91,7 @@ function toDriverRecord(driver: DriverRow): DriverRecord {
     role: profile?.role ?? "",
     isActive: profile?.is_active ?? false,
     licenseNumber: driver.license_number ?? "",
-    licenseExpiry: driver.license_expiry ?? "",
+    licenseExpiry: driver.license_expiry_date ?? "",
     availability: driver.availability ?? "",
     performanceScore:
       driver.performance_score === null ? "" : String(driver.performance_score),
@@ -123,7 +123,7 @@ function toNullableNumber(value: string): number | null {
 function toDriverPayload(formState: DriverFormState): DriverPayload {
   return {
     license_number: formState.licenseNumber.trim() || null,
-    license_expiry: formState.licenseExpiry || null,
+    license_expiry_date: formState.licenseExpiry || null,
     availability: formState.availability || null,
     performance_score: toNullableNumber(formState.performanceScore),
   };
@@ -306,7 +306,7 @@ function DriverModal({
                 >
                   <option value="">Select an existing driver profile</option>
                   {availableProfiles.map((profile) => (
-                    <option key={profile.id} value={profile.id}>
+                    <option key={profile.profile_id} value={profile.profile_id}>
                       {getProfileName(profile)}
                     </option>
                   ))}
@@ -427,13 +427,13 @@ export default function AdminDriversPage() {
       supabase
         .from("drivers")
         .select(
-          "id, user_id, license_number, license_expiry, availability, performance_score, assigned_vehicle_id, profiles:user_id (id, first_name, last_name, email, phone, role, is_active)",
+          "driver_id, user_id, license_number, license_expiry_date, availability, performance_score, assigned_vehicle_id, profiles:user_id (profile_id, first_name, last_name, email, phone, role, is_active)",
         )
         .order("created_at", { ascending: false })
         .returns<DriverRow[]>(),
       supabase
         .from("profiles")
-        .select("id, first_name, last_name, email, phone, role, is_active")
+        .select("profile_id, first_name, last_name, email, phone, role, is_active")
         .eq("role", "driver")
         .order("first_name", { ascending: true })
         .returns<DriverProfile[]>(),
@@ -467,7 +467,9 @@ export default function AdminDriversPage() {
   const availableProfiles = useMemo(() => {
     const driverUserIds = new Set(drivers.map((driver) => driver.userId));
 
-    return driverProfiles.filter((profile) => !driverUserIds.has(profile.id));
+    return driverProfiles.filter(
+      (profile) => !driverUserIds.has(profile.profile_id),
+    );
   }, [driverProfiles, drivers]);
 
   const driverStats = useMemo(() => {
@@ -492,7 +494,7 @@ export default function AdminDriversPage() {
     setEditingDriver(null);
     setFormState({
       ...emptyDriverForm,
-      selectedProfileId: availableProfiles[0]?.id ?? "",
+      selectedProfileId: availableProfiles[0]?.profile_id ?? "",
     });
     setErrorMessage("");
     setSuccessMessage("");
@@ -545,7 +547,10 @@ export default function AdminDriversPage() {
     }
 
     const { error } = editingDriver
-      ? await supabase.from("drivers").update(payload).eq("id", editingDriver.id)
+      ? await supabase
+          .from("drivers")
+          .update(payload)
+          .eq("driver_id", editingDriver.driverId)
       : await supabase.from("drivers").insert({
           ...payload,
           user_id: formState.selectedProfileId,
@@ -577,7 +582,7 @@ export default function AdminDriversPage() {
     const { error } = await supabase
       .from("profiles")
       .update({ is_active: false })
-      .eq("id", driver.userId);
+      .eq("profile_id", driver.userId);
 
     if (error) {
       setErrorMessage(error.message);
@@ -735,7 +740,10 @@ export default function AdminDriversPage() {
               </thead>
               <tbody className="divide-y divide-white/5 text-zinc-300">
                 {drivers.map((driver) => (
-                  <tr className="transition hover:bg-white/5" key={driver.id}>
+                  <tr
+                    className="transition hover:bg-white/5"
+                    key={driver.driverId}
+                  >
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-sm font-semibold text-black">

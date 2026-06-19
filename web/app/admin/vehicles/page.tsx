@@ -11,64 +11,79 @@ import {
 type VehicleStatus = "Available" | "Assigned" | "Maintenance" | "Out of Service";
 
 type VehicleRow = {
-  id: string;
-  plate_number: string | null;
+  vehicle_id: string;
+  vehicle_number: string | null;
+  license_plate: string | null;
   make: string | null;
   model: string | null;
   year: number | null;
+  vehicle_type: string | null;
   mileage: number | null;
-  insurance_expiry: string | null;
-  registration_expiry: string | null;
-  service_due_date: string | null;
+  insurance_policy_number: string | null;
+  insurance_expiry_date: string | null;
+  registration_number: string | null;
+  registration_expiry_date: string | null;
   status: string | null;
 };
 
 type VehicleRecord = {
-  id: string;
+  vehicleId: string;
+  vehicleNumber: string;
   plateNumber: string;
   make: string;
   model: string;
   year: string;
+  vehicleType: string;
   mileage: string;
+  insurancePolicyNumber: string;
   insuranceExpiry: string;
+  registrationNumber: string;
   registrationExpiry: string;
-  serviceDueDate: string;
   status: VehicleStatus;
 };
 
 type VehicleFormState = {
+  vehicleNumber: string;
   plateNumber: string;
   make: string;
   model: string;
   year: string;
+  vehicleType: string;
   mileage: string;
+  insurancePolicyNumber: string;
   insuranceExpiry: string;
+  registrationNumber: string;
   registrationExpiry: string;
-  serviceDueDate: string;
   status: VehicleStatus;
 };
 
 type VehiclePayload = {
-  plate_number: string;
+  vehicle_number: string | null;
+  license_plate: string;
   make: string | null;
   model: string | null;
   year: number | null;
+  vehicle_type: string | null;
   mileage: number | null;
-  insurance_expiry: string | null;
-  registration_expiry: string | null;
-  service_due_date: string | null;
+  insurance_policy_number: string | null;
+  insurance_expiry_date: string | null;
+  registration_number: string | null;
+  registration_expiry_date: string | null;
   status: string;
 };
 
 const emptyVehicleForm: VehicleFormState = {
+  vehicleNumber: "",
   plateNumber: "",
   make: "",
   model: "",
   year: "",
+  vehicleType: "",
   mileage: "",
+  insurancePolicyNumber: "",
   insuranceExpiry: "",
+  registrationNumber: "",
   registrationExpiry: "",
-  serviceDueDate: "",
   status: "Available",
 };
 
@@ -94,31 +109,53 @@ function toVehicleStatus(status: string | null): VehicleStatus {
   return "Available";
 }
 
+function toVehicleStatusValue(status: VehicleStatus) {
+  if (status === "Assigned") {
+    return "in_service";
+  }
+
+  if (status === "Maintenance") {
+    return "maintenance_due";
+  }
+
+  if (status === "Out of Service") {
+    return "out_of_service";
+  }
+
+  return "available";
+}
+
 function toVehicleRecord(vehicle: VehicleRow): VehicleRecord {
   return {
-    id: vehicle.id,
-    plateNumber: vehicle.plate_number ?? "",
+    vehicleId: vehicle.vehicle_id,
+    vehicleNumber: vehicle.vehicle_number ?? "",
+    plateNumber: vehicle.license_plate ?? "",
     make: vehicle.make ?? "",
     model: vehicle.model ?? "",
     year: vehicle.year === null ? "" : String(vehicle.year),
+    vehicleType: vehicle.vehicle_type ?? "",
     mileage: vehicle.mileage === null ? "" : String(vehicle.mileage),
-    insuranceExpiry: vehicle.insurance_expiry ?? "",
-    registrationExpiry: vehicle.registration_expiry ?? "",
-    serviceDueDate: vehicle.service_due_date ?? "",
+    insurancePolicyNumber: vehicle.insurance_policy_number ?? "",
+    insuranceExpiry: vehicle.insurance_expiry_date ?? "",
+    registrationNumber: vehicle.registration_number ?? "",
+    registrationExpiry: vehicle.registration_expiry_date ?? "",
     status: toVehicleStatus(vehicle.status),
   };
 }
 
 function toVehicleForm(vehicle: VehicleRecord): VehicleFormState {
   return {
+    vehicleNumber: vehicle.vehicleNumber,
     plateNumber: vehicle.plateNumber,
     make: vehicle.make,
     model: vehicle.model,
     year: vehicle.year,
+    vehicleType: vehicle.vehicleType,
     mileage: vehicle.mileage,
+    insurancePolicyNumber: vehicle.insurancePolicyNumber,
     insuranceExpiry: vehicle.insuranceExpiry,
+    registrationNumber: vehicle.registrationNumber,
     registrationExpiry: vehicle.registrationExpiry,
-    serviceDueDate: vehicle.serviceDueDate,
     status: vehicle.status,
   };
 }
@@ -137,15 +174,18 @@ function toNullableNumber(value: string): number | null {
 
 function toVehiclePayload(formState: VehicleFormState): VehiclePayload {
   return {
-    plate_number: formState.plateNumber.trim(),
+    vehicle_number: formState.vehicleNumber.trim() || null,
+    license_plate: formState.plateNumber.trim(),
     make: formState.make.trim() || null,
     model: formState.model.trim() || null,
     year: toNullableNumber(formState.year),
+    vehicle_type: formState.vehicleType.trim() || null,
     mileage: toNullableNumber(formState.mileage),
-    insurance_expiry: formState.insuranceExpiry || null,
-    registration_expiry: formState.registrationExpiry || null,
-    service_due_date: formState.serviceDueDate || null,
-    status: formState.status,
+    insurance_policy_number: formState.insurancePolicyNumber.trim() || null,
+    insurance_expiry_date: formState.insuranceExpiry || null,
+    registration_number: formState.registrationNumber.trim() || null,
+    registration_expiry_date: formState.registrationExpiry || null,
+    status: toVehicleStatusValue(formState.status),
   };
 }
 
@@ -248,7 +288,19 @@ function VehicleModal({
           <div className="grid gap-4 md:grid-cols-2">
             <label className="block">
               <span className="text-sm font-medium text-zinc-300">
-                Plate Number
+                Vehicle Number
+              </span>
+              <input
+                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                onChange={(event) =>
+                  onChange("vehicleNumber", event.target.value)
+                }
+                value={formState.vehicleNumber}
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-zinc-300">
+                License Plate
               </span>
               <input
                 className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
@@ -284,6 +336,16 @@ function VehicleModal({
               />
             </label>
             <label className="block">
+              <span className="text-sm font-medium text-zinc-300">
+                Vehicle Type
+              </span>
+              <input
+                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                onChange={(event) => onChange("vehicleType", event.target.value)}
+                value={formState.vehicleType}
+              />
+            </label>
+            <label className="block">
               <span className="text-sm font-medium text-zinc-300">Mileage</span>
               <input
                 className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
@@ -291,6 +353,18 @@ function VehicleModal({
                 onChange={(event) => onChange("mileage", event.target.value)}
                 type="number"
                 value={formState.mileage}
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-zinc-300">
+                Insurance Policy Number
+              </span>
+              <input
+                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                onChange={(event) =>
+                  onChange("insurancePolicyNumber", event.target.value)
+                }
+                value={formState.insurancePolicyNumber}
               />
             </label>
             <label className="block">
@@ -308,6 +382,18 @@ function VehicleModal({
             </label>
             <label className="block">
               <span className="text-sm font-medium text-zinc-300">
+                Registration Number
+              </span>
+              <input
+                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                onChange={(event) =>
+                  onChange("registrationNumber", event.target.value)
+                }
+                value={formState.registrationNumber}
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-zinc-300">
                 Registration Expiry
               </span>
               <input
@@ -317,19 +403,6 @@ function VehicleModal({
                 }
                 type="date"
                 value={formState.registrationExpiry}
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-zinc-300">
-                Service Due Date
-              </span>
-              <input
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
-                onChange={(event) =>
-                  onChange("serviceDueDate", event.target.value)
-                }
-                type="date"
-                value={formState.serviceDueDate}
               />
             </label>
             <label className="block md:col-span-2">
@@ -389,7 +462,7 @@ export default function AdminVehiclesPage() {
     const { data, error } = await supabase
       .from("vehicles")
       .select(
-        "id, plate_number, make, model, year, mileage, insurance_expiry, registration_expiry, service_due_date, status",
+        "vehicle_id, vehicle_number, license_plate, make, model, year, vehicle_type, mileage, insurance_policy_number, insurance_expiry_date, registration_number, registration_expiry_date, status",
       )
       .order("created_at", { ascending: false })
       .returns<VehicleRow[]>();
@@ -465,7 +538,7 @@ export default function AdminVehiclesPage() {
 
     const payload = toVehiclePayload(formState);
 
-    if (!payload.plate_number) {
+    if (!payload.license_plate) {
       setErrorMessage("Plate Number is required.");
       setIsSaving(false);
       return;
@@ -475,7 +548,7 @@ export default function AdminVehiclesPage() {
       ? await supabase
           .from("vehicles")
           .update(payload)
-          .eq("id", editingVehicle.id)
+          .eq("vehicle_id", editingVehicle.vehicleId)
       : await supabase.from("vehicles").insert(payload);
 
     if (error) {
@@ -624,20 +697,25 @@ export default function AdminVehiclesPage() {
               <thead className="text-left text-xs text-zinc-500">
                 <tr>
                   <th className="px-5 py-4 font-medium">Vehicle</th>
-                  <th className="px-5 py-4 font-medium">Plate Number</th>
+                  <th className="px-5 py-4 font-medium">License Plate</th>
                   <th className="px-5 py-4 font-medium">Mileage</th>
                   <th className="px-5 py-4 font-medium">Insurance Expiry</th>
                   <th className="px-5 py-4 font-medium">
                     Registration Expiry
                   </th>
-                  <th className="px-5 py-4 font-medium">Service Due Date</th>
+                  <th className="px-5 py-4 font-medium">
+                    Registration Number
+                  </th>
                   <th className="px-5 py-4 font-medium">Status</th>
                   <th className="px-5 py-4 text-right font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5 text-zinc-300">
                 {vehicles.map((vehicle) => (
-                  <tr className="transition hover:bg-white/5" key={vehicle.id}>
+                  <tr
+                    className="transition hover:bg-white/5"
+                    key={vehicle.vehicleId}
+                  >
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-sm font-semibold text-black">
@@ -648,7 +726,7 @@ export default function AdminVehiclesPage() {
                             {getVehicleName(vehicle)}
                           </p>
                           <p className="text-xs text-zinc-500">
-                            {vehicle.plateNumber || "No plate"}
+                            {vehicle.vehicleNumber || "No vehicle number"}
                           </p>
                         </div>
                       </div>
@@ -666,7 +744,7 @@ export default function AdminVehiclesPage() {
                       {formatDate(vehicle.registrationExpiry)}
                     </td>
                     <td className="px-5 py-4">
-                      {formatDate(vehicle.serviceDueDate)}
+                      {vehicle.registrationNumber || "Not recorded"}
                     </td>
                     <td className="px-5 py-4">
                       <VehicleStatusBadge status={vehicle.status} />

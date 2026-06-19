@@ -5,7 +5,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 type ShiftType = "morning" | "evening";
-type ScheduleStatus = "scheduled" | "active" | "completed" | "cancelled";
+type ScheduleStatus = "scheduled" | "completed" | "cancelled" | "conflict";
 
 type DriverProfile = {
   first_name: string | null;
@@ -14,35 +14,39 @@ type DriverProfile = {
 };
 
 type ScheduleDriver = {
-  id: string;
+  driver_id: string;
   user_id: string | null;
   profiles: DriverProfile | DriverProfile[] | null;
 };
 
 type ScheduleRow = {
-  id: string;
+  schedule_id: string;
   driver_id: string | null;
+  shift_date: string | null;
+  shift_type: string | null;
   shift_name: string | null;
   start_time: string | null;
   end_time: string | null;
   status: string | null;
+  assigned_by: string | null;
+  notes: string | null;
   drivers: ScheduleDriver | ScheduleDriver[] | null;
 };
 
 type DriverRow = {
-  id: string;
+  driver_id: string;
   user_id: string | null;
   profiles: DriverProfile | DriverProfile[] | null;
 };
 
 type DriverOption = {
-  id: string;
+  driverId: string;
   name: string;
   email: string;
 };
 
 type ScheduleRecord = {
-  id: string;
+  scheduleId: string;
   driverId: string;
   driverName: string;
   driverEmail: string;
@@ -62,10 +66,16 @@ type ScheduleFormState = {
 
 type SchedulePayload = {
   driver_id: string;
+  shift_date: string;
+  shift_type: ShiftType;
   shift_name: string;
   start_time: string;
   end_time: string;
   status: ScheduleStatus;
+};
+
+type ScheduleInsertPayload = SchedulePayload & {
+  assigned_by: string;
 };
 
 const emptyScheduleForm: ScheduleFormState = {
@@ -100,9 +110,9 @@ const shiftOptions: Array<{
 
 const statusOptions: Array<{ label: string; value: ScheduleStatus }> = [
   { label: "Scheduled", value: "scheduled" },
-  { label: "Active", value: "active" },
   { label: "Completed", value: "completed" },
   { label: "Cancelled", value: "cancelled" },
+  { label: "Conflict", value: "conflict" },
 ];
 
 function normalizeRelation<T>(relation: T | T[] | null) {
@@ -122,6 +132,12 @@ function getDriverName(profile: DriverProfile | null) {
 }
 
 function inferShiftType(shiftName: string | null, startTime: string | null) {
+  const normalizedShiftName = shiftName?.toLowerCase();
+
+  if (normalizedShiftName === "evening" || normalizedShiftName === "morning") {
+    return normalizedShiftName;
+  }
+
   if (shiftName?.toLowerCase().includes("evening")) {
     return "evening";
   }
@@ -138,11 +154,14 @@ function inferShiftType(shiftName: string | null, startTime: string | null) {
 function toScheduleRecord(schedule: ScheduleRow): ScheduleRecord {
   const driver = normalizeRelation(schedule.drivers);
   const profile = normalizeRelation(driver?.profiles ?? null);
-  const shiftType = inferShiftType(schedule.shift_name, schedule.start_time);
+  const shiftType = inferShiftType(
+    schedule.shift_type ?? schedule.shift_name,
+    schedule.start_time,
+  );
   const shift = shiftOptions.find((option) => option.value === shiftType);
 
   return {
-    id: schedule.id,
+    scheduleId: schedule.schedule_id,
     driverId: schedule.driver_id ?? "",
     driverEmail: profile?.email ?? "",
     driverName: getDriverName(profile),
@@ -158,7 +177,7 @@ function toDriverOption(driver: DriverRow): DriverOption {
   const profile = normalizeRelation(driver.profiles);
 
   return {
-    id: driver.id,
+    driverId: driver.driver_id,
     name: getDriverName(profile),
     email: profile?.email ?? "",
   };
@@ -207,11 +226,26 @@ function toSchedulePayload(formState: ScheduleFormState): SchedulePayload {
 
   return {
     driver_id: formState.driverId,
+    shift_date: formState.date,
+    shift_type: formState.shiftType,
     shift_name: shift?.label ?? "Morning Shift",
     start_time: startTime.toISOString(),
     end_time: endTime.toISOString(),
     status: formState.status,
   };
+}
+
+async function getCurrentProfileId() {
+  const { data, error } = await supabase.auth.getUser();
+
+  if (error || !data.user) {
+    return {
+      errorMessage: "You must be signed in to save schedules.",
+      profileId: "",
+    };
+  }
+
+  return { errorMessage: "", profileId: data.user.id };
 }
 
 function formatDateTime(value: string) {
@@ -267,8 +301,8 @@ function getConflictIds(schedules: ScheduleRecord[]) {
   for (let i = 0; i < schedules.length; i += 1) {
     for (let j = i + 1; j < schedules.length; j += 1) {
       if (schedulesOverlap(schedules[i], schedules[j])) {
-        conflictIds.add(schedules[i].id);
-        conflictIds.add(schedules[j].id);
+        conflictIds.add(schedules[i].scheduleId);
+        conflictIds.add(schedules[j].scheduleId);
       }
     }
   }
@@ -309,13 +343,15 @@ function ScheduleStatusBadge({
 }) {
   const normalizedStatus = status.toLowerCase();
   const badgeClass =
-    normalizedStatus === "scheduled" || normalizedStatus === "active"
+    normalizedStatus === "scheduled"
       ? "bg-blue-500/15 text-blue-300"
-      : normalizedStatus === "completed"
-        ? "bg-emerald-500/15 text-emerald-300"
-        : normalizedStatus === "cancelled"
-          ? "bg-red-500/15 text-red-300"
-          : "bg-zinc-500/15 text-zinc-300";
+    : normalizedStatus === "completed"
+      ? "bg-emerald-500/15 text-emerald-300"
+    : normalizedStatus === "cancelled"
+      ? "bg-red-500/15 text-red-300"
+    : normalizedStatus === "conflict"
+      ? "bg-orange-500/15 text-orange-300"
+      : "bg-zinc-500/15 text-zinc-300";
 
   return (
     <div className="flex flex-wrap gap-2">
@@ -392,7 +428,7 @@ function ScheduleModal({
               >
                 <option value="">Select an existing driver</option>
                 {drivers.map((driver) => (
-                  <option key={driver.id} value={driver.id}>
+                  <option key={driver.driverId} value={driver.driverId}>
                     {driver.name}
                     {driver.email ? ` (${driver.email})` : ""}
                   </option>
@@ -505,14 +541,14 @@ export default function AdminSchedulesPage() {
       supabase
         .from("schedules")
         .select(
-          "id, driver_id, shift_name, start_time, end_time, status, drivers:driver_id (id, user_id, profiles:user_id (first_name, last_name, email))",
+          "schedule_id, driver_id, shift_date, shift_type, shift_name, start_time, end_time, status, assigned_by, notes, drivers:driver_id (driver_id, user_id, profiles:user_id (first_name, last_name, email))",
         )
         .order("start_time", { ascending: true })
         .returns<ScheduleRow[]>(),
       supabase
         .from("drivers")
         .select(
-          "id, user_id, profiles:user_id (first_name, last_name, email)",
+          "driver_id, user_id, profiles:user_id (first_name, last_name, email)",
         )
         .order("created_at", { ascending: false })
         .returns<DriverRow[]>(),
@@ -576,7 +612,7 @@ export default function AdminSchedulesPage() {
       const matchesStatus =
         !statusFilter ||
         (statusFilter === "conflict"
-          ? conflictIds.has(schedule.id)
+          ? conflictIds.has(schedule.scheduleId)
           : schedule.status.toLowerCase() === statusFilter);
 
       return matchesSearch && matchesDriver && matchesShift && matchesStatus;
@@ -594,7 +630,7 @@ export default function AdminSchedulesPage() {
     setEditingSchedule(null);
     setFormState({
       ...emptyScheduleForm,
-      driverId: drivers[0]?.id ?? "",
+      driverId: drivers[0]?.driverId ?? "",
       date: getLocalDateValue(new Date().toISOString()),
     });
     setErrorMessage("");
@@ -640,12 +676,33 @@ export default function AdminSchedulesPage() {
     }
 
     const payload = toSchedulePayload(formState);
-    const { error } = editingSchedule
+    let insertPayload: ScheduleInsertPayload | null = null;
+
+    if (!editingSchedule) {
+      const { errorMessage: profileErrorMessage, profileId } =
+        await getCurrentProfileId();
+
+      if (profileErrorMessage) {
+        setErrorMessage(profileErrorMessage);
+        setIsSaving(false);
+        return;
+      }
+
+      insertPayload = {
+        ...payload,
+        assigned_by: profileId,
+      };
+    }
+
+    const scheduleResponse = editingSchedule
       ? await supabase
           .from("schedules")
           .update(payload)
-          .eq("id", editingSchedule.id)
-      : await supabase.from("schedules").insert(payload);
+          .eq("schedule_id", editingSchedule.scheduleId)
+      : insertPayload
+        ? await supabase.from("schedules").insert(insertPayload)
+        : { error: new Error("Schedule assigner profile is required.") };
+    const { error } = scheduleResponse;
 
     if (error) {
       setErrorMessage(error.message);
@@ -734,7 +791,7 @@ export default function AdminSchedulesPage() {
             >
               <option value="">Driver</option>
               {drivers.map((driver) => (
-                <option key={driver.id} value={driver.id}>
+                <option key={driver.driverId} value={driver.driverId}>
                   {driver.name}
                 </option>
               ))}
@@ -839,7 +896,7 @@ export default function AdminSchedulesPage() {
               </thead>
               <tbody className="divide-y divide-white/5 text-zinc-300">
                 {filteredSchedules.map((schedule) => {
-                  const hasConflict = conflictIds.has(schedule.id);
+                  const hasConflict = conflictIds.has(schedule.scheduleId);
                   const shift = shiftOptions.find(
                     (option) => option.value === schedule.shiftType,
                   );
@@ -851,7 +908,7 @@ export default function AdminSchedulesPage() {
                           ? "border-l-2 border-red-400 bg-red-500/5"
                           : ""
                       }`}
-                      key={schedule.id}
+                      key={schedule.scheduleId}
                     >
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">

@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 type UserRole = "admin" | "dispatcher" | "driver";
 
 type ProfileRow = {
-  id: string;
+  profile_id: string;
   first_name: string | null;
   last_name: string | null;
   email: string | null;
@@ -18,7 +18,7 @@ type ProfileRow = {
 };
 
 type UserRecord = {
-  id: string;
+  profileId: string;
   firstName: string;
   lastName: string;
   email: string;
@@ -75,7 +75,7 @@ function toUserRole(role: string | null): UserRole {
 
 function toUserRecord(profile: ProfileRow): UserRecord {
   return {
-    id: profile.id,
+    profileId: profile.profile_id,
     firstName: profile.first_name ?? "",
     lastName: profile.last_name ?? "",
     email: profile.email ?? "",
@@ -378,7 +378,7 @@ export default function AdminUsersPage() {
     const { data, error } = await supabase
       .from("profiles")
       .select(
-        "id, first_name, last_name, email, phone, role, is_active, created_at",
+        "profile_id, first_name, last_name, email, phone, role, is_active, created_at",
       )
       .order("created_at", { ascending: false })
       .returns<ProfileRow[]>();
@@ -467,7 +467,7 @@ export default function AdminUsersPage() {
           role: payload.role,
           is_active: payload.is_active,
         })
-        .eq("id", editingUser.id);
+        .eq("profile_id", editingUser.profileId);
 
       if (error) {
         setErrorMessage(error.message);
@@ -676,7 +676,7 @@ export default function AdminUsersPage() {
               </thead>
               <tbody className="divide-y divide-white/5 text-zinc-300">
                 {users.map((user) => (
-                  <tr className="transition hover:bg-white/5" key={user.id}>
+                  <tr className="transition hover:bg-white/5" key={user.profileId}>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-sm font-semibold text-black">
@@ -686,7 +686,9 @@ export default function AdminUsersPage() {
                           <p className="font-semibold text-white">
                             {getUserName(user)}
                           </p>
-                          <p className="text-xs text-zinc-500">{user.id}</p>
+                          <p className="text-xs text-zinc-500">
+                            {user.profileId}
+                          </p>
                         </div>
                       </div>
                     </td>
