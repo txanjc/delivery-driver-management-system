@@ -9,6 +9,7 @@ import { supabase } from "@/lib/supabase";
 type AdminProfile = {
   role: string | null;
   is_active: boolean | null;
+  must_change_password: boolean | null;
 };
 
 type SupabaseSingleResponse<T> = {
@@ -24,6 +25,10 @@ function redirectToLogin() {
 
 function redirectToUnauthorized() {
   window.location.replace("/unauthorized");
+}
+
+function redirectToChangePassword() {
+  window.location.replace("/change-password");
 }
 
 function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number) {
@@ -80,7 +85,7 @@ export function AdminRouteGuard({ children }: { children: ReactNode }) {
           Promise.resolve(
             supabase
               .from("profiles")
-              .select("role, is_active")
+              .select("role, is_active, must_change_password")
               .eq("profile_id", userData.user.id)
               .maybeSingle<AdminProfile>(),
           ),
@@ -92,12 +97,17 @@ export function AdminRouteGuard({ children }: { children: ReactNode }) {
           return;
         }
 
-        if (
-          profileError ||
-          !profile ||
-          profile.role !== "admin" ||
-          profile.is_active !== true
-        ) {
+        if (profileError || !profile) {
+          redirectToUnauthorized();
+          return;
+        }
+
+        if (profile.must_change_password === true) {
+          redirectToChangePassword();
+          return;
+        }
+
+        if (profile.role !== "admin" || profile.is_active !== true) {
           redirectToUnauthorized();
           return;
         }

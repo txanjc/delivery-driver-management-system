@@ -3,8 +3,12 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { getRoleRedirectPath, type WebUserRole } from "@/lib/role-redirect";
 
-type UserRole = "admin" | "dispatcher" | "driver";
+type UserProfile = {
+  role: WebUserRole;
+  must_change_password: boolean | null;
+};
 
 export default function LoginPage() {
   const router = useRouter();
@@ -38,9 +42,9 @@ export default function LoginPage() {
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("role")
+      .select("role, must_change_password")
       .eq("profile_id", authData.user.id)
-      .maybeSingle<{ role: UserRole }>();
+      .maybeSingle<UserProfile>();
 
     if (profileError) {
       setErrorMessage(profileError.message);
@@ -54,13 +58,8 @@ export default function LoginPage() {
       return;
     }
 
-    if (profile.role === "admin") {
-      router.replace("/admin");
-      return;
-    }
-
-    if (profile.role === "dispatcher") {
-      router.replace("/dispatcher");
+    if (profile.must_change_password === true) {
+      router.replace("/change-password");
       return;
     }
 
@@ -70,8 +69,7 @@ export default function LoginPage() {
       return;
     }
 
-    setErrorMessage("Your account role is not supported for web access.");
-    setIsLoading(false);
+    router.replace(getRoleRedirectPath(profile.role));
   }
 
   return (

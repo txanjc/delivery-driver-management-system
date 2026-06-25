@@ -25,6 +25,7 @@ type CreatedProfile = {
   phone: string | null;
   role: string | null;
   is_active: boolean | null;
+  must_change_password: boolean | null;
   created_at: string | null;
 };
 
@@ -200,6 +201,7 @@ export async function POST(request: Request) {
     phone: userRequest.phone || null,
     role: userRequest.role,
     is_active: userRequest.isActive,
+    must_change_password: true,
   };
 
   const { error: insertProfileError } = await adminSupabase
@@ -229,7 +231,7 @@ export async function POST(request: Request) {
     await adminSupabase
       .from("profiles")
       .select(
-        "profile_id, first_name, last_name, email, phone, role, is_active, created_at",
+        "profile_id, first_name, last_name, email, phone, role, is_active, must_change_password, created_at",
       )
       .eq("profile_id", authUserData.user.id)
       .single<CreatedProfile>();
