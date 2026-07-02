@@ -1,8 +1,10 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { supabase } from "@/lib/supabase";
+import { DEFAULT_PAGE_SIZE, Pagination } from "../_components/Pagination";
 
 type DriverProfile = {
   profile_id: string;
@@ -200,7 +202,7 @@ function AvailabilityBadge({ availability }: { availability: string }) {
 
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
+      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeClass}`}
     >
       {formatAvailability(availability)}
     </span>
@@ -210,7 +212,7 @@ function AvailabilityBadge({ availability }: { availability: string }) {
 function ProfileStatusBadge({ isActive }: { isActive: boolean }) {
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
         isActive
           ? "bg-emerald-500/15 text-emerald-300"
           : "bg-zinc-500/15 text-zinc-300"
@@ -408,6 +410,7 @@ function DriverModal({
 }
 
 export default function AdminDriversPage() {
+  const searchParams = useSearchParams();
   const [drivers, setDrivers] = useState<DriverRecord[]>([]);
   const [driverProfiles, setDriverProfiles] = useState<DriverProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -418,6 +421,13 @@ export default function AdminDriversPage() {
   const [editingDriver, setEditingDriver] = useState<DriverRecord | null>(null);
   const [formState, setFormState] =
     useState<DriverFormState>(emptyDriverForm);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    if (searchParams.get("action") !== "create") return;
+    const timeoutId = window.setTimeout(() => setIsModalOpen(true), 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [searchParams]);
 
   const loadDriverData = useCallback(async () => {
     setIsLoading(true);
@@ -489,6 +499,13 @@ export default function AdminDriversPage() {
       onDelivery,
     };
   }, [drivers]);
+
+  const totalPages = Math.max(1, Math.ceil(drivers.length / DEFAULT_PAGE_SIZE));
+  const activePage = Math.min(currentPage, totalPages);
+  const paginatedDrivers = drivers.slice(
+    (activePage - 1) * DEFAULT_PAGE_SIZE,
+    activePage * DEFAULT_PAGE_SIZE,
+  );
 
   function openCreateModal() {
     setEditingDriver(null);
@@ -601,7 +618,7 @@ export default function AdminDriversPage() {
       : "Driver profiles exist, but no driver records have been created yet.";
 
   return (
-    <section className="space-y-5 text-white">
+    <section className="space-y-4 text-white">
       <div className="flex flex-col gap-4 rounded-3xl bg-[#222222] p-5 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lime-400">
@@ -723,8 +740,9 @@ export default function AdminDriversPage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm [&_td]:py-2.5 [&_th]:py-2.5">
               <thead className="text-left text-xs text-zinc-500">
                 <tr>
                   <th className="px-5 py-4 font-medium">Driver</th>
@@ -739,14 +757,14 @@ export default function AdminDriversPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5 text-zinc-300">
-                {drivers.map((driver) => (
+                {paginatedDrivers.map((driver) => (
                   <tr
                     className="transition hover:bg-white/5"
                     key={driver.driverId}
                   >
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-sm font-semibold text-black">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-xs font-semibold text-black">
                           {(driver.firstName[0] || "D").toUpperCase()}
                         </div>
                         <div>
@@ -779,14 +797,14 @@ export default function AdminDriversPage() {
                     <td className="px-5 py-4 text-right">
                       <div className="flex justify-end gap-2">
                         <button
-                          className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-white/10"
+                          className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-zinc-300 transition hover:bg-white/10"
                           onClick={() => openEditModal(driver)}
                           type="button"
                         >
                           Edit
                         </button>
                         <button
-                          className="rounded-full border border-red-400/20 px-3 py-1.5 text-xs font-semibold text-red-200 transition hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="rounded-full border border-red-400/20 px-3 py-1 text-xs font-semibold text-red-200 transition hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
                           disabled={isSaving || !driver.isActive}
                           onClick={() => void deactivateDriver(driver)}
                           type="button"
@@ -798,10 +816,18 @@ export default function AdminDriversPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+          </>
         )}
       </div>
+
+      <Pagination
+        currentPage={activePage}
+        onPageChange={setCurrentPage}
+        totalPages={totalPages}
+        totalRecords={drivers.length}
+      />
 
       {isModalOpen ? (
         <DriverModal

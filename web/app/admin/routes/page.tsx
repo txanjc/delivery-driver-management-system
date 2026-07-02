@@ -1,8 +1,10 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { supabase } from "@/lib/supabase";
+import { DEFAULT_PAGE_SIZE, Pagination } from "../_components/Pagination";
 
 type DeliveryRelation = {
   delivery_id: string;
@@ -394,6 +396,7 @@ function RouteModal({
 }
 
 export default function AdminRoutesPage() {
+  const searchParams = useSearchParams();
   const [routes, setRoutes] = useState<RouteRecord[]>([]);
   const [deliveryOptions, setDeliveryOptions] = useState<DeliveryRelation[]>(
     [],
@@ -404,7 +407,14 @@ export default function AdminRoutesPage() {
   const [successMessage, setSuccessMessage] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingRoute, setEditingRoute] = useState<RouteRecord | null>(null);
+
+  useEffect(() => {
+    if (searchParams.get("action") !== "create") return;
+    const timeoutId = window.setTimeout(() => setIsModalOpen(true), 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [searchParams]);
   const [formState, setFormState] = useState<RouteFormState>(emptyRouteForm);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const loadRouteData = useCallback(async () => {
     setIsLoading(true);
@@ -505,6 +515,13 @@ export default function AdminRoutesPage() {
         totalDistance === 0 ? "0 km" : `${Math.round(totalDistance)} km`,
     };
   }, [routes]);
+
+  const totalPages = Math.max(1, Math.ceil(routes.length / DEFAULT_PAGE_SIZE));
+  const activePage = Math.min(currentPage, totalPages);
+  const paginatedRoutes = routes.slice(
+    (activePage - 1) * DEFAULT_PAGE_SIZE,
+    activePage * DEFAULT_PAGE_SIZE,
+  );
 
   const deliveryNumbers = useMemo(
     () =>
@@ -612,7 +629,7 @@ export default function AdminRoutesPage() {
   }
 
   return (
-    <section className="space-y-5 text-white">
+    <section className="space-y-4 text-white">
       <div className="flex flex-col gap-4 rounded-3xl bg-[#222222] p-5 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lime-400">
@@ -734,8 +751,9 @@ export default function AdminRoutesPage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm [&_td]:py-2.5 [&_th]:py-2.5">
               <thead className="text-left text-xs text-zinc-500">
                 <tr>
                   <th className="px-5 py-4 font-medium">Delivery Number</th>
@@ -751,7 +769,7 @@ export default function AdminRoutesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5 text-zinc-300">
-                {routes.map((route) => (
+                {paginatedRoutes.map((route) => (
                   <tr className="transition hover:bg-white/5" key={route.routeId}>
                     <td className="px-5 py-4 font-medium text-white">
                       {route.deliveryNumber}
@@ -785,7 +803,7 @@ export default function AdminRoutesPage() {
                     </td>
                     <td className="px-5 py-4 text-right">
                       <button
-                        className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-white/10"
+                        className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-zinc-300 transition hover:bg-white/10"
                         onClick={() => openEditModal(route)}
                         type="button"
                       >
@@ -795,10 +813,18 @@ export default function AdminRoutesPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+          </>
         )}
       </div>
+
+      <Pagination
+        currentPage={activePage}
+        onPageChange={setCurrentPage}
+        totalPages={totalPages}
+        totalRecords={routes.length}
+      />
 
       {isModalOpen ? (
         <RouteModal

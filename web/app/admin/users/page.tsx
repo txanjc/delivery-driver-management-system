@@ -1,8 +1,15 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
+import {
+  AdminCard,
+  AdminPageIntro,
+  PrimaryActionButton,
+} from "../_components/admin-design-system";
 import { supabase } from "@/lib/supabase";
+import { DEFAULT_PAGE_SIZE, Pagination } from "../_components/Pagination";
 
 type UserRole = "admin" | "dispatcher" | "driver";
 
@@ -157,13 +164,15 @@ function UserKpiCard({
 }) {
   return (
     <div
-      className={`rounded-2xl p-5 ${
-        accent ? "bg-white text-black" : "bg-[#222222] text-white"
+      className={`rounded-[20px] border p-5 shadow-sm ${
+        accent
+          ? "border-[#172f3a] bg-[#172f3a] text-white"
+          : "border-slate-100 bg-white text-[#17232b]"
       }`}
     >
-      <p className="text-xs text-zinc-400">{label}</p>
-      <p className="mt-4 text-3xl font-semibold tracking-tight">{value}</p>
-      <p className="mt-1 text-xs text-zinc-500">{detail}</p>
+      <p className={accent ? "text-xs text-slate-300" : "text-xs text-slate-500"}>{label}</p>
+      <p className="mt-4 text-3xl font-semibold tracking-[-0.03em]">{value}</p>
+      <p className={accent ? "mt-1 text-xs text-slate-400" : "mt-1 text-xs text-slate-400"}>{detail}</p>
     </div>
   );
 }
@@ -171,13 +180,13 @@ function UserKpiCard({
 function RoleBadge({ role }: { role: UserRole }) {
   const tone =
     role === "admin"
-      ? "bg-lime-500/15 text-lime-300"
+      ? "bg-purple-50 text-purple-700"
       : role === "dispatcher"
-        ? "bg-blue-500/15 text-blue-300"
-        : "bg-orange-500/15 text-orange-300";
+        ? "bg-blue-50 text-blue-700"
+        : "bg-amber-50 text-amber-700";
 
   return (
-    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}>
+    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${tone}`}>
       {formatRole(role)}
     </span>
   );
@@ -186,10 +195,10 @@ function RoleBadge({ role }: { role: UserRole }) {
 function UserStatusBadge({ isActive }: { isActive: boolean }) {
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
         isActive
-          ? "bg-emerald-500/15 text-emerald-300"
-          : "bg-zinc-500/15 text-zinc-300"
+          ? "bg-emerald-50 text-emerald-700"
+          : "bg-slate-100 text-slate-500"
       }`}
     >
       {isActive ? "Active" : "Inactive"}
@@ -217,21 +226,21 @@ function UserModal({
   return (
     <div
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-sm"
       role="dialog"
     >
-      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-white/10 bg-[#222222] p-5 text-white shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-4">
+      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-[20px] border border-slate-100 bg-white p-6 text-[#17232b] shadow-2xl shadow-slate-900/20">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
           <div>
             <h2 className="text-xl font-semibold">
               {isCreateMode ? "Create User" : "Edit User"}
             </h2>
-            <p className="mt-1 text-sm text-zinc-400">
+            <p className="mt-1 text-sm text-slate-500">
               Create and maintain profile records for admin portal workflows.
             </p>
           </div>
           <button
-            className="rounded-full border border-white/10 px-3 py-1.5 text-sm text-zinc-300 transition hover:bg-white/10"
+            className="rounded-full border border-slate-200 px-3 py-1.5 text-sm text-slate-500 transition hover:bg-slate-100"
             disabled={isSaving}
             onClick={onClose}
             type="button"
@@ -241,36 +250,36 @@ function UserModal({
         </div>
 
         <form className="mt-5 space-y-5" onSubmit={onSubmit}>
-          <div className="rounded-2xl border border-lime-400/20 bg-lime-400/10 px-4 py-3 text-sm text-lime-100">
+          <div className="rounded-2xl border border-purple-100 bg-purple-50 px-4 py-3 text-sm text-purple-700">
             Authentication account creation is handled by a secure server-side
             flow.
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
             <label className="block">
-              <span className="text-sm font-medium text-zinc-300">
+              <span className="text-sm font-medium text-slate-600">
                 First Name
               </span>
               <input
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
+                className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
                 onChange={(event) => onChange("firstName", event.target.value)}
                 value={formState.firstName}
               />
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-zinc-300">
+              <span className="text-sm font-medium text-slate-600">
                 Last Name
               </span>
               <input
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
+                className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
                 onChange={(event) => onChange("lastName", event.target.value)}
                 value={formState.lastName}
               />
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-zinc-300">Email</span>
+              <span className="text-sm font-medium text-slate-600">Email</span>
               <input
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300 disabled:cursor-not-allowed disabled:opacity-60"
+                className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={!isCreateMode}
                 onChange={(event) => onChange("email", event.target.value)}
                 required
@@ -279,20 +288,20 @@ function UserModal({
               />
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-zinc-300">Phone</span>
+              <span className="text-sm font-medium text-slate-600">Phone</span>
               <input
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
+                className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
                 onChange={(event) => onChange("phone", event.target.value)}
                 value={formState.phone}
               />
             </label>
             {isCreateMode ? (
               <label className="block md:col-span-2">
-                <span className="text-sm font-medium text-zinc-300">
+                <span className="text-sm font-medium text-slate-600">
                   Temporary Password
                 </span>
                 <input
-                  className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
+                  className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
                   minLength={8}
                   onChange={(event) =>
                     onChange("temporaryPassword", event.target.value)
@@ -304,9 +313,9 @@ function UserModal({
               </label>
             ) : null}
             <label className="block">
-              <span className="text-sm font-medium text-zinc-300">Role</span>
+              <span className="text-sm font-medium text-slate-600">Role</span>
               <select
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
+                className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
                 onChange={(event) => onChange("role", event.target.value)}
                 value={formState.role}
               >
@@ -318,11 +327,11 @@ function UserModal({
               </select>
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-zinc-300">
+              <span className="text-sm font-medium text-slate-600">
                 Active Status
               </span>
               <select
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
+                className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
                 onChange={(event) =>
                   onChange("isActive", event.target.value === "active")
                 }
@@ -334,17 +343,16 @@ function UserModal({
             </label>
           </div>
 
-          <div className="flex flex-col-reverse gap-3 border-t border-white/10 pt-5 sm:flex-row sm:justify-end">
+          <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
             <button
-              className="rounded-full border border-white/10 px-5 py-2.5 text-sm font-semibold text-zinc-300 transition hover:bg-white/10"
+              className="rounded-full border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
               disabled={isSaving}
               onClick={onClose}
               type="button"
             >
               Cancel
             </button>
-            <button
-              className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
+            <PrimaryActionButton
               disabled={isSaving}
               type="submit"
             >
@@ -353,7 +361,7 @@ function UserModal({
                 : isCreateMode
                   ? "Create User"
                   : "Save Changes"}
-            </button>
+            </PrimaryActionButton>
           </div>
         </form>
       </div>
@@ -362,6 +370,7 @@ function UserModal({
 }
 
 export default function AdminUsersPage() {
+  const searchParams = useSearchParams();
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -370,6 +379,13 @@ export default function AdminUsersPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserRecord | null>(null);
   const [formState, setFormState] = useState<UserFormState>(emptyUserForm);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    if (searchParams.get("action") !== "create") return;
+    const timeoutId = window.setTimeout(() => setIsModalOpen(true), 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [searchParams]);
 
   const loadUsers = useCallback(async () => {
     setIsLoading(true);
@@ -409,6 +425,13 @@ export default function AdminUsersPage() {
       drivers: users.filter((user) => user.role === "driver").length,
     };
   }, [users]);
+
+  const totalPages = Math.max(1, Math.ceil(users.length / DEFAULT_PAGE_SIZE));
+  const activePage = Math.min(currentPage, totalPages);
+  const paginatedUsers = users.slice(
+    (activePage - 1) * DEFAULT_PAGE_SIZE,
+    activePage * DEFAULT_PAGE_SIZE,
+  );
 
   function openCreateModal() {
     setEditingUser(null);
@@ -535,28 +558,21 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <section className="space-y-5 text-white">
-      <div className="flex flex-col gap-4 rounded-3xl bg-[#222222] p-5 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lime-400">
-            Access Operations
-          </p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Users</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
-            Manage operational profile records, user roles, contact details,
-            and active status for the admin and dispatch workflows.
-          </p>
-        </div>
-        <button
-          className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-200"
-          onClick={openCreateModal}
-          type="button"
-        >
-          Create User
-        </button>
-      </div>
+    <section className="space-y-4 text-[#17232b]">
+      <AdminPageIntro
+        actions={
+          <PrimaryActionButton onClick={openCreateModal} type="button">
+            + Create user
+          </PrimaryActionButton>
+        }
+        description={
+          "Manage operational profile records, user roles, contact details, and active status for the admin and dispatch workflows."
+        }
+        eyebrow="Access operations"
+        title="Users"
+      />
 
-      <div className="rounded-3xl border border-lime-400/20 bg-lime-400/10 px-5 py-4 text-sm text-lime-100">
+      <div className="rounded-2xl border border-purple-100 bg-purple-50 px-5 py-4 text-sm text-purple-700">
         Authentication account creation is handled by a secure server-side
         flow.
       </div>
@@ -585,12 +601,12 @@ export default function AdminUsersPage() {
         />
       </div>
 
-      <div className="rounded-3xl bg-[#222222] p-5">
+      <AdminCard className="p-4">
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_220px]">
           <label className="block">
             <span className="sr-only">Search users</span>
             <input
-              className="h-11 w-full rounded-full border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-white/20"
+              className="h-11 w-full rounded-full border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
               placeholder="Search users"
               type="search"
             />
@@ -598,7 +614,7 @@ export default function AdminUsersPage() {
           <label className="block">
             <span className="sr-only">Role filter</span>
             <select
-              className="h-11 w-full rounded-full border border-white/10 bg-black/30 px-4 text-sm text-zinc-300 outline-none transition focus:border-white/20"
+              className="h-11 w-full rounded-full border border-slate-200 bg-slate-50 px-4 text-sm text-slate-600 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
               defaultValue=""
             >
               <option value="">Role</option>
@@ -612,7 +628,7 @@ export default function AdminUsersPage() {
           <label className="block">
             <span className="sr-only">Status filter</span>
             <select
-              className="h-11 w-full rounded-full border border-white/10 bg-black/30 px-4 text-sm text-zinc-300 outline-none transition focus:border-white/20"
+              className="h-11 w-full rounded-full border border-slate-200 bg-slate-50 px-4 text-sm text-slate-600 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
               defaultValue=""
             >
               <option value="">Status</option>
@@ -621,49 +637,50 @@ export default function AdminUsersPage() {
             </select>
           </label>
         </div>
-      </div>
+      </AdminCard>
 
       {successMessage ? (
-        <p className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+        <p className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           {successMessage}
         </p>
       ) : null}
 
       {errorMessage ? (
-        <p className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+        <p className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
           {errorMessage}
         </p>
       ) : null}
 
-      <div className="overflow-hidden rounded-3xl bg-[#222222] text-white">
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+      <AdminCard className="overflow-hidden">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <div>
             <h2 className="text-xl font-medium">User Profiles</h2>
-            <p className="mt-1 text-sm text-zinc-500">
+            <p className="mt-1 text-sm text-slate-400">
               Profile records loaded from the profiles table.
             </p>
           </div>
         </div>
 
         {isLoading ? (
-          <p className="px-5 py-10 text-sm text-zinc-400">
+          <p className="px-5 py-10 text-sm text-slate-500">
             Loading user profiles...
           </p>
         ) : users.length === 0 ? (
           <div className="px-5 py-16 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-sm font-semibold text-white">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-purple-50 text-sm font-semibold text-purple-700">
               US
             </div>
             <h3 className="mt-4 text-lg font-semibold">No users found.</h3>
-            <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-zinc-400">
+            <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">
               Create a profile record to begin organizing admin, dispatcher,
               and driver users.
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="text-left text-xs text-zinc-500">
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm [&_td]:py-2.5 [&_th]:py-2.5">
+              <thead className="border-b border-slate-100 bg-slate-50/70 text-left text-xs text-slate-400">
                 <tr>
                   <th className="px-5 py-4 font-medium">Name</th>
                   <th className="px-5 py-4 font-medium">Email</th>
@@ -674,19 +691,19 @@ export default function AdminUsersPage() {
                   <th className="px-5 py-4 text-right font-medium">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5 text-zinc-300">
-                {users.map((user) => (
-                  <tr className="transition hover:bg-white/5" key={user.profileId}>
+              <tbody className="divide-y divide-slate-100 text-slate-500">
+                {paginatedUsers.map((user) => (
+                  <tr className="transition hover:bg-slate-50/70" key={user.profileId}>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-sm font-semibold text-black">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-purple-50 text-xs font-semibold text-purple-700">
                           {(user.firstName[0] || "U").toUpperCase()}
                         </div>
                         <div>
-                          <p className="font-semibold text-white">
+                          <p className="font-semibold text-[#17232b]">
                             {getUserName(user)}
                           </p>
-                          <p className="text-xs text-zinc-500">
+                          <p className="max-w-32 truncate text-xs text-slate-400">
                             {user.profileId}
                           </p>
                         </div>
@@ -705,7 +722,7 @@ export default function AdminUsersPage() {
                     </td>
                     <td className="px-5 py-4 text-right">
                       <button
-                        className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-white/10"
+                        className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700"
                         onClick={() => openEditModal(user)}
                         type="button"
                       >
@@ -715,10 +732,18 @@ export default function AdminUsersPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+          </>
         )}
-      </div>
+      </AdminCard>
+
+      <Pagination
+        currentPage={activePage}
+        onPageChange={setCurrentPage}
+        totalPages={totalPages}
+        totalRecords={users.length}
+      />
 
       {isModalOpen ? (
         <UserModal

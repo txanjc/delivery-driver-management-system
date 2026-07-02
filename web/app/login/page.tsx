@@ -6,7 +6,9 @@ import { supabase } from "@/lib/supabase";
 import { getRoleRedirectPath, type WebUserRole } from "@/lib/role-redirect";
 
 type UserProfile = {
+  profile_id: string;
   role: WebUserRole;
+  is_active: boolean | null;
   must_change_password: boolean | null;
 };
 
@@ -42,7 +44,7 @@ export default function LoginPage() {
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("role, must_change_password")
+      .select("profile_id, role, is_active, must_change_password")
       .eq("profile_id", authData.user.id)
       .maybeSingle<UserProfile>();
 
@@ -54,6 +56,13 @@ export default function LoginPage() {
 
     if (!profile) {
       setErrorMessage("No profile was found for this account.");
+      setIsLoading(false);
+      return;
+    }
+
+    if (profile.is_active !== true) {
+      await supabase.auth.signOut({ scope: "local" });
+      setErrorMessage("This account is inactive. Contact an administrator.");
       setIsLoading(false);
       return;
     }

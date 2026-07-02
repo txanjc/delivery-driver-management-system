@@ -2,10 +2,16 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import { supabase } from "@/lib/supabase";
+
+import { TimeDateWidget } from "./TimeDateWidget";
+import {
+  QuickActionsDropdown,
+  type QuickActionsRole,
+} from "./QuickActionsDropdown";
 
 type IconName =
   | "brand"
@@ -45,6 +51,16 @@ const profileItems = [
   { label: "Account Settings", href: "/admin/settings" },
   { label: "Preferences", href: "/admin/settings" },
 ];
+
+type ProfileName = {
+  first_name: string | null;
+  last_name: string | null;
+  role: string | null;
+};
+
+function getInitials(firstName: string, lastName: string) {
+  return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || "AU";
+}
 
 function Icon({ name }: { name: IconName }) {
   const commonProps = {
@@ -165,9 +181,51 @@ function Icon({ name }: { name: IconName }) {
 export function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
+  const [profileName, setProfileName] = useState({
+    firstName: "Admin",
+    lastName: "User",
+  });
+  const [userRole, setUserRole] = useState<QuickActionsRole | null>(null);
+  const fullName = `${profileName.firstName} ${profileName.lastName}`.trim();
+  const initials = getInitials(profileName.firstName, profileName.lastName);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadProfileName() {
+      const { data: userData } = await supabase.auth.getUser();
+
+      if (!isMounted || !userData.user) {
+        return;
+      }
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("first_name, last_name, role")
+        .eq("profile_id", userData.user.id)
+        .maybeSingle<ProfileName>();
+
+      if (!isMounted || !profile) {
+        return;
+      }
+
+      setProfileName({
+        firstName: profile.first_name?.trim() || "Admin",
+        lastName: profile.last_name?.trim() || "User",
+      });
+      setUserRole(profile.role === "dispatcher" ? "dispatcher" : "admin");
+    }
+
+    void loadProfileName();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   async function handleLogout() {
     setIsLoggingOut(true);
@@ -189,21 +247,41 @@ export function AdminShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#111111] text-white">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 flex-col border-r border-white/10 bg-black px-4 py-5 lg:flex">
-        <Link className="flex items-center gap-3 px-2" href="/admin">
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-black">
+    <div className="min-h-screen bg-slate-100 text-slate-950">
+      <aside
+        className={`fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden border-r border-slate-200 bg-white px-3 py-5 shadow-xl shadow-slate-900/5 transition-[width] duration-300 ease-out lg:flex ${
+          isSidebarExpanded ? "w-72" : "w-20"
+        }`}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) {
+            setIsSidebarExpanded(false);
+          }
+        }}
+        onFocus={() => setIsSidebarExpanded(true)}
+        onMouseEnter={() => setIsSidebarExpanded(true)}
+        onMouseLeave={() => setIsSidebarExpanded(false)}
+      >
+        <Link
+          aria-label="DeliverEaze Logistics dashboard"
+          className="flex h-11 min-w-0 items-center gap-3 px-2"
+          href="/admin"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-blue-500 text-white shadow-sm shadow-indigo-500/20">
             <Icon name="brand" />
           </span>
-          <span>
-            <span className="block text-sm font-semibold tracking-tight">
+          <span
+            className={`min-w-44 whitespace-nowrap transition-opacity duration-200 ${
+              isSidebarExpanded ? "opacity-100" : "opacity-0"
+            }`}
+          >
+            <span className="block text-sm font-semibold tracking-tight text-slate-950">
               DeliverEaze Logistics
             </span>
-            <span className="text-xs text-zinc-500">Operations Portal</span>
+            <span className="text-xs text-slate-500">Operations Portal</span>
           </span>
         </Link>
 
-        <nav aria-label="Admin navigation" className="mt-8 space-y-1">
+        <nav aria-label="Admin navigation" className="mt-8 flex-1 space-y-1">
           {navigationItems.map((item) => {
             const isActive =
               pathname === item.href ||
@@ -211,28 +289,51 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
             return (
               <Link
-                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                aria-current={isActive ? "page" : undefined}
+                aria-label={!isSidebarExpanded ? item.label : undefined}
+                className={`flex h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium transition-colors ${
                   isActive
-                    ? "bg-white text-black"
-                    : "text-zinc-400 hover:bg-white/10 hover:text-white"
+                    ? "bg-[#6d4aff] text-white shadow-sm shadow-purple-200"
+                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-950"
                 }`}
                 href={item.href}
                 key={item.href}
+                title={!isSidebarExpanded ? item.label : undefined}
               >
-                <Icon name={item.icon} />
-                {item.label}
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+                  <Icon name={item.icon} />
+                </span>
+                <span
+                  className={`min-w-32 whitespace-nowrap transition-opacity duration-200 ${
+                    isSidebarExpanded ? "opacity-100" : "opacity-0"
+                  }`}
+                >
+                  {item.label}
+                </span>
               </Link>
             );
           })}
         </nav>
+
+        <p
+          className={`min-w-44 whitespace-nowrap px-3 text-xs text-slate-400 transition-opacity duration-200 ${
+            isSidebarExpanded ? "opacity-100" : "opacity-0"
+          }`}
+        >
+          DeliverEaze Admin
+        </p>
       </aside>
 
-      <div className="lg:pl-72">
-        <header className="sticky top-0 z-20 border-b border-white/10 bg-black px-5 py-4">
-          <div className="flex items-center justify-between gap-4">
+      <div
+        className={`transition-[padding] duration-300 ease-out ${
+          isSidebarExpanded ? "lg:pl-72" : "lg:pl-20"
+        }`}
+      >
+        <header className="sticky top-0 z-20 border-b border-slate-100 bg-white/95 px-5 py-4 backdrop-blur-xl lg:px-8">
+          <div className="flex items-center justify-between gap-4 lg:grid lg:grid-cols-[1fr_minmax(18rem,24rem)_1fr]">
             <div className="lg:hidden">
               <Link className="flex items-center gap-3" href="/admin">
-                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white">
                   <Icon name="brand" />
                 </span>
                 <span className="text-sm font-semibold tracking-tight">
@@ -241,52 +342,76 @@ export function AdminShell({ children }: { children: ReactNode }) {
               </Link>
             </div>
 
-            <label className="relative hidden max-w-md flex-1 lg:block">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">
+            <div className="hidden items-center gap-2 justify-self-start lg:flex">
+              <TimeDateWidget />
+              {userRole ? <QuickActionsDropdown role={userRole} /> : null}
+            </div>
+
+            <label className="relative hidden w-full justify-self-center lg:block">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
                 <Icon name="search" />
               </span>
               <input
-                className="h-10 w-full rounded-full border border-white/10 bg-zinc-900 pl-10 pr-4 text-sm text-zinc-200 outline-none transition placeholder:text-zinc-500 focus:border-white/20 focus:bg-zinc-800"
+                className="h-10 w-full rounded-full border border-slate-200 bg-slate-50 pl-10 pr-4 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
                 placeholder="Search deliveries, routes, drivers"
                 type="search"
               />
             </label>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3 lg:justify-self-end">
               <button
                 aria-label="Notifications"
-                className="relative flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-zinc-900 text-zinc-300 transition hover:bg-zinc-800"
+                className="relative flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-slate-200 hover:text-slate-900"
                 type="button"
               >
                 <Icon name="bell" />
-                <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-orange-400" />
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none text-white">
+                  3
+                </span>
               </button>
 
               <div className="relative">
                 <button
                   aria-expanded={isProfileOpen}
                   aria-haspopup="menu"
-                  className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-black transition hover:bg-zinc-200"
+                  className="flex items-center gap-2.5 rounded-full py-1 pl-1 pr-2 text-slate-700 transition hover:bg-slate-100"
                   onClick={() => setIsProfileOpen((current) => !current)}
                   type="button"
                 >
-                  <Icon name="user" />
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-purple-100 text-xs font-bold text-[#6d4aff] ring-2 ring-white">
+                    {initials}
+                  </span>
+                  <span className="hidden max-w-40 truncate text-sm font-medium sm:block">
+                    {fullName}
+                  </span>
+                  <svg
+                    aria-hidden
+                    className={`h-4 w-4 text-slate-400 transition-transform ${
+                      isProfileOpen ? "rotate-180" : ""
+                    }`}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
                 </button>
 
                 {isProfileOpen ? (
-                  <div className="absolute right-0 mt-3 w-56 rounded-2xl border border-white/10 bg-[#222222] p-2 shadow-2xl">
-                    <div className="border-b border-white/10 px-3 py-3">
-                      <p className="text-sm font-semibold text-white">
-                        Admin User
+                  <div className="absolute right-0 mt-3 w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl shadow-slate-900/10">
+                    <div className="border-b border-slate-100 px-3 py-3">
+                      <p className="text-sm font-semibold text-slate-950">
+                        {fullName}
                       </p>
-                      <p className="text-xs text-zinc-400">
+                      <p className="text-xs text-slate-500">
                         Operations Manager
                       </p>
                     </div>
                     <div className="py-2">
                       {profileItems.map((item) => (
                         <Link
-                          className="block rounded-xl px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/10 hover:text-white"
+                          className="block rounded-xl px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-100 hover:text-slate-950"
                           href={item.href}
                           key={item.label}
                           onClick={() => setIsProfileOpen(false)}
@@ -295,7 +420,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                         </Link>
                       ))}
                       <button
-                        className="block w-full rounded-xl px-3 py-2 text-left text-sm text-zinc-300 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                        className="block w-full rounded-xl px-3 py-2 text-left text-sm text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
                         disabled={isLoggingOut}
                         onClick={() => void handleLogout()}
                         type="button"
@@ -313,9 +438,36 @@ export function AdminShell({ children }: { children: ReactNode }) {
               </div>
             </div>
           </div>
+
+          <nav
+            aria-label="Mobile admin navigation"
+            className="mt-4 flex gap-2 overflow-x-auto border-t border-slate-100 pt-3 lg:hidden"
+          >
+            {navigationItems.map((item) => {
+              const isActive =
+                pathname === item.href ||
+                (item.href !== "/admin" && pathname.startsWith(item.href));
+
+              return (
+                <Link
+                  aria-current={isActive ? "page" : undefined}
+                  className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                    isActive
+                      ? "bg-[#6d4aff] text-white"
+                      : "text-slate-500 hover:bg-slate-100 hover:text-slate-950"
+                  }`}
+                  href={item.href}
+                  key={item.href}
+                >
+                  <Icon name={item.icon} />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
         </header>
 
-        <main className="mx-auto w-full max-w-[1440px] px-5 py-5">
+        <main className="mx-auto w-full max-w-[1480px] px-4 py-5 sm:px-5 lg:px-7 lg:py-6">
           {children}
         </main>
       </div>

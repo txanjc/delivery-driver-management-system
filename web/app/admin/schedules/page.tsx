@@ -1,8 +1,10 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { supabase } from "@/lib/supabase";
+import { DEFAULT_PAGE_SIZE, Pagination } from "../_components/Pagination";
 
 type ShiftType = "morning" | "evening";
 type ScheduleStatus = "scheduled" | "completed" | "cancelled" | "conflict";
@@ -356,12 +358,12 @@ function ScheduleStatusBadge({
   return (
     <div className="flex flex-wrap gap-2">
       <span
-        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
+        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeClass}`}
       >
         {formatStatus(status)}
       </span>
       {hasConflict ? (
-        <span className="inline-flex rounded-full bg-red-500/15 px-2.5 py-1 text-xs font-semibold text-red-300">
+        <span className="inline-flex rounded-full bg-red-500/15 px-2.5 py-0.5 text-xs font-semibold text-red-300">
           Conflict
         </span>
       ) : null}
@@ -517,6 +519,7 @@ function ScheduleModal({
 }
 
 export default function AdminSchedulesPage() {
+  const searchParams = useSearchParams();
   const [schedules, setSchedules] = useState<ScheduleRecord[]>([]);
   const [drivers, setDrivers] = useState<DriverOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -528,10 +531,17 @@ export default function AdminSchedulesPage() {
     useState<ScheduleRecord | null>(null);
   const [formState, setFormState] =
     useState<ScheduleFormState>(emptyScheduleForm);
+
+  useEffect(() => {
+    if (searchParams.get("action") !== "create") return;
+    const timeoutId = window.setTimeout(() => setIsModalOpen(true), 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [searchParams]);
   const [searchQuery, setSearchQuery] = useState("");
   const [driverFilter, setDriverFilter] = useState("");
   const [shiftFilter, setShiftFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
 
   const loadScheduleData = useCallback(async () => {
     setIsLoading(true);
@@ -625,6 +635,16 @@ export default function AdminSchedulesPage() {
     shiftFilter,
     statusFilter,
   ]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredSchedules.length / DEFAULT_PAGE_SIZE),
+  );
+  const activePage = Math.min(currentPage, totalPages);
+  const paginatedSchedules = filteredSchedules.slice(
+    (activePage - 1) * DEFAULT_PAGE_SIZE,
+    activePage * DEFAULT_PAGE_SIZE,
+  );
 
   function openCreateModal() {
     setEditingSchedule(null);
@@ -723,7 +743,7 @@ export default function AdminSchedulesPage() {
   }
 
   return (
-    <section className="space-y-5 text-white">
+    <section className="space-y-4 text-white">
       <div className="flex flex-col gap-4 rounded-3xl bg-[#222222] p-5 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lime-400">
@@ -882,8 +902,9 @@ export default function AdminSchedulesPage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm [&_td]:py-2.5 [&_th]:py-2.5">
               <thead className="text-left text-xs text-zinc-500">
                 <tr>
                   <th className="px-5 py-4 font-medium">Driver</th>
@@ -895,7 +916,7 @@ export default function AdminSchedulesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5 text-zinc-300">
-                {filteredSchedules.map((schedule) => {
+                {paginatedSchedules.map((schedule) => {
                   const hasConflict = conflictIds.has(schedule.scheduleId);
                   const shift = shiftOptions.find(
                     (option) => option.value === schedule.shiftType,
@@ -912,7 +933,7 @@ export default function AdminSchedulesPage() {
                     >
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-sm font-semibold text-black">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-xs font-semibold text-black">
                             {(schedule.driverName[0] || "D").toUpperCase()}
                           </div>
                           <div>
@@ -945,7 +966,7 @@ export default function AdminSchedulesPage() {
                       </td>
                       <td className="px-5 py-4 text-right">
                         <button
-                          className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-white/10"
+                          className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-zinc-300 transition hover:bg-white/10"
                           onClick={() => openEditModal(schedule)}
                           type="button"
                         >
@@ -956,10 +977,18 @@ export default function AdminSchedulesPage() {
                   );
                 })}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+          </>
         )}
       </div>
+
+      <Pagination
+        currentPage={activePage}
+        onPageChange={setCurrentPage}
+        totalPages={totalPages}
+        totalRecords={filteredSchedules.length}
+      />
 
       {isModalOpen ? (
         <ScheduleModal

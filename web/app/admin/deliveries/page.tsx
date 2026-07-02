@@ -1,9 +1,11 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { StatusBadge } from "../_components/admin-ui";
 import { supabase } from "@/lib/supabase";
+import { DEFAULT_PAGE_SIZE, Pagination } from "../_components/Pagination";
 
 type DeliveryStatus =
   | "Pending"
@@ -390,7 +392,7 @@ function PriorityBadge({ priority }: { priority: string }) {
         : "bg-slate-100 text-slate-700";
 
   return (
-    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${tone}`}>
+    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${tone}`}>
       {priority}
     </span>
   );
@@ -614,6 +616,7 @@ function DeliveryModal({
 }
 
 export default function DeliveriesPage() {
+  const searchParams = useSearchParams();
   const [deliveries, setDeliveries] = useState<DeliveryRecord[]>([]);
   const [driverOptions, setDriverOptions] = useState<DriverOption[]>([]);
   const [vehicleOptions, setVehicleOptions] = useState<VehicleOption[]>([]);
@@ -624,8 +627,15 @@ export default function DeliveriesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingDelivery, setEditingDelivery] =
     useState<DeliveryRecord | null>(null);
+
+  useEffect(() => {
+    if (searchParams.get("action") !== "create") return;
+    const timeoutId = window.setTimeout(() => setIsModalOpen(true), 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [searchParams]);
   const [formState, setFormState] =
     useState<DeliveryFormState>(emptyDeliveryForm);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const loadDeliveryData = useCallback(async () => {
     setIsLoading(true);
@@ -733,6 +743,16 @@ export default function DeliveriesPage() {
       }).length,
     };
   }, [deliveries]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(deliveries.length / DEFAULT_PAGE_SIZE),
+  );
+  const activePage = Math.min(currentPage, totalPages);
+  const paginatedDeliveries = deliveries.slice(
+    (activePage - 1) * DEFAULT_PAGE_SIZE,
+    activePage * DEFAULT_PAGE_SIZE,
+  );
 
   const assignedDrivers = useMemo(
     () =>
@@ -852,7 +872,7 @@ export default function DeliveriesPage() {
   }
 
   return (
-    <section className="space-y-5 text-white">
+    <section className="space-y-4 text-white">
       <div className="flex flex-col gap-4 rounded-3xl bg-[#222222] p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lime-400">
@@ -947,8 +967,9 @@ export default function DeliveriesPage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm [&_td]:py-2.5 [&_th]:py-2.5">
               <thead className="bg-black/20 text-xs uppercase tracking-wide text-neutral-500">
                 <tr>
                   <th className="px-5 py-4 font-medium">Delivery Number</th>
@@ -965,7 +986,7 @@ export default function DeliveriesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
-                {deliveries.map((delivery) => (
+                {paginatedDeliveries.map((delivery) => (
                   <tr
                     className="text-neutral-200 transition hover:bg-white/[0.03]"
                     key={delivery.deliveryId}
@@ -1008,10 +1029,18 @@ export default function DeliveriesPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+          </>
         )}
       </div>
+
+      <Pagination
+        currentPage={activePage}
+        onPageChange={setCurrentPage}
+        totalPages={totalPages}
+        totalRecords={deliveries.length}
+      />
 
       {isModalOpen ? (
         <DeliveryModal
