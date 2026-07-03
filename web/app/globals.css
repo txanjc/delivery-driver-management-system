@@ -20,3 +20,51 @@ body {
   color: var(--foreground);
   font-family: var(--font-plus-jakarta-sans), Arial, Helvetica, sans-serif;
 }
+
+.user-modal-scrollbar {
+  scrollbar-color: #7c3aed #f3e8ff;
+  scrollbar-width: thin;
+}
+
+.user-modal-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.user-modal-scrollbar::-webkit-scrollbar-track {
+  margin-block: 14px;
+  border-radius: 999px;
+  background: #f3e8ff;
+}
+
+.user-modal-scrollbar::-webkit-scrollbar-thumb {
+  border: 2px solid #f3e8ff;
+  border-radius: 999px;
+  background: #7c3aed;
+}
+
+.user-modal-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #6d28d9;
+}
+
+.user-details-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364758b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");
+  background-position: right 0.9rem center;
+  background-repeat: no-repeat;
+  background-size: 1rem;
+}
+
+.users-filter-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");
+  background-position: right 1rem center;
+  background-repeat: no-repeat;
+  background-size: 1rem;
+}
+
+.users-search-input::-webkit-search-cancel-button {
+  cursor: pointer;
+  filter: grayscale(1) opacity(0.55);
+}
+
+.users-search-input::-webkit-search-cancel-button:hover {
+  filter: grayscale(1) opacity(0.8);
+}

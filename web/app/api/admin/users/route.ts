@@ -12,6 +12,10 @@ type CreateUserRequest = {
   temporaryPassword: string;
 };
 
+type UpdateUserRequest = CreateUserRequest & {
+  profileId: string;
+};
+
 type AdminProfile = {
   role: string | null;
   is_active: boolean | null;
@@ -79,6 +83,26 @@ function parseCreateUserRequest(body: unknown): CreateUserRequest | null {
   };
 }
 
+function parseUpdateUserRequest(body: unknown): UpdateUserRequest | null {
+  if (!isRecord(body)) return null;
+
+  const role = readString(body, "role");
+  if (!validRoles.includes(role as UserRole) || typeof body.isActive !== "boolean") {
+    return null;
+  }
+
+  return {
+    profileId: readString(body, "profileId"),
+    firstName: readString(body, "firstName"),
+    lastName: readString(body, "lastName"),
+    email: readString(body, "email").toLowerCase(),
+    phone: readString(body, "phone"),
+    role: role as UserRole,
+    isActive: body.isActive,
+    temporaryPassword: readString(body, "temporaryPassword"),
+  };
+}
+
 function getBearerToken(request: Request) {
   const authorizationHeader = request.headers.get("authorization") ?? "";
   const [scheme, token] = authorizationHeader.split(" ");
@@ -88,6 +112,124 @@ function getBearerToken(request: Request) {
   }
 
   return token;
+}
+
+async function createAuthorizedAdminClients(request: Request) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !publishableKey || !serviceRoleKey) return null;
+
+  const accessToken = getBearerToken(request);
+  if (!accessToken) return null;
+
+  const requesterSupabase = createClient(supabaseUrl, publishableKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+  });
+  const { data: requesterData, error: requesterError } =
+    await requesterSupabase.auth.getUser(accessToken);
+  if (requesterError || !requesterData.user) return null;
+
+  const { data: adminProfile, error: profileError } = await requesterSupabase
+    .from("profiles")
+    .select("role, is_active")
+    .eq("profile_id", requesterData.user.id)
+    .maybeSingle<AdminProfile>();
+  if (profileError || adminProfile?.role !== "admin" || adminProfile.is_active !== true) {
+    return null;
+  }
+
+  return {
+    adminSupabase: createClient(supabaseUrl, serviceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    }),
+  };
+}
+
+export async function GET(request: Request) {
+  const clients = await createAuthorizedAdminClients(request);
+  if (!clients) return jsonResponse({ error: "Active admin access is required." }, 403);
+
+  const profileId = new URL(request.url).searchParams.get("profileId")?.trim();
+  if (!profileId) return jsonResponse({ error: "User ID is required." }, 400);
+
+  const { data, error } = await clients.adminSupabase.auth.admin.getUserById(profileId);
+  if (error || !data.user) {
+    return jsonResponse({ error: error?.message ?? "User was not found." }, 404);
+  }
+
+  return Response.json({
+    authDetails: {
+      createdAt: data.user.created_at,
+      updatedAt: data.user.updated_at ?? null,
+      lastLoginAt: data.user.last_sign_in_at ?? null,
+    },
+  });
+}
+
+export async function PATCH(request: Request) {
+  const clients = await createAuthorizedAdminClients(request);
+  if (!clients) return jsonResponse({ error: "Active admin access is required." }, 403);
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: "Request body must be valid JSON." }, 400);
+  }
+
+  const userRequest = parseUpdateUserRequest(body);
+  if (!userRequest?.profileId || !userRequest.email) {
+    return jsonResponse({ error: "A user ID and email are required." }, 400);
+  }
+
+  if (userRequest.temporaryPassword && userRequest.temporaryPassword.length < 8) {
+    return jsonResponse(
+      { error: "Temporary password must be at least 8 characters." },
+      400,
+    );
+  }
+
+  const { error: authError } = await clients.adminSupabase.auth.admin.updateUserById(
+    userRequest.profileId,
+    {
+      email: userRequest.email,
+      ...(userRequest.temporaryPassword
+        ? { password: userRequest.temporaryPassword }
+        : {}),
+      user_metadata: {
+        first_name: userRequest.firstName,
+        last_name: userRequest.lastName,
+        role: userRequest.role,
+      },
+    },
+  );
+  if (authError) return jsonResponse({ error: authError.message }, 400);
+
+  const { error: profileError } = await clients.adminSupabase
+    .from("profiles")
+    .update({
+      first_name: userRequest.firstName || null,
+      last_name: userRequest.lastName || null,
+      email: userRequest.email,
+      phone: userRequest.phone || null,
+      role: userRequest.role,
+      is_active: userRequest.isActive,
+      ...(userRequest.temporaryPassword ? { must_change_password: true } : {}),
+    })
+    .eq("profile_id", userRequest.profileId);
+  if (profileError) return jsonResponse({ error: profileError.message }, 400);
+
+  const { data } = await clients.adminSupabase.auth.admin.getUserById(userRequest.profileId);
+  return Response.json({
+    message: "User updated successfully.",
+    authDetails: {
+      createdAt: data.user?.created_at ?? null,
+      updatedAt: data.user?.updated_at ?? null,
+      lastLoginAt: data.user?.last_sign_in_at ?? null,
+    },
+  });
 }
 
 export async function POST(request: Request) {

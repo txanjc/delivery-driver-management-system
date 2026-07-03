@@ -12,6 +12,8 @@ import { supabase } from "@/lib/supabase";
 import { DEFAULT_PAGE_SIZE, Pagination } from "../_components/Pagination";
 
 type UserRole = "admin" | "dispatcher" | "driver";
+type StatusFilter = "active" | "inactive" | "all";
+type RoleFilter = UserRole | "all";
 
 type ProfileRow = {
   profile_id: string;
@@ -33,6 +35,8 @@ type UserRecord = {
   role: UserRole;
   isActive: boolean;
   createdAt: string | null;
+  updatedAt: string | null;
+  lastLoginAt: string | null;
 };
 
 type UserFormState = {
@@ -43,6 +47,7 @@ type UserFormState = {
   role: UserRole;
   isActive: boolean;
   temporaryPassword: string;
+  confirmTemporaryPassword: string;
 };
 
 type UserPayload = {
@@ -62,6 +67,7 @@ const emptyUserForm: UserFormState = {
   role: "driver",
   isActive: true,
   temporaryPassword: "",
+  confirmTemporaryPassword: "",
 };
 
 const roleOptions: UserRole[] = ["admin", "dispatcher", "driver"];
@@ -90,6 +96,8 @@ function toUserRecord(profile: ProfileRow): UserRecord {
     role: toUserRole(profile.role),
     isActive: profile.is_active ?? false,
     createdAt: profile.created_at,
+    updatedAt: null,
+    lastLoginAt: null,
   };
 }
 
@@ -102,6 +110,7 @@ function toUserForm(user: UserRecord): UserFormState {
     role: user.role,
     isActive: user.isActive,
     temporaryPassword: "",
+    confirmTemporaryPassword: "",
   };
 }
 
@@ -126,7 +135,41 @@ function formatRole(role: UserRole) {
   return role.charAt(0).toUpperCase() + role.slice(1);
 }
 
-function formatCreatedDate(value: string | null) {
+function normalizeSearchValue(value: string) {
+  return value.trim().toLocaleLowerCase();
+}
+
+function isSubsequenceMatch(query: string, value: string) {
+  let queryIndex = 0;
+
+  for (const character of value) {
+    if (character === query[queryIndex]) queryIndex += 1;
+    if (queryIndex === query.length) return true;
+  }
+
+  return false;
+}
+
+function matchesUserSearch(user: UserRecord, search: string) {
+  const tokens = normalizeSearchValue(search).split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return true;
+
+  const fullName = normalizeSearchValue(`${user.firstName} ${user.lastName}`);
+  const searchableValues = [
+    normalizeSearchValue(user.firstName),
+    normalizeSearchValue(user.lastName),
+    fullName,
+    normalizeSearchValue(user.email),
+  ];
+
+  return tokens.every((token) =>
+    searchableValues.some(
+      (value) => value.includes(token) || isSubsequenceMatch(token, value),
+    ),
+  );
+}
+
+function formatDateTime(value: string | null) {
   if (!value) {
     return "Not recorded";
   }
@@ -135,6 +178,8 @@ function formatCreatedDate(value: string | null) {
     month: "short",
     day: "numeric",
     year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
   }).format(new Date(value));
 }
 
@@ -148,7 +193,7 @@ function readApiError(responseBody: unknown) {
     return responseBody.error;
   }
 
-  return "Unable to create user.";
+  return "Unable to save user.";
 }
 
 function UserKpiCard({
@@ -208,60 +253,118 @@ function UserStatusBadge({ isActive }: { isActive: boolean }) {
 
 function UserModal({
   formState,
+  errorMessage,
+  user,
+  isEditing,
+  isLoadingDetails,
+  isDirty,
   isSaving,
   mode,
   onChange,
+  onCancel,
   onClose,
+  onEdit,
   onSubmit,
 }: {
   formState: UserFormState;
+  errorMessage: string;
+  user: UserRecord | null;
+  isEditing: boolean;
+  isLoadingDetails: boolean;
+  isDirty: boolean;
   isSaving: boolean;
-  mode: "create" | "edit";
+  mode: "create" | "view";
   onChange: (field: keyof UserFormState, value: string | boolean) => void;
+  onCancel: () => void;
   onClose: () => void;
+  onEdit: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const isCreateMode = mode === "create";
+  const fieldsEnabled = isCreateMode || isEditing;
+  const initials = `${formState.firstName[0] ?? ""}${formState.lastName[0] ?? ""}`.toUpperCase() || "U";
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const previousPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+
+    document.body.style.overflow = "hidden";
+    if (scrollbarWidth > 0) {
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.paddingRight = previousPaddingRight;
+    };
+  }, []);
 
   return (
     <div
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-md"
       role="dialog"
     >
-      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-[20px] border border-slate-100 bg-white p-6 text-[#17232b] shadow-2xl shadow-slate-900/20">
+      <div className="max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-[24px] border border-white bg-white/95 text-[#17232b] shadow-2xl shadow-slate-900/20 ring-1 ring-purple-100/50 backdrop-blur-xl">
+      <div className="user-modal-scrollbar max-h-[92vh] overflow-y-auto overscroll-contain scroll-smooth p-5 sm:p-6">
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
           <div>
             <h2 className="text-xl font-semibold">
-              {isCreateMode ? "Create User" : "Edit User"}
+              {isCreateMode ? "Create User" : "User Details"}
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Create and maintain profile records for admin portal workflows.
+              {isCreateMode ? "Create a user account and profile." : "Review account details or enable editing to make changes."}
             </p>
           </div>
           <button
-            className="rounded-full border border-slate-200 px-3 py-1.5 text-sm text-slate-500 transition hover:bg-slate-100"
+            aria-label="Close user details"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-slate-200 bg-white/60 p-0 text-slate-500 transition hover:border-purple-200 hover:bg-purple-50/80 hover:text-purple-700"
             disabled={isSaving}
             onClick={onClose}
             type="button"
           >
-            Close
+            <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+              <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+            </svg>
           </button>
         </div>
 
         <form className="mt-5 space-y-5" onSubmit={onSubmit}>
-          <div className="rounded-2xl border border-purple-100 bg-purple-50 px-4 py-3 text-sm text-purple-700">
-            Authentication account creation is handled by a secure server-side
-            flow.
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
+          {errorMessage ? (
+            <p className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</p>
+          ) : null}
+          <div className={isCreateMode ? "" : "grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]"}>
+          {!isCreateMode ? (
+            <aside className="border-b border-dashed border-slate-200 pb-6 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-6">
+              <div className="flex flex-col items-center text-center">
+                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-purple-100 text-2xl font-semibold text-purple-700">{initials}</div>
+                <p className="mt-3 text-lg font-semibold">{[formState.firstName, formState.lastName].filter(Boolean).join(" ") || "Unnamed user"}</p>
+                <p className="mt-1 max-w-full break-all text-xs text-slate-400">{user?.profileId ?? "Not recorded"}</p>
+                <div className="mt-2 flex flex-wrap justify-center gap-2">
+                  <RoleBadge role={formState.role} />
+                  <UserStatusBadge isActive={formState.isActive} />
+                </div>
+                <p className="mt-3 break-all text-sm text-slate-500">{formState.email || "No email"}</p>
+                <div className="mt-1 text-xs text-slate-400">
+                  <span>Last login: </span>
+                  <span>{isLoadingDetails ? "Loading..." : formatDateTime(user?.lastLoginAt ?? null)}</span>
+                </div>
+              </div>
+              <div className="mt-5 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2 lg:grid-cols-1">
+                <DetailField label="Created at" value={formatDateTime(user?.createdAt ?? null)} />
+                <DetailField label="Last updated at" value={isLoadingDetails ? "Loading..." : formatDateTime(user?.updatedAt ?? null)} />
+              </div>
+            </aside>
+          ) : null}
+          <div className="grid content-start gap-4 md:grid-cols-2">
             <label className="block">
               <span className="text-sm font-medium text-slate-600">
                 First Name
               </span>
               <input
                 className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
+                disabled={!fieldsEnabled}
                 onChange={(event) => onChange("firstName", event.target.value)}
                 value={formState.firstName}
               />
@@ -272,6 +375,7 @@ function UserModal({
               </span>
               <input
                 className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
+                disabled={!fieldsEnabled}
                 onChange={(event) => onChange("lastName", event.target.value)}
                 value={formState.lastName}
               />
@@ -280,7 +384,7 @@ function UserModal({
               <span className="text-sm font-medium text-slate-600">Email</span>
               <input
                 className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={!isCreateMode}
+                disabled={!fieldsEnabled}
                 onChange={(event) => onChange("email", event.target.value)}
                 required
                 type="email"
@@ -291,6 +395,7 @@ function UserModal({
               <span className="text-sm font-medium text-slate-600">Phone</span>
               <input
                 className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
+                disabled={!fieldsEnabled}
                 onChange={(event) => onChange("phone", event.target.value)}
                 value={formState.phone}
               />
@@ -312,11 +417,26 @@ function UserModal({
                 />
               </label>
             ) : null}
+            {!isCreateMode && isEditing ? (
+              <fieldset className="grid gap-4 rounded-2xl border border-blue-100 bg-blue-50/50 p-4 md:col-span-2 md:grid-cols-2">
+                <legend className="px-2 text-sm font-semibold text-slate-700">Optional password reset</legend>
+                <label className="block">
+                  <span className="text-sm font-medium text-slate-600">Temporary Password</span>
+                  <input className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100" minLength={8} onChange={(event) => onChange("temporaryPassword", event.target.value)} type="password" value={formState.temporaryPassword} />
+                </label>
+                <label className="block">
+                  <span className="text-sm font-medium text-slate-600">Confirm Temporary Password</span>
+                  <input className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100" minLength={8} onChange={(event) => onChange("confirmTemporaryPassword", event.target.value)} type="password" value={formState.confirmTemporaryPassword} />
+                </label>
+                <p className="text-xs leading-5 text-slate-500 md:col-span-2">Leave both fields blank to keep the current password. Temporary passwords must be at least 8 characters.</p>
+              </fieldset>
+            ) : null}
             <label className="block">
               <span className="text-sm font-medium text-slate-600">Role</span>
               <select
-                className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
+                className="user-details-select mt-2 h-11 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 px-4 pr-10 text-sm text-slate-900 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
                 onChange={(event) => onChange("role", event.target.value)}
+                disabled={!fieldsEnabled}
                 value={formState.role}
               >
                 {roleOptions.map((role) => (
@@ -331,10 +451,11 @@ function UserModal({
                 Active Status
               </span>
               <select
-                className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
+                className="user-details-select mt-2 h-11 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 px-4 pr-10 text-sm text-slate-900 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
                 onChange={(event) =>
                   onChange("isActive", event.target.value === "active")
                 }
+                disabled={!fieldsEnabled}
                 value={formState.isActive ? "active" : "inactive"}
               >
                 <option value="active">Active</option>
@@ -342,18 +463,23 @@ function UserModal({
               </select>
             </label>
           </div>
+          </div>
 
           <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
+            {!isCreateMode && !isEditing ? (
+              <button className="rounded-full bg-purple-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-purple-700" disabled={isSaving} onClick={onEdit} type="button">Edit</button>
+            ) : (
+              <>
             <button
-              className="rounded-full border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
-              disabled={isSaving}
-              onClick={onClose}
+              className="rounded-full border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+              disabled={isSaving || (!isCreateMode && !isEditing)}
+              onClick={isCreateMode ? onClose : onCancel}
               type="button"
             >
               Cancel
             </button>
             <PrimaryActionButton
-              disabled={isSaving}
+              disabled={isSaving || (!isCreateMode && (!isEditing || !isDirty))}
               type="submit"
             >
               {isSaving
@@ -362,9 +488,21 @@ function UserModal({
                   ? "Create User"
                   : "Save Changes"}
             </PrimaryActionButton>
+              </>
+            )}
           </div>
         </form>
       </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-sm font-medium text-slate-600">{label}</p>
+      <p className="mt-1 break-all rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-500">{value}</p>
     </div>
   );
 }
@@ -378,8 +516,15 @@ export default function AdminUsersPage() {
   const [successMessage, setSuccessMessage] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserRecord | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [initialFormState, setInitialFormState] = useState<UserFormState>(emptyUserForm);
   const [formState, setFormState] = useState<UserFormState>(emptyUserForm);
   const [currentPage, setCurrentPage] = useState(1);
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
 
   useEffect(() => {
     if (searchParams.get("action") !== "create") return;
@@ -417,6 +562,15 @@ export default function AdminUsersPage() {
     });
   }, [loadUsers]);
 
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearch(searchInput);
+      setCurrentPage(1);
+    }, 300);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [searchInput]);
+
   const userStats = useMemo(() => {
     return {
       active: users.filter((user) => user.isActive).length,
@@ -426,9 +580,20 @@ export default function AdminUsersPage() {
     };
   }, [users]);
 
-  const totalPages = Math.max(1, Math.ceil(users.length / DEFAULT_PAGE_SIZE));
+  const filteredUsers = useMemo(() => {
+    return users.filter((user) => {
+      const matchesStatus =
+        statusFilter === "all" ||
+        (statusFilter === "active" ? user.isActive : !user.isActive);
+      const matchesRole = roleFilter === "all" || user.role === roleFilter;
+
+      return matchesStatus && matchesRole && matchesUserSearch(user, debouncedSearch);
+    });
+  }, [debouncedSearch, roleFilter, statusFilter, users]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / DEFAULT_PAGE_SIZE));
   const activePage = Math.min(currentPage, totalPages);
-  const paginatedUsers = users.slice(
+  const paginatedUsers = filteredUsers.slice(
     (activePage - 1) * DEFAULT_PAGE_SIZE,
     activePage * DEFAULT_PAGE_SIZE,
   );
@@ -436,17 +601,50 @@ export default function AdminUsersPage() {
   function openCreateModal() {
     setEditingUser(null);
     setFormState(emptyUserForm);
+    setInitialFormState(emptyUserForm);
+    setIsEditing(false);
     setErrorMessage("");
     setSuccessMessage("");
     setIsModalOpen(true);
   }
 
-  function openEditModal(user: UserRecord) {
+  async function openViewModal(user: UserRecord) {
     setEditingUser(user);
-    setFormState(toUserForm(user));
+    const nextForm = toUserForm(user);
+    setFormState(nextForm);
+    setInitialFormState(nextForm);
+    setIsEditing(false);
+    setIsLoadingDetails(true);
     setErrorMessage("");
     setSuccessMessage("");
     setIsModalOpen(true);
+
+    const { data } = await supabase.auth.getSession();
+    if (!data.session) {
+      setErrorMessage("You must be signed in as an admin to view account details.");
+      setIsLoadingDetails(false);
+      return;
+    }
+
+    const response = await fetch(`/api/admin/users?profileId=${encodeURIComponent(user.profileId)}`, {
+      headers: { Authorization: `Bearer ${data.session.access_token}` },
+    });
+    const body: unknown = await response.json();
+    if (!response.ok) {
+      setErrorMessage(readApiError(body));
+    } else if (typeof body === "object" && body !== null && "authDetails" in body) {
+      const details = body.authDetails;
+      if (typeof details === "object" && details !== null) {
+        const readDate = (key: string) => key in details && typeof (details as Record<string, unknown>)[key] === "string" ? (details as Record<string, string>)[key] : null;
+        setEditingUser((current) => current ? {
+          ...current,
+          createdAt: readDate("createdAt") ?? current.createdAt,
+          updatedAt: readDate("updatedAt"),
+          lastLoginAt: readDate("lastLoginAt"),
+        } : current);
+      }
+    }
+    setIsLoadingDetails(false);
   }
 
   function closeModal() {
@@ -456,6 +654,7 @@ export default function AdminUsersPage() {
 
     setIsModalOpen(false);
     setEditingUser(null);
+    setIsEditing(false);
     setFormState(emptyUserForm);
   }
 
@@ -464,6 +663,12 @@ export default function AdminUsersPage() {
       ...currentFormState,
       [field]: value,
     }));
+  }
+
+  function cancelEditing() {
+    setFormState(initialFormState);
+    setIsEditing(false);
+    setErrorMessage("");
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -481,19 +686,46 @@ export default function AdminUsersPage() {
     }
 
     if (editingUser) {
-      const { error } = await supabase
-        .from("profiles")
-        .update({
-          first_name: payload.first_name,
-          last_name: payload.last_name,
-          phone: payload.phone,
-          role: payload.role,
-          is_active: payload.is_active,
-        })
-        .eq("profile_id", editingUser.profileId);
+      const hasTemporaryPassword = formState.temporaryPassword.length > 0 || formState.confirmTemporaryPassword.length > 0;
+      if (hasTemporaryPassword && formState.temporaryPassword.length < 8) {
+        setErrorMessage("Temporary password must be at least 8 characters.");
+        setIsSaving(false);
+        return;
+      }
+      if (hasTemporaryPassword && formState.temporaryPassword !== formState.confirmTemporaryPassword) {
+        setErrorMessage("Temporary password fields must match.");
+        setIsSaving(false);
+        return;
+      }
 
-      if (error) {
-        setErrorMessage(error.message);
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
+        setErrorMessage("You must be signed in as an admin to update users.");
+        setIsSaving(false);
+        return;
+      }
+
+      const response = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          profileId: editingUser.profileId,
+          firstName: formState.firstName,
+          lastName: formState.lastName,
+          email: formState.email,
+          phone: formState.phone,
+          role: formState.role,
+          isActive: formState.isActive,
+          temporaryPassword: hasTemporaryPassword ? formState.temporaryPassword : "",
+        }),
+      });
+      const responseBody: unknown = await response.json();
+      setFormState((current) => ({ ...current, temporaryPassword: "", confirmTemporaryPassword: "" }));
+      if (!response.ok) {
+        setErrorMessage(readApiError(responseBody));
         setIsSaving(false);
         return;
       }
@@ -561,9 +793,10 @@ export default function AdminUsersPage() {
     <section className="space-y-4 text-[#17232b]">
       <AdminPageIntro
         actions={
-          <PrimaryActionButton onClick={openCreateModal} type="button">
-            + Create user
-          </PrimaryActionButton>
+          <button className="inline-flex items-center justify-center gap-2 rounded-full bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-sm shadow-blue-200 transition hover:-translate-y-0.5 hover:bg-blue-700 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2" onClick={openCreateModal} type="button">
+            <span aria-hidden="true" className="text-lg leading-none">+</span>
+            <span>Create User</span>
+          </button>
         }
         description={
           "Manage operational profile records, user roles, contact details, and active status for the admin and dispatch workflows."
@@ -606,47 +839,55 @@ export default function AdminUsersPage() {
           <label className="block">
             <span className="sr-only">Search users</span>
             <input
-              className="h-11 w-full rounded-full border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
+              className="users-search-input h-11 w-full rounded-full border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-blue-200 focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+              onChange={(event) => setSearchInput(event.target.value)}
               placeholder="Search users"
               type="search"
+              value={searchInput}
             />
           </label>
           <label className="block">
             <span className="sr-only">Role filter</span>
             <select
-              className="h-11 w-full rounded-full border border-slate-200 bg-slate-50 px-4 text-sm text-slate-600 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
-              defaultValue=""
+              className="users-filter-select h-11 w-full appearance-none rounded-full border border-slate-200 bg-slate-50 px-4 pr-10 text-sm text-slate-600 outline-none transition hover:border-blue-200 focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+              onChange={(event) => {
+                setRoleFilter(event.target.value as RoleFilter);
+                setCurrentPage(1);
+              }}
+              value={roleFilter}
             >
-              <option value="">Role</option>
-              {roleOptions.map((role) => (
-                <option key={role} value={role}>
-                  {formatRole(role)}
-                </option>
-              ))}
+              <option value="all">All Roles</option>
+              <option value="admin">Administrator</option>
+              <option value="dispatcher">Dispatcher</option>
+              <option value="driver">Driver</option>
             </select>
           </label>
           <label className="block">
             <span className="sr-only">Status filter</span>
             <select
-              className="h-11 w-full rounded-full border border-slate-200 bg-slate-50 px-4 text-sm text-slate-600 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
-              defaultValue=""
+              className="users-filter-select h-11 w-full appearance-none rounded-full border border-slate-200 bg-slate-50 px-4 pr-10 text-sm text-slate-600 outline-none transition hover:border-blue-200 focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+              onChange={(event) => {
+                setStatusFilter(event.target.value as StatusFilter);
+                setCurrentPage(1);
+              }}
+              value={statusFilter}
             >
-              <option value="">Status</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
+              <option value="all">All Users</option>
+              <option value="active">Active Users</option>
+              <option value="inactive">Inactive Users</option>
             </select>
           </label>
         </div>
       </AdminCard>
 
       {successMessage ? (
-        <p className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+        <p aria-live="polite" className="fixed right-6 top-6 z-[60] rounded-2xl border border-emerald-200 bg-white px-5 py-4 text-sm font-medium text-emerald-700 shadow-xl">
           {successMessage}
         </p>
       ) : null}
 
       {errorMessage ? (
-        <p className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <p aria-live="assertive" className="fixed right-6 top-6 z-[60] max-w-sm rounded-2xl border border-red-200 bg-white px-5 py-4 text-sm font-medium text-red-700 shadow-xl">
           {errorMessage}
         </p>
       ) : null}
@@ -665,15 +906,14 @@ export default function AdminUsersPage() {
           <p className="px-5 py-10 text-sm text-slate-500">
             Loading user profiles...
           </p>
-        ) : users.length === 0 ? (
+        ) : filteredUsers.length === 0 ? (
           <div className="px-5 py-16 text-center">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-purple-50 text-sm font-semibold text-purple-700">
               US
             </div>
             <h3 className="mt-4 text-lg font-semibold">No users found.</h3>
             <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">
-              Create a profile record to begin organizing admin, dispatcher,
-              and driver users.
+              Try adjusting your search or filters.
             </p>
           </div>
         ) : (
@@ -718,15 +958,15 @@ export default function AdminUsersPage() {
                       <UserStatusBadge isActive={user.isActive} />
                     </td>
                     <td className="px-5 py-4">
-                      {formatCreatedDate(user.createdAt)}
+                      {formatDateTime(user.createdAt)}
                     </td>
                     <td className="px-5 py-4 text-right">
                       <button
                         className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700"
-                        onClick={() => openEditModal(user)}
+                        onClick={() => void openViewModal(user)}
                         type="button"
                       >
-                        Edit
+                        View
                       </button>
                     </td>
                   </tr>
@@ -742,16 +982,24 @@ export default function AdminUsersPage() {
         currentPage={activePage}
         onPageChange={setCurrentPage}
         totalPages={totalPages}
-        totalRecords={users.length}
+        totalRecords={filteredUsers.length}
+        tone="blue"
       />
 
       {isModalOpen ? (
         <UserModal
+          errorMessage={errorMessage}
           formState={formState}
+          user={editingUser}
+          isEditing={isEditing}
+          isLoadingDetails={isLoadingDetails}
+          isDirty={JSON.stringify(formState) !== JSON.stringify(initialFormState)}
           isSaving={isSaving}
-          mode={editingUser ? "edit" : "create"}
+          mode={editingUser ? "view" : "create"}
           onChange={updateFormState}
+          onCancel={cancelEditing}
           onClose={closeModal}
+          onEdit={() => setIsEditing(true)}
           onSubmit={handleSubmit}
         />
       ) : null}

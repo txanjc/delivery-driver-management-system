@@ -8,6 +8,7 @@ type PaginationProps = {
   pageSize?: number;
   totalRecords: number;
   onPageChange: (page: number) => void;
+  tone?: "default" | "blue";
 };
 
 type PageItem = number | "ellipsis-start" | "ellipsis-end";
@@ -59,6 +60,7 @@ export function Pagination({
   pageSize = DEFAULT_PAGE_SIZE,
   totalRecords,
   onPageChange,
+  tone = "default",
 }: PaginationProps) {
   const calculatedTotalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
   const safeTotalPages =
@@ -81,9 +83,9 @@ export function Pagination({
         Page {safeCurrentPage} of {safeTotalPages}, showing up to {pageSize} of {totalRecords} records
       </span>
 
-      <div className="flex min-w-0 items-center justify-center gap-0.5 rounded-full bg-slate-100 px-1 py-1 sm:col-start-2">
+      <div className={`flex min-w-0 items-center justify-center gap-1 rounded-full border px-1.5 py-1.5 sm:col-start-2 ${tone === "blue" ? "border-slate-200 bg-white shadow-sm" : "border-transparent bg-slate-100"}`}>
         <button
-          className="flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-xs font-semibold text-slate-600 transition hover:bg-white/80 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-35"
+          className="flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-xs font-semibold text-slate-600 transition hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed disabled:text-slate-300 disabled:opacity-100"
           disabled={safeCurrentPage === 1}
           onClick={() => changePage(safeCurrentPage - 1)}
           type="button"
@@ -98,10 +100,10 @@ export function Pagination({
               <button
                 aria-current={item === safeCurrentPage ? "page" : undefined}
                 aria-label={`Go to page ${item}`}
-                className={`relative flex h-8 min-w-8 shrink-0 items-center justify-center rounded-full px-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                className={`relative flex h-8 min-w-8 shrink-0 items-center justify-center rounded-full px-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 ${tone === "blue" ? "focus-visible:ring-blue-400" : "focus-visible:ring-indigo-500"} ${
                   item === safeCurrentPage
-                    ? "z-10 -my-1 h-9 min-w-9 bg-indigo-600 text-white shadow-[0_0_0_4px_rgba(129,140,248,0.24),0_8px_18px_-7px_rgba(79,70,229,0.8)]"
-                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
+                    ? tone === "blue" ? "z-10 bg-blue-600 text-white shadow-sm" : "z-10 -my-1 h-9 min-w-9 bg-indigo-600 text-white shadow-[0_0_0_4px_rgba(129,140,248,0.24),0_8px_18px_-7px_rgba(79,70,229,0.8)]"
+                    : tone === "blue" ? "text-slate-600 hover:bg-blue-50 hover:text-blue-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
                 }`}
                 key={item}
                 onClick={() => changePage(item)}
@@ -122,7 +124,7 @@ export function Pagination({
         </div>
 
         <button
-          className="flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-xs font-semibold text-slate-600 transition hover:bg-white/80 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-35"
+          className="flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-xs font-semibold text-slate-600 transition hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed disabled:text-slate-300 disabled:opacity-100"
           disabled={safeCurrentPage === safeTotalPages}
           onClick={() => changePage(safeCurrentPage + 1)}
           type="button"
