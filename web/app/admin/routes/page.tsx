@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { supabase } from "@/lib/supabase";
+import { fetchAdministratorJson } from "@/lib/admin-api-client";
 import { DEFAULT_PAGE_SIZE, Pagination } from "../_components/Pagination";
 
 type DeliveryRelation = {
@@ -420,64 +421,17 @@ export default function AdminRoutesPage() {
     setIsLoading(true);
     setErrorMessage("");
 
-    const [routesResponse, deliveriesResponse] = await Promise.all([
-      supabase
-        .from("routes")
-        .select(
-          `
-        route_id,
-        delivery_id,
-        origin_name,
-        origin_address,
-        origin_latitude,
-        origin_longitude,
-        destination_name,
-        destination_address,
-        destination_latitude,
-        destination_longitude,
-        estimated_distance_km,
-        estimated_duration_minutes,
-        actual_distance_km,
-        actual_duration_minutes,
-        route_polyline,
-        maps_url,
-        route_provider,
-        route_generated_at,
-        sequence_order,
-        created_at,
-        deliveries:delivery_id (
-          delivery_id,
-          delivery_number,
-          status
-        )
-      `,
-        )
-        .order("created_at", { ascending: false })
-        .returns<RouteRow[]>(),
-      supabase
-        .from("deliveries")
-        .select("delivery_id, delivery_number, status")
-        .order("delivery_number", { ascending: true })
-        .returns<DeliveryRelation[]>(),
-    ]);
-
-    if (routesResponse.error) {
-      setErrorMessage(routesResponse.error.message);
+    try {
+      const data = await fetchAdministratorJson<{ routes: RouteRow[]; deliveries: DeliveryRelation[] }>("/api/admin/routes");
+      setRoutes(data.routes.map(toRouteRecord));
+      setDeliveryOptions(data.deliveries);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unable to load routes.");
       setRoutes([]);
-      setIsLoading(false);
-      return;
-    }
-
-    if (deliveriesResponse.error) {
-      setErrorMessage(deliveriesResponse.error.message);
       setDeliveryOptions([]);
+    } finally {
       setIsLoading(false);
-      return;
     }
-
-    setRoutes((routesResponse.data ?? []).map(toRouteRecord));
-    setDeliveryOptions(deliveriesResponse.data ?? []);
-    setIsLoading(false);
   }, []);
 
   useEffect(() => {

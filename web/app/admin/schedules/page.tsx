@@ -3,1004 +3,137 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
+import { fetchAdministratorJson } from "@/lib/admin-api-client";
 import { supabase } from "@/lib/supabase";
+import { AdminCard, AdminPageIntro, PrimaryActionButton, SecondaryButton } from "../_components/admin-design-system";
 import { DEFAULT_PAGE_SIZE, Pagination } from "../_components/Pagination";
 
-type ShiftType = "morning" | "evening";
-type ScheduleStatus = "scheduled" | "completed" | "cancelled" | "conflict";
+type ViewMode = "day" | "week" | "month";
+type ShiftType = "morning" | "afternoon" | "evening" | "night";
+type ScheduleStatus = "scheduled" | "pending" | "completed" | "cancelled" | "conflict";
+type ProfileRow = { profile_id: string; first_name: string | null; last_name: string | null; email: string | null; is_active: boolean | null };
+type DriverRow = { driver_id: string; user_id: string | null; assigned_vehicle_id: string | null; availability: string | null };
+type VehicleRow = { vehicle_id: string; vehicle_number: string | null; license_plate: string | null; make: string | null; model: string | null; status: string | null };
+type ScheduleRow = { schedule_id: string; driver_id: string | null; vehicle_id: string | null; shift_date: string | null; shift_type: string | null; shift_name: string | null; start_time: string | null; end_time: string | null; status: string | null; assigned_by: string | null; notes: string | null };
+type ApiData = { schedules: ScheduleRow[]; drivers: DriverRow[]; profiles: ProfileRow[]; vehicles: VehicleRow[] };
+type DriverOption = { driverId: string; name: string; email: string; vehicleId: string; vehicleName: string; availability: string; isActive: boolean };
+type VehicleOption = { vehicleId: string; name: string; status: string };
+type ScheduleRecord = { scheduleId: string; driverId: string; vehicleId: string; driverName: string; driverEmail: string; vehicleName: string; date: string; shiftType: ShiftType; shiftName: string; startTime: string; endTime: string; status: ScheduleStatus; notes: string };
+type ScheduleFormState = { driverId: string; vehicleId: string; shiftType: ShiftType; date: string; startTime: string; endTime: string; status: ScheduleStatus; notes: string };
+type SchedulePayload = { driver_id: string; vehicle_id: string | null; shift_date: string; shift_type: ShiftType; shift_name: string; start_time: string; end_time: string; status: ScheduleStatus; notes: string | null };
 
-type DriverProfile = {
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
-};
-
-type ScheduleDriver = {
-  driver_id: string;
-  user_id: string | null;
-  profiles: DriverProfile | DriverProfile[] | null;
-};
-
-type ScheduleRow = {
-  schedule_id: string;
-  driver_id: string | null;
-  shift_date: string | null;
-  shift_type: string | null;
-  shift_name: string | null;
-  start_time: string | null;
-  end_time: string | null;
-  status: string | null;
-  assigned_by: string | null;
-  notes: string | null;
-  drivers: ScheduleDriver | ScheduleDriver[] | null;
-};
-
-type DriverRow = {
-  driver_id: string;
-  user_id: string | null;
-  profiles: DriverProfile | DriverProfile[] | null;
-};
-
-type DriverOption = {
-  driverId: string;
-  name: string;
-  email: string;
-};
-
-type ScheduleRecord = {
-  scheduleId: string;
-  driverId: string;
-  driverName: string;
-  driverEmail: string;
-  shiftName: string;
-  shiftType: ShiftType;
-  startTime: string;
-  endTime: string;
-  status: string;
-};
-
-type ScheduleFormState = {
-  driverId: string;
-  shiftType: ShiftType;
-  date: string;
-  status: ScheduleStatus;
-};
-
-type SchedulePayload = {
-  driver_id: string;
-  shift_date: string;
-  shift_type: ShiftType;
-  shift_name: string;
-  start_time: string;
-  end_time: string;
-  status: ScheduleStatus;
-};
-
-type ScheduleInsertPayload = SchedulePayload & {
-  assigned_by: string;
-};
-
-const emptyScheduleForm: ScheduleFormState = {
-  driverId: "",
-  shiftType: "morning",
-  date: "",
-  status: "scheduled",
-};
-
-const shiftOptions: Array<{
-  label: string;
-  value: ShiftType;
-  hours: string;
-  startHour: number;
-  endHour: number;
-}> = [
-  {
-    label: "Morning Shift",
-    value: "morning",
-    hours: "6 AM - 2 PM",
-    startHour: 6,
-    endHour: 14,
-  },
-  {
-    label: "Evening Shift",
-    value: "evening",
-    hours: "2 PM - 10 PM",
-    startHour: 14,
-    endHour: 22,
-  },
+const shiftOptions = [
+  { value: "morning" as const, label: "Morning Shift", short: "Morning", start: "06:00", end: "14:00" },
+  { value: "afternoon" as const, label: "Afternoon Shift", short: "Afternoon", start: "14:00", end: "22:00" },
+  { value: "evening" as const, label: "Evening Shift", short: "Evening", start: "16:00", end: "00:00" },
+  { value: "night" as const, label: "Night Shift", short: "Night", start: "22:00", end: "06:00" },
 ];
-
-const statusOptions: Array<{ label: string; value: ScheduleStatus }> = [
-  { label: "Scheduled", value: "scheduled" },
-  { label: "Completed", value: "completed" },
-  { label: "Cancelled", value: "cancelled" },
-  { label: "Conflict", value: "conflict" },
+const statusOptions: Array<{ value: ScheduleStatus; label: string }> = [
+  { value: "scheduled", label: "Scheduled" }, { value: "pending", label: "Pending" },
+  { value: "completed", label: "Completed" }, { value: "cancelled", label: "Cancelled" },
+  { value: "conflict", label: "Conflict" },
 ];
+const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const emptyForm: ScheduleFormState = { driverId: "", vehicleId: "", shiftType: "morning", date: "", startTime: "06:00", endTime: "14:00", status: "scheduled", notes: "" };
 
-function normalizeRelation<T>(relation: T | T[] | null) {
-  if (Array.isArray(relation)) {
-    return relation[0] ?? null;
+function dateOnly(date: Date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
+function parseDate(value: string) { const [year, month, day] = value.split("-").map(Number); return new Date(year, month - 1, day); }
+function formatDay(date: Date) { return new Intl.DateTimeFormat("en", { weekday: "short", day: "numeric" }).format(date); }
+function formatTime(value: string) { if (!value) return "Not set"; const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(date); }
+function vehicleName(vehicle?: VehicleRow) { return vehicle ? [vehicle.make, vehicle.model].filter(Boolean).join(" ") || vehicle.vehicle_number || vehicle.license_plate || "Unnamed vehicle" : "No vehicle"; }
+function profileName(profile?: ProfileRow) { return profile ? [profile.first_name, profile.last_name].filter(Boolean).join(" ") || profile.email || "Unnamed driver" : "Unnamed driver"; }
+function normalizeShift(value: string | null): ShiftType { return shiftOptions.some((shift) => shift.value === value) ? value as ShiftType : "morning"; }
+function normalizeStatus(value: string | null): ScheduleStatus { return statusOptions.some((status) => status.value === value) ? value as ScheduleStatus : "scheduled"; }
+function combineDateTime(date: string, time: string, nextDay = false) { const result = parseDate(date); const [hours, minutes] = time.split(":").map(Number); if (nextDay) result.setDate(result.getDate() + 1); result.setHours(hours, minutes, 0, 0); return result.toISOString(); }
+function statusLabel(status: string) { return statusOptions.find((item) => item.value === status)?.label ?? status; }
+
+function conflictReasons(schedule: ScheduleRecord, all: ScheduleRecord[], drivers: DriverOption[], vehicles: VehicleOption[]) {
+  const reasons: string[] = [];
+  const start = new Date(schedule.startTime).getTime(); const end = new Date(schedule.endTime).getTime();
+  for (const other of all) {
+    if (other.scheduleId === schedule.scheduleId || other.status === "cancelled") continue;
+    const overlaps = start < new Date(other.endTime).getTime() && new Date(other.startTime).getTime() < end;
+    if (overlaps && other.driverId === schedule.driverId) reasons.push("Driver is assigned to overlapping shifts.");
+    if (overlaps && schedule.vehicleId && other.vehicleId === schedule.vehicleId) reasons.push("Vehicle is assigned to overlapping shifts.");
   }
-
-  return relation;
+  const driver = drivers.find((item) => item.driverId === schedule.driverId);
+  if (!driver?.isActive || driver?.availability === "unavailable") reasons.push("Driver is unavailable.");
+  const vehicle = vehicles.find((item) => item.vehicleId === schedule.vehicleId);
+  if (vehicle && ["out_of_service", "maintenance_due"].includes(vehicle.status)) reasons.push("Vehicle is not available for service.");
+  if (schedule.status === "conflict") reasons.push("Schedule is marked as a conflict.");
+  return Array.from(new Set(reasons));
 }
 
-function getDriverName(profile: DriverProfile | null) {
-  const name = [profile?.first_name, profile?.last_name]
-    .filter(Boolean)
-    .join(" ");
-
-  return name || profile?.email || "Unnamed driver";
+function KpiCard({ label, value, detail, accent = false }: { label: string; value: string; detail: string; accent?: boolean }) {
+  return <div className={`rounded-[20px] border p-5 shadow-sm ${accent ? "border-[#172f3a] bg-[#172f3a] text-white" : "border-slate-100 bg-white text-[#17232b]"}`}><p className={accent ? "text-xs text-slate-300" : "text-xs text-slate-500"}>{label}</p><p className="mt-4 text-3xl font-semibold tracking-[-0.03em]">{value}</p><p className="mt-1 text-xs text-slate-400">{detail}</p></div>;
 }
 
-function inferShiftType(shiftName: string | null, startTime: string | null) {
-  const normalizedShiftName = shiftName?.toLowerCase();
-
-  if (normalizedShiftName === "evening" || normalizedShiftName === "morning") {
-    return normalizedShiftName;
-  }
-
-  if (shiftName?.toLowerCase().includes("evening")) {
-    return "evening";
-  }
-
-  if (shiftName?.toLowerCase().includes("morning")) {
-    return "morning";
-  }
-
-  return startTime && new Date(startTime).getHours() >= 14
-    ? "evening"
-    : "morning";
-}
-
-function toScheduleRecord(schedule: ScheduleRow): ScheduleRecord {
-  const driver = normalizeRelation(schedule.drivers);
-  const profile = normalizeRelation(driver?.profiles ?? null);
-  const shiftType = inferShiftType(
-    schedule.shift_type ?? schedule.shift_name,
-    schedule.start_time,
-  );
-  const shift = shiftOptions.find((option) => option.value === shiftType);
-
-  return {
-    scheduleId: schedule.schedule_id,
-    driverId: schedule.driver_id ?? "",
-    driverEmail: profile?.email ?? "",
-    driverName: getDriverName(profile),
-    endTime: schedule.end_time ?? "",
-    shiftName: schedule.shift_name ?? shift?.label ?? "Scheduled Shift",
-    shiftType,
-    startTime: schedule.start_time ?? "",
-    status: schedule.status ?? "scheduled",
-  };
-}
-
-function toDriverOption(driver: DriverRow): DriverOption {
-  const profile = normalizeRelation(driver.profiles);
-
-  return {
-    driverId: driver.driver_id,
-    name: getDriverName(profile),
-    email: profile?.email ?? "",
-  };
-}
-
-function getLocalDateValue(value: string) {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
-}
-
-function toScheduleForm(schedule: ScheduleRecord): ScheduleFormState {
-  const normalizedStatus = schedule.status.toLowerCase();
-  const status = statusOptions.some((option) => option.value === normalizedStatus)
-    ? (normalizedStatus as ScheduleStatus)
-    : "scheduled";
-
-  return {
-    driverId: schedule.driverId,
-    shiftType: schedule.shiftType,
-    date: getLocalDateValue(schedule.startTime),
-    status,
-  };
-}
-
-function toSchedulePayload(formState: ScheduleFormState): SchedulePayload {
-  const shift = shiftOptions.find(
-    (shiftOption) => shiftOption.value === formState.shiftType,
-  );
-  const [year, month, day] = formState.date.split("-").map(Number);
-  const startTime = new Date(
-    year,
-    month - 1,
-    day,
-    shift?.startHour ?? 6,
-  );
-  const endTime = new Date(year, month - 1, day, shift?.endHour ?? 14);
-
-  return {
-    driver_id: formState.driverId,
-    shift_date: formState.date,
-    shift_type: formState.shiftType,
-    shift_name: shift?.label ?? "Morning Shift",
-    start_time: startTime.toISOString(),
-    end_time: endTime.toISOString(),
-    status: formState.status,
-  };
-}
-
-async function getCurrentProfileId() {
-  const { data, error } = await supabase.auth.getUser();
-
-  if (error || !data.user) {
-    return {
-      errorMessage: "You must be signed in to save schedules.",
-      profileId: "",
-    };
-  }
-
-  return { errorMessage: "", profileId: data.user.id };
-}
-
-function formatDateTime(value: string) {
-  if (!value) {
-    return "Not set";
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
-function formatStatus(status: string) {
-  return (
-    statusOptions.find((option) => option.value === status.toLowerCase())
-      ?.label ??
-    status
-      .replaceAll("_", " ")
-      .replace(/\b\w/g, (character) => character.toUpperCase())
-  );
-}
-
-function schedulesOverlap(first: ScheduleRecord, second: ScheduleRecord) {
-  if (!first.driverId || first.driverId !== second.driverId) {
-    return false;
-  }
-
-  const firstStart = new Date(first.startTime).getTime();
-  const firstEnd = new Date(first.endTime).getTime();
-  const secondStart = new Date(second.startTime).getTime();
-  const secondEnd = new Date(second.endTime).getTime();
-
-  if (
-    [firstStart, firstEnd, secondStart, secondEnd].some((time) =>
-      Number.isNaN(time),
-    )
-  ) {
-    return false;
-  }
-
-  return firstStart < secondEnd && secondStart < firstEnd;
-}
-
-function getConflictIds(schedules: ScheduleRecord[]) {
-  const conflictIds = new Set<string>();
-
-  for (let i = 0; i < schedules.length; i += 1) {
-    for (let j = i + 1; j < schedules.length; j += 1) {
-      if (schedulesOverlap(schedules[i], schedules[j])) {
-        conflictIds.add(schedules[i].scheduleId);
-        conflictIds.add(schedules[j].scheduleId);
-      }
-    }
-  }
-
-  return conflictIds;
-}
-
-function ScheduleKpiCard({
-  label,
-  value,
-  detail,
-  accent = false,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-  accent?: boolean;
-}) {
-  return (
-    <div
-      className={`rounded-2xl p-5 ${
-        accent ? "bg-white text-black" : "bg-[#222222] text-white"
-      }`}
-    >
-      <p className="text-xs text-zinc-400">{label}</p>
-      <p className="mt-4 text-3xl font-semibold tracking-tight">{value}</p>
-      <p className="mt-1 text-xs text-zinc-500">{detail}</p>
-    </div>
-  );
-}
-
-function ScheduleStatusBadge({
-  hasConflict,
-  status,
-}: {
-  hasConflict: boolean;
-  status: string;
-}) {
-  const normalizedStatus = status.toLowerCase();
-  const badgeClass =
-    normalizedStatus === "scheduled"
-      ? "bg-blue-500/15 text-blue-300"
-    : normalizedStatus === "completed"
-      ? "bg-emerald-500/15 text-emerald-300"
-    : normalizedStatus === "cancelled"
-      ? "bg-red-500/15 text-red-300"
-    : normalizedStatus === "conflict"
-      ? "bg-orange-500/15 text-orange-300"
-      : "bg-zinc-500/15 text-zinc-300";
-
-  return (
-    <div className="flex flex-wrap gap-2">
-      <span
-        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeClass}`}
-      >
-        {formatStatus(status)}
-      </span>
-      {hasConflict ? (
-        <span className="inline-flex rounded-full bg-red-500/15 px-2.5 py-0.5 text-xs font-semibold text-red-300">
-          Conflict
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
-function ScheduleModal({
-  drivers,
-  formState,
-  isSaving,
-  mode,
-  onChange,
-  onClose,
-  onSubmit,
-}: {
-  drivers: DriverOption[];
-  formState: ScheduleFormState;
-  isSaving: boolean;
-  mode: "create" | "edit";
-  onChange: (field: keyof ScheduleFormState, value: string) => void;
-  onClose: () => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-}) {
-  const isCreateMode = mode === "create";
-  const selectedShift = shiftOptions.find(
-    (option) => option.value === formState.shiftType,
-  );
-
-  return (
-    <div
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-      role="dialog"
-    >
-      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-white/10 bg-[#222222] p-5 text-white shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-4">
-          <div>
-            <h2 className="text-xl font-semibold">
-              {isCreateMode ? "Add Schedule" : "Edit Schedule"}
-            </h2>
-            <p className="mt-1 text-sm text-zinc-400">
-              Assign an existing driver to a standard DeliverEaze shift.
-            </p>
-          </div>
-          <button
-            className="rounded-full border border-white/10 px-3 py-1.5 text-sm text-zinc-300 transition hover:bg-white/10"
-            onClick={onClose}
-            type="button"
-          >
-            Close
-          </button>
-        </div>
-
-        <form className="mt-5 space-y-5" onSubmit={onSubmit}>
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="block md:col-span-2">
-              <span className="text-sm font-medium text-zinc-300">Driver</span>
-              <select
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
-                onChange={(event) => onChange("driverId", event.target.value)}
-                required
-                value={formState.driverId}
-              >
-                <option value="">Select an existing driver</option>
-                {drivers.map((driver) => (
-                  <option key={driver.driverId} value={driver.driverId}>
-                    {driver.name}
-                    {driver.email ? ` (${driver.email})` : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-zinc-300">Shift</span>
-              <select
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
-                onChange={(event) => onChange("shiftType", event.target.value)}
-                value={formState.shiftType}
-              >
-                {shiftOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}: {option.hours}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-zinc-300">Date</span>
-              <input
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
-                onChange={(event) => onChange("date", event.target.value)}
-                required
-                type="date"
-                value={formState.date}
-              />
-            </label>
-            <label className="block md:col-span-2">
-              <span className="text-sm font-medium text-zinc-300">Status</span>
-              <select
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
-                onChange={(event) => onChange("status", event.target.value)}
-                value={formState.status}
-              >
-                {statusOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <p className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-300">
-            Start and end times will be calculated automatically as{" "}
-            <span className="font-semibold text-white">
-              {selectedShift?.hours}
-            </span>
-            . Overlapping schedules are allowed and will be marked as conflicts.
-          </p>
-
-          {drivers.length === 0 ? (
-            <p className="rounded-2xl border border-orange-500/20 bg-orange-500/10 px-4 py-3 text-sm text-orange-100">
-              Add an operational driver record before creating a schedule.
-            </p>
-          ) : null}
-
-          <div className="flex flex-col-reverse gap-3 border-t border-white/10 pt-5 sm:flex-row sm:justify-end">
-            <button
-              className="rounded-full border border-white/10 px-5 py-2.5 text-sm font-semibold text-zinc-300 transition hover:bg-white/10"
-              disabled={isSaving}
-              onClick={onClose}
-              type="button"
-            >
-              Cancel
-            </button>
-            <button
-              className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isSaving || drivers.length === 0}
-              type="submit"
-            >
-              {isSaving
-                ? "Saving..."
-                : isCreateMode
-                  ? "Add Schedule"
-                  : "Save Changes"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
+function ScheduleModal({ drivers, vehicles, form, isSaving, editing, onChange, onClose, onSubmit }: { drivers: DriverOption[]; vehicles: VehicleOption[]; form: ScheduleFormState; isSaving: boolean; editing: boolean; onChange: (field: keyof ScheduleFormState, value: string) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  const input = "mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100";
+  return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/30 p-4 backdrop-blur-md" role="dialog"><div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[24px] border border-white bg-white p-6 text-[#17232b] shadow-2xl"><div className="flex items-start justify-between border-b border-slate-100 pb-4"><div><h2 className="text-xl font-semibold">{editing ? "Edit Schedule" : "Create Schedule"}</h2><p className="mt-1 text-sm text-slate-500">Assign a driver and vehicle to a delivery shift.</p></div><button aria-label="Close schedule" className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-500" onClick={onClose} type="button">×</button></div><form className="mt-5 space-y-5" onSubmit={onSubmit}><div className="grid gap-4 md:grid-cols-2">
+    <label><span className="text-sm font-medium text-slate-600">Driver</span><select className={`${input} appearance-none`} onChange={(e) => onChange("driverId", e.target.value)} required value={form.driverId}><option value="">Select driver</option>{drivers.map((driver) => <option key={driver.driverId} value={driver.driverId}>{driver.name}</option>)}</select></label>
+    <label><span className="text-sm font-medium text-slate-600">Vehicle</span><select className={`${input} appearance-none`} onChange={(e) => onChange("vehicleId", e.target.value)} value={form.vehicleId}><option value="">No vehicle</option>{vehicles.map((vehicle) => <option key={vehicle.vehicleId} value={vehicle.vehicleId}>{vehicle.name}</option>)}</select></label>
+    <label><span className="text-sm font-medium text-slate-600">Shift</span><select className={`${input} appearance-none`} onChange={(e) => onChange("shiftType", e.target.value)} value={form.shiftType}>{shiftOptions.map((shift) => <option key={shift.value} value={shift.value}>{shift.label}</option>)}</select></label>
+    <label><span className="text-sm font-medium text-slate-600">Schedule Date</span><input className={input} onChange={(e) => onChange("date", e.target.value)} required type="date" value={form.date} /></label>
+    <label><span className="text-sm font-medium text-slate-600">Start Time</span><input className={input} onChange={(e) => onChange("startTime", e.target.value)} required type="time" value={form.startTime} /></label>
+    <label><span className="text-sm font-medium text-slate-600">End Time</span><input className={input} onChange={(e) => onChange("endTime", e.target.value)} required type="time" value={form.endTime} /></label>
+    <label className="md:col-span-2"><span className="text-sm font-medium text-slate-600">Status</span><select className={`${input} appearance-none`} onChange={(e) => onChange("status", e.target.value)} value={form.status}>{statusOptions.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select></label>
+    <label className="md:col-span-2"><span className="text-sm font-medium text-slate-600">Notes</span><textarea className="mt-2 min-h-24 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-purple-300 focus:ring-2 focus:ring-purple-100" onChange={(e) => onChange("notes", e.target.value)} value={form.notes} /></label>
+  </div><div className="flex justify-end gap-3 border-t border-slate-100 pt-5"><SecondaryButton disabled={isSaving} onClick={onClose} type="button">Cancel</SecondaryButton><PrimaryActionButton disabled={isSaving} type="submit">{isSaving ? "Saving..." : editing ? "Save Changes" : "Create Schedule"}</PrimaryActionButton></div></form></div></div>;
 }
 
 export default function AdminSchedulesPage() {
   const searchParams = useSearchParams();
-  const [schedules, setSchedules] = useState<ScheduleRecord[]>([]);
-  const [drivers, setDrivers] = useState<DriverOption[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingSchedule, setEditingSchedule] =
-    useState<ScheduleRecord | null>(null);
-  const [formState, setFormState] =
-    useState<ScheduleFormState>(emptyScheduleForm);
+  const [schedules, setSchedules] = useState<ScheduleRecord[]>([]); const [drivers, setDrivers] = useState<DriverOption[]>([]); const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
+  const [isLoading, setIsLoading] = useState(true); const [isSaving, setIsSaving] = useState(false); const [errorMessage, setErrorMessage] = useState(""); const [successMessage, setSuccessMessage] = useState("");
+  const [isModalOpen, setIsModalOpen] = useState(false); const [editingSchedule, setEditingSchedule] = useState<ScheduleRecord | null>(null); const [selectedSchedule, setSelectedSchedule] = useState<ScheduleRecord | null>(null); const [form, setForm] = useState<ScheduleFormState>(emptyForm);
+  const [search, setSearch] = useState(""); const [driverFilter, setDriverFilter] = useState("all"); const [vehicleFilter, setVehicleFilter] = useState("all"); const [shiftFilter, setShiftFilter] = useState("all"); const [statusFilter, setStatusFilter] = useState("all"); const [viewMode, setViewMode] = useState<ViewMode>("month");
+  const now = new Date(); const [selectedYear, setSelectedYear] = useState(now.getFullYear()); const [selectedMonth, setSelectedMonth] = useState(now.getMonth()); const [selectedDay] = useState(now.getDate()); const [currentPage, setCurrentPage] = useState(1);
 
-  useEffect(() => {
-    if (searchParams.get("action") !== "create") return;
-    const timeoutId = window.setTimeout(() => setIsModalOpen(true), 0);
-    return () => window.clearTimeout(timeoutId);
-  }, [searchParams]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [driverFilter, setDriverFilter] = useState("");
-  const [shiftFilter, setShiftFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
+  const loadData = useCallback(async () => { setIsLoading(true); setErrorMessage(""); try {
+    const data = await fetchAdministratorJson<ApiData>("/api/admin/schedules");
+    const profileMap = new Map(data.profiles.map((profile) => [profile.profile_id, profile])); const vehicleMap = new Map(data.vehicles.map((vehicle) => [vehicle.vehicle_id, vehicle]));
+    const driverOptions = data.drivers.map((driver) => { const profile = driver.user_id ? profileMap.get(driver.user_id) : undefined; const vehicle = driver.assigned_vehicle_id ? vehicleMap.get(driver.assigned_vehicle_id) : undefined; return { driverId: driver.driver_id, name: profileName(profile), email: profile?.email ?? "", vehicleId: driver.assigned_vehicle_id ?? "", vehicleName: vehicleName(vehicle), availability: driver.availability ?? "available", isActive: profile?.is_active === true }; });
+    const driverMap = new Map(driverOptions.map((driver) => [driver.driverId, driver]));
+    const vehicleOptions = data.vehicles.map((vehicle) => ({ vehicleId: vehicle.vehicle_id, name: vehicleName(vehicle), status: vehicle.status ?? "available" }));
+    setDrivers(driverOptions); setVehicles(vehicleOptions); setSchedules(data.schedules.map((schedule) => { const driver = schedule.driver_id ? driverMap.get(schedule.driver_id) : undefined; const vehicle = schedule.vehicle_id ? vehicleMap.get(schedule.vehicle_id) : undefined; const shiftType = normalizeShift(schedule.shift_type); return { scheduleId: schedule.schedule_id, driverId: schedule.driver_id ?? "", vehicleId: schedule.vehicle_id ?? "", driverName: driver?.name ?? "Unnamed driver", driverEmail: driver?.email ?? "", vehicleName: vehicleName(vehicle), date: schedule.shift_date ?? (schedule.start_time ? dateOnly(new Date(schedule.start_time)) : ""), shiftType, shiftName: schedule.shift_name ?? shiftOptions.find((item) => item.value === shiftType)?.label ?? "Shift", startTime: schedule.start_time ?? "", endTime: schedule.end_time ?? "", status: normalizeStatus(schedule.status), notes: schedule.notes ?? "" }; }));
+  } catch (error) { setErrorMessage(error instanceof Error ? error.message : "Unable to load schedules."); setSchedules([]); setDrivers([]); setVehicles([]); } finally { setIsLoading(false); } }, []);
+  useEffect(() => { queueMicrotask(() => void loadData()); }, [loadData]);
+  useEffect(() => { if (searchParams.get("action") === "create") { const id = window.setTimeout(() => { setEditingSchedule(null); setForm({ ...emptyForm, date: dateOnly(new Date()) }); setIsModalOpen(true); }, 0); return () => window.clearTimeout(id); } }, [searchParams]);
 
-  const loadScheduleData = useCallback(async () => {
-    setIsLoading(true);
-    setErrorMessage("");
+  const conflictMap = useMemo(() => new Map(schedules.map((schedule) => [schedule.scheduleId, conflictReasons(schedule, schedules, drivers, vehicles)])), [drivers, schedules, vehicles]);
+  const filtered = useMemo(() => schedules.filter((schedule) => { const query = search.trim().toLowerCase(); return (!query || [schedule.driverName, schedule.vehicleName, schedule.shiftName].some((value) => value.toLowerCase().includes(query))) && (driverFilter === "all" || schedule.driverId === driverFilter) && (vehicleFilter === "all" || schedule.vehicleId === vehicleFilter) && (shiftFilter === "all" || schedule.shiftType === shiftFilter) && (statusFilter === "all" || (statusFilter === "conflict" ? (conflictMap.get(schedule.scheduleId)?.length ?? 0) > 0 : schedule.status === statusFilter)); }), [conflictMap, driverFilter, schedules, search, shiftFilter, statusFilter, vehicleFilter]);
+  const visibleDays = useMemo(() => { if (viewMode === "day") return [new Date(selectedYear, selectedMonth, selectedDay)]; if (viewMode === "week") { const date = new Date(selectedYear, selectedMonth, selectedDay); const start = new Date(date); start.setDate(date.getDate() - date.getDay()); return Array.from({ length: 7 }, (_, index) => { const day = new Date(start); day.setDate(start.getDate() + index); return day; }); } return Array.from({ length: new Date(selectedYear, selectedMonth + 1, 0).getDate() }, (_, index) => new Date(selectedYear, selectedMonth, index + 1)); }, [selectedDay, selectedMonth, selectedYear, viewMode]);
+  const visibleDriverIds = new Set(filtered.filter((schedule) => visibleDays.some((day) => schedule.date === dateOnly(day))).map((schedule) => schedule.driverId));
+  const calendarDrivers = drivers.filter((driver) => { const query = search.trim().toLowerCase(); return (!query || [driver.name, driver.email, driver.vehicleName].some((value) => value.toLowerCase().includes(query))) && (driverFilter === "all" || driver.driverId === driverFilter) && (visibleDriverIds.has(driver.driverId) || driverFilter !== "all" || !search); });
+  const totalPages = Math.max(1, Math.ceil(calendarDrivers.length / DEFAULT_PAGE_SIZE)); const activePage = Math.min(currentPage, totalPages); const pageDrivers = calendarDrivers.slice((activePage - 1) * DEFAULT_PAGE_SIZE, activePage * DEFAULT_PAGE_SIZE);
+  const today = dateOnly(new Date()); const activeToday = schedules.filter((schedule) => schedule.date === today && schedule.status === "scheduled").length; const availableToday = drivers.filter((driver) => driver.isActive && driver.availability !== "unavailable").length; const totalHours = filtered.reduce((sum, schedule) => sum + Math.max(0, (new Date(schedule.endTime).getTime() - new Date(schedule.startTime).getTime()) / 3600000), 0); const conflictCount = Array.from(conflictMap.values()).filter((reasons) => reasons.length).length;
 
-    const [schedulesResponse, driversResponse] = await Promise.all([
-      supabase
-        .from("schedules")
-        .select(
-          "schedule_id, driver_id, shift_date, shift_type, shift_name, start_time, end_time, status, assigned_by, notes, drivers:driver_id (driver_id, user_id, profiles:user_id (first_name, last_name, email))",
-        )
-        .order("start_time", { ascending: true })
-        .returns<ScheduleRow[]>(),
-      supabase
-        .from("drivers")
-        .select(
-          "driver_id, user_id, profiles:user_id (first_name, last_name, email)",
-        )
-        .order("created_at", { ascending: false })
-        .returns<DriverRow[]>(),
-    ]);
+  function changeMonth(delta: number) { const date = new Date(selectedYear, selectedMonth + delta, 1); setSelectedYear(date.getFullYear()); setSelectedMonth(date.getMonth()); setCurrentPage(1); }
+  function openCreateModal() { const shift = shiftOptions[0]; setEditingSchedule(null); setForm({ ...emptyForm, driverId: drivers[0]?.driverId ?? "", vehicleId: drivers[0]?.vehicleId ?? "", date: dateOnly(new Date(selectedYear, selectedMonth, selectedDay)), startTime: shift.start, endTime: shift.end }); setIsModalOpen(true); setSelectedSchedule(null); setErrorMessage(""); }
+  function openEditModal(schedule: ScheduleRecord) { setEditingSchedule(schedule); setForm({ driverId: schedule.driverId, vehicleId: schedule.vehicleId, shiftType: schedule.shiftType, date: schedule.date, startTime: formatInputTime(schedule.startTime), endTime: formatInputTime(schedule.endTime), status: schedule.status, notes: schedule.notes }); setIsModalOpen(true); setSelectedSchedule(null); }
+  function formatInputTime(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`; }
+  function updateForm(field: keyof ScheduleFormState, value: string) { setForm((current) => { if (field === "shiftType") { const shift = shiftOptions.find((item) => item.value === value); return { ...current, shiftType: value as ShiftType, startTime: shift?.start ?? current.startTime, endTime: shift?.end ?? current.endTime }; } if (field === "driverId") { const driver = drivers.find((item) => item.driverId === value); return { ...current, driverId: value, vehicleId: driver?.vehicleId ?? current.vehicleId }; } return { ...current, [field]: value }; }); }
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setIsSaving(true); setErrorMessage(""); const nextDay = form.endTime <= form.startTime; const shift = shiftOptions.find((item) => item.value === form.shiftType); const payload: SchedulePayload = { driver_id: form.driverId, vehicle_id: form.vehicleId || null, shift_date: form.date, shift_type: form.shiftType, shift_name: shift?.label ?? "Shift", start_time: combineDateTime(form.date, form.startTime), end_time: combineDateTime(form.date, form.endTime, nextDay), status: form.status, notes: form.notes.trim() || null };
+    const candidate: ScheduleRecord = { scheduleId: editingSchedule?.scheduleId ?? "new", driverId: payload.driver_id, vehicleId: payload.vehicle_id ?? "", driverName: drivers.find((item) => item.driverId === payload.driver_id)?.name ?? "Driver", driverEmail: "", vehicleName: vehicles.find((item) => item.vehicleId === payload.vehicle_id)?.name ?? "No vehicle", date: payload.shift_date, shiftType: payload.shift_type, shiftName: payload.shift_name, startTime: payload.start_time, endTime: payload.end_time, status: payload.status, notes: payload.notes ?? "" };
+    const reasons = conflictReasons(candidate, schedules.filter((item) => item.scheduleId !== editingSchedule?.scheduleId), drivers, vehicles); if (reasons.length) { setErrorMessage(reasons.join(" ")); setIsSaving(false); return; }
+    let assignedBy = ""; if (!editingSchedule) { const { data } = await supabase.auth.getUser(); assignedBy = data.user?.id ?? ""; if (!assignedBy) { setErrorMessage("You must be signed in to create schedules."); setIsSaving(false); return; } }
+    const response = editingSchedule ? await supabase.from("schedules").update({ ...payload, updated_at: new Date().toISOString() }).eq("schedule_id", editingSchedule.scheduleId) : await supabase.from("schedules").insert({ ...payload, assigned_by: assignedBy });
+    if (response.error) { setErrorMessage(response.error.message); setIsSaving(false); return; } await loadData(); setSuccessMessage(editingSchedule ? "Schedule updated successfully." : "Schedule created successfully."); setIsSaving(false); setIsModalOpen(false); setEditingSchedule(null); }
 
-    if (schedulesResponse.error) {
-      setErrorMessage(schedulesResponse.error.message);
-      setSchedules([]);
-      setIsLoading(false);
-      return;
-    }
-
-    if (driversResponse.error) {
-      setErrorMessage(driversResponse.error.message);
-      setDrivers([]);
-      setIsLoading(false);
-      return;
-    }
-
-    setSchedules((schedulesResponse.data ?? []).map(toScheduleRecord));
-    setDrivers((driversResponse.data ?? []).map(toDriverOption));
-    setIsLoading(false);
-  }, []);
-
-  useEffect(() => {
-    queueMicrotask(() => {
-      void loadScheduleData();
-    });
-  }, [loadScheduleData]);
-
-  const conflictIds = useMemo(() => getConflictIds(schedules), [schedules]);
-
-  const scheduleStats = useMemo(
-    () => ({
-      conflicts: conflictIds.size,
-      evening: schedules.filter((schedule) => schedule.shiftType === "evening")
-        .length,
-      morning: schedules.filter((schedule) => schedule.shiftType === "morning")
-        .length,
-      total: schedules.length,
-    }),
-    [conflictIds.size, schedules],
-  );
-
-  const filteredSchedules = useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLowerCase();
-
-    return schedules.filter((schedule) => {
-      const matchesSearch =
-        !normalizedQuery ||
-        [
-          schedule.driverName,
-          schedule.driverEmail,
-          schedule.shiftName,
-          formatStatus(schedule.status),
-        ].some((value) => value.toLowerCase().includes(normalizedQuery));
-      const matchesDriver =
-        !driverFilter || schedule.driverId === driverFilter;
-      const matchesShift =
-        !shiftFilter || schedule.shiftType === shiftFilter;
-      const matchesStatus =
-        !statusFilter ||
-        (statusFilter === "conflict"
-          ? conflictIds.has(schedule.scheduleId)
-          : schedule.status.toLowerCase() === statusFilter);
-
-      return matchesSearch && matchesDriver && matchesShift && matchesStatus;
-    });
-  }, [
-    conflictIds,
-    driverFilter,
-    schedules,
-    searchQuery,
-    shiftFilter,
-    statusFilter,
-  ]);
-
-  const totalPages = Math.max(
-    1,
-    Math.ceil(filteredSchedules.length / DEFAULT_PAGE_SIZE),
-  );
-  const activePage = Math.min(currentPage, totalPages);
-  const paginatedSchedules = filteredSchedules.slice(
-    (activePage - 1) * DEFAULT_PAGE_SIZE,
-    activePage * DEFAULT_PAGE_SIZE,
-  );
-
-  function openCreateModal() {
-    setEditingSchedule(null);
-    setFormState({
-      ...emptyScheduleForm,
-      driverId: drivers[0]?.driverId ?? "",
-      date: getLocalDateValue(new Date().toISOString()),
-    });
-    setErrorMessage("");
-    setSuccessMessage("");
-    setIsModalOpen(true);
-  }
-
-  function openEditModal(schedule: ScheduleRecord) {
-    setEditingSchedule(schedule);
-    setFormState(toScheduleForm(schedule));
-    setErrorMessage("");
-    setSuccessMessage("");
-    setIsModalOpen(true);
-  }
-
-  function closeModal() {
-    if (isSaving) {
-      return;
-    }
-
-    setIsModalOpen(false);
-    setEditingSchedule(null);
-    setFormState(emptyScheduleForm);
-  }
-
-  function updateFormState(field: keyof ScheduleFormState, value: string) {
-    setFormState((currentFormState) => ({
-      ...currentFormState,
-      [field]: value,
-    }));
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSaving(true);
-    setErrorMessage("");
-    setSuccessMessage("");
-
-    if (!formState.driverId || !formState.date) {
-      setErrorMessage("Driver and date are required.");
-      setIsSaving(false);
-      return;
-    }
-
-    const payload = toSchedulePayload(formState);
-    let insertPayload: ScheduleInsertPayload | null = null;
-
-    if (!editingSchedule) {
-      const { errorMessage: profileErrorMessage, profileId } =
-        await getCurrentProfileId();
-
-      if (profileErrorMessage) {
-        setErrorMessage(profileErrorMessage);
-        setIsSaving(false);
-        return;
-      }
-
-      insertPayload = {
-        ...payload,
-        assigned_by: profileId,
-      };
-    }
-
-    const scheduleResponse = editingSchedule
-      ? await supabase
-          .from("schedules")
-          .update(payload)
-          .eq("schedule_id", editingSchedule.scheduleId)
-      : insertPayload
-        ? await supabase.from("schedules").insert(insertPayload)
-        : { error: new Error("Schedule assigner profile is required.") };
-    const { error } = scheduleResponse;
-
-    if (error) {
-      setErrorMessage(error.message);
-      setIsSaving(false);
-      return;
-    }
-
-    await loadScheduleData();
-    setSuccessMessage(
-      editingSchedule
-        ? "Schedule updated successfully."
-        : "Schedule created successfully.",
-    );
-    setIsSaving(false);
-    setIsModalOpen(false);
-    setEditingSchedule(null);
-    setFormState(emptyScheduleForm);
-  }
-
-  return (
-    <section className="space-y-4 text-white">
-      <div className="flex flex-col gap-4 rounded-3xl bg-[#222222] p-5 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lime-400">
-            Driver Scheduling
-          </p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-            Schedules
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
-            Plan driver coverage across morning and evening shifts and identify
-            overlapping assignments before dispatch.
-          </p>
-        </div>
-        <button
-          className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-200"
-          onClick={openCreateModal}
-          type="button"
-        >
-          Add Schedule
-        </button>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <ScheduleKpiCard
-          accent
-          detail="All schedule records"
-          label="Total Shifts"
-          value={String(scheduleStats.total)}
-        />
-        <ScheduleKpiCard
-          detail="6 AM - 2 PM coverage"
-          label="Morning Shifts"
-          value={String(scheduleStats.morning)}
-        />
-        <ScheduleKpiCard
-          detail="2 PM - 10 PM coverage"
-          label="Evening Shifts"
-          value={String(scheduleStats.evening)}
-        />
-        <ScheduleKpiCard
-          detail="Shifts with an overlap"
-          label="Schedule Conflicts"
-          value={String(scheduleStats.conflicts)}
-        />
-      </div>
-
-      <div className="rounded-3xl bg-[#222222] p-5">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_190px_190px_190px]">
-          <label className="block">
-            <span className="sr-only">Search schedules</span>
-            <input
-              className="h-11 w-full rounded-full border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-white/20"
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search schedules"
-              type="search"
-              value={searchQuery}
-            />
-          </label>
-          <label className="block">
-            <span className="sr-only">Driver filter</span>
-            <select
-              className="h-11 w-full rounded-full border border-white/10 bg-black/30 px-4 text-sm text-zinc-300 outline-none transition focus:border-white/20"
-              onChange={(event) => setDriverFilter(event.target.value)}
-              value={driverFilter}
-            >
-              <option value="">Driver</option>
-              {drivers.map((driver) => (
-                <option key={driver.driverId} value={driver.driverId}>
-                  {driver.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="sr-only">Shift type filter</span>
-            <select
-              className="h-11 w-full rounded-full border border-white/10 bg-black/30 px-4 text-sm text-zinc-300 outline-none transition focus:border-white/20"
-              onChange={(event) => setShiftFilter(event.target.value)}
-              value={shiftFilter}
-            >
-              <option value="">Shift Type</option>
-              {shiftOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="sr-only">Status filter</span>
-            <select
-              className="h-11 w-full rounded-full border border-white/10 bg-black/30 px-4 text-sm text-zinc-300 outline-none transition focus:border-white/20"
-              onChange={(event) => setStatusFilter(event.target.value)}
-              value={statusFilter}
-            >
-              <option value="">Status</option>
-              {statusOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-              <option value="conflict">Conflict</option>
-            </select>
-          </label>
-        </div>
-      </div>
-
-      {successMessage ? (
-        <p className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-          {successMessage}
-        </p>
-      ) : null}
-
-      {errorMessage ? (
-        <p className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-          {errorMessage}
-        </p>
-      ) : null}
-
-      <div className="overflow-hidden rounded-3xl bg-[#222222] text-white">
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-          <div>
-            <h2 className="text-xl font-medium">Schedule Records</h2>
-            <p className="mt-1 text-sm text-zinc-500">
-              Schedules joined to drivers and their profile names.
-            </p>
-          </div>
-        </div>
-
-        {isLoading ? (
-          <p className="px-5 py-10 text-sm text-zinc-400">
-            Loading schedule records...
-          </p>
-        ) : schedules.length === 0 ? (
-          <div className="px-5 py-16 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-sm font-semibold text-white">
-              DE
-            </div>
-            <h3 className="mt-4 text-lg font-semibold">No schedules yet</h3>
-            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-zinc-400">
-              Add the first driver shift to begin planning daily coverage.
-            </p>
-            <button
-              className="mt-5 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-lime-200"
-              onClick={openCreateModal}
-              type="button"
-            >
-              Add Schedule
-            </button>
-          </div>
-        ) : filteredSchedules.length === 0 ? (
-          <div className="px-5 py-14 text-center">
-            <h3 className="text-lg font-semibold">No matching schedules</h3>
-            <p className="mt-2 text-sm text-zinc-400">
-              Adjust the search or filters to see more schedule records.
-            </p>
-          </div>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm [&_td]:py-2.5 [&_th]:py-2.5">
-              <thead className="text-left text-xs text-zinc-500">
-                <tr>
-                  <th className="px-5 py-4 font-medium">Driver</th>
-                  <th className="px-5 py-4 font-medium">Shift Name</th>
-                  <th className="px-5 py-4 font-medium">Start Time</th>
-                  <th className="px-5 py-4 font-medium">End Time</th>
-                  <th className="px-5 py-4 font-medium">Status</th>
-                  <th className="px-5 py-4 text-right font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5 text-zinc-300">
-                {paginatedSchedules.map((schedule) => {
-                  const hasConflict = conflictIds.has(schedule.scheduleId);
-                  const shift = shiftOptions.find(
-                    (option) => option.value === schedule.shiftType,
-                  );
-
-                  return (
-                    <tr
-                      className={`transition hover:bg-white/5 ${
-                        hasConflict
-                          ? "border-l-2 border-red-400 bg-red-500/5"
-                          : ""
-                      }`}
-                      key={schedule.scheduleId}
-                    >
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-xs font-semibold text-black">
-                            {(schedule.driverName[0] || "D").toUpperCase()}
-                          </div>
-                          <div>
-                            <p className="font-semibold text-white">
-                              {schedule.driverName}
-                            </p>
-                            <p className="text-xs text-zinc-500">
-                              {schedule.driverEmail || "No email"}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-5 py-4">
-                        <div>{schedule.shiftName}</div>
-                        <div className="text-xs text-zinc-500">
-                          {shift?.hours}
-                        </div>
-                      </td>
-                      <td className="px-5 py-4">
-                        {formatDateTime(schedule.startTime)}
-                      </td>
-                      <td className="px-5 py-4">
-                        {formatDateTime(schedule.endTime)}
-                      </td>
-                      <td className="px-5 py-4">
-                        <ScheduleStatusBadge
-                          hasConflict={hasConflict}
-                          status={schedule.status}
-                        />
-                      </td>
-                      <td className="px-5 py-4 text-right">
-                        <button
-                          className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-zinc-300 transition hover:bg-white/10"
-                          onClick={() => openEditModal(schedule)}
-                          type="button"
-                        >
-                          Edit
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              </table>
-            </div>
-          </>
-        )}
-      </div>
-
-      <Pagination
-        currentPage={activePage}
-        onPageChange={setCurrentPage}
-        totalPages={totalPages}
-        totalRecords={filteredSchedules.length}
-      />
-
-      {isModalOpen ? (
-        <ScheduleModal
-          drivers={drivers}
-          formState={formState}
-          isSaving={isSaving}
-          mode={editingSchedule ? "edit" : "create"}
-          onChange={updateFormState}
-          onClose={closeModal}
-          onSubmit={handleSubmit}
-        />
-      ) : null}
-    </section>
-  );
+  const filterClass = "users-filter-select h-10 w-full appearance-none rounded-full border border-slate-200 bg-slate-50 px-3 pr-9 text-sm text-slate-600 outline-none focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100";
+  return <section className="space-y-4 text-[#17232b]">
+    <AdminPageIntro actions={<PrimaryActionButton onClick={openCreateModal} type="button">Create Schedule</PrimaryActionButton>} description="Manage driver schedules, assign shifts, monitor availability, and detect scheduling conflicts across the delivery network." eyebrow="Dispatch operations" title="Schedules" />
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4"><KpiCard accent detail="All schedule records" label="Total Scheduled Shifts" value={String(schedules.length)} /><KpiCard detail="Operational driver profiles" label="Drivers Available Today" value={String(availableToday)} /><KpiCard detail="Scheduled for today" label="Active Shifts" value={String(activeToday)} /><KpiCard detail="Assignments requiring attention" label="Schedule Conflicts" value={String(conflictCount)} /></div>
+    <AdminCard className="p-4"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(180px,1fr)_160px_160px_150px_150px_120px_110px]"><input className="h-10 rounded-full border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:ring-2 focus:ring-purple-100" onChange={(e) => setSearch(e.target.value)} placeholder="Search schedules..." value={search} /><select className={filterClass} onChange={(e) => setDriverFilter(e.target.value)} value={driverFilter}><option value="all">All Drivers</option>{drivers.map((driver) => <option key={driver.driverId} value={driver.driverId}>{driver.name}</option>)}</select><select className={filterClass} onChange={(e) => setVehicleFilter(e.target.value)} value={vehicleFilter}><option value="all">All Vehicles</option>{vehicles.map((vehicle) => <option key={vehicle.vehicleId} value={vehicle.vehicleId}>{vehicle.name}</option>)}</select><select className={filterClass} onChange={(e) => setShiftFilter(e.target.value)} value={shiftFilter}><option value="all">All Shifts</option>{shiftOptions.map((shift) => <option key={shift.value} value={shift.value}>{shift.short}</option>)}</select><select className={filterClass} onChange={(e) => setStatusFilter(e.target.value)} value={statusFilter}><option value="all">All Statuses</option>{statusOptions.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select><select className={filterClass} onChange={(e) => setSelectedMonth(Number(e.target.value))} value={selectedMonth}>{monthNames.map((month, index) => <option key={month} value={index}>{month}</option>)}</select><select className={filterClass} onChange={(e) => setSelectedYear(Number(e.target.value))} value={selectedYear}>{Array.from({ length: 7 }, (_, index) => now.getFullYear() - 3 + index).map((year) => <option key={year}>{year}</option>)}</select></div></AdminCard>
+    {successMessage ? <p className="fixed right-6 top-6 z-[60] rounded-2xl border border-emerald-200 bg-white px-5 py-4 text-sm font-medium text-emerald-700 shadow-xl">{successMessage}</p> : null}{errorMessage ? <p className="fixed right-6 top-6 z-[60] max-w-sm rounded-2xl border border-red-200 bg-white px-5 py-4 text-sm font-medium text-red-700 shadow-xl">{errorMessage}</p> : null}
+    <AdminCard className="overflow-hidden"><div className="flex flex-col gap-3 border-b border-slate-100 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><SecondaryButton onClick={() => changeMonth(-1)} type="button">← Previous</SecondaryButton><h2 className="min-w-40 text-center text-xl font-semibold">{new Intl.DateTimeFormat("en", { month: "long", year: "numeric" }).format(new Date(selectedYear, selectedMonth, 1))}</h2><SecondaryButton onClick={() => changeMonth(1)} type="button">Next →</SecondaryButton></div><div className="flex rounded-full border border-slate-200 bg-slate-50 p-1">{(["day", "week", "month"] as ViewMode[]).map((mode) => <button className={`rounded-full px-4 py-1.5 text-xs font-semibold capitalize ${viewMode === mode ? "bg-[#6d4aff] text-white" : "text-slate-500"}`} key={mode} onClick={() => setViewMode(mode)} type="button">{mode}</button>)}</div></div><div className="grid gap-1" style={{ gridTemplateColumns: "repeat(12, minmax(0, 1fr))" }}>{monthNames.map((month, index) => <button className={`rounded-lg px-1 py-2 text-xs font-semibold ${selectedMonth === index ? "bg-purple-600 text-white shadow-sm" : "bg-slate-50 text-slate-500 hover:bg-purple-50"}`} key={month} onClick={() => setSelectedMonth(index)} type="button">{month}</button>)}</div></div>
+      <div className="grid border-b border-slate-100" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}><div className="border-r border-slate-100 bg-white px-5 py-3"><p className="text-xs text-slate-400">Total Scheduled Hours</p><p className="mt-1 text-lg font-semibold">{Math.round(totalHours)}h</p></div><div className="border-r border-slate-100 bg-white px-5 py-3"><p className="text-xs text-slate-400">Available Drivers</p><p className="mt-1 text-lg font-semibold">{availableToday}</p></div><div className="border-r border-slate-100 bg-white px-5 py-3"><p className="text-xs text-slate-400">Unavailable Drivers</p><p className="mt-1 text-lg font-semibold">{drivers.length - availableToday}</p></div><div className="bg-white px-5 py-3"><p className="text-xs text-slate-400">Conflict Count</p><p className="mt-1 text-lg font-semibold text-red-600">{conflictCount}</p></div></div>
+      <div className="flex flex-wrap gap-2 border-b border-slate-100 p-4">{shiftOptions.map((shift) => <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700" key={shift.value}>{shift.short} Shift</span>)}<span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">Unavailable</span><span className="rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700">Conflict</span><span className="rounded-full bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700">Assigned</span></div>
+      {isLoading ? <p className="p-10 text-sm text-slate-500">Loading schedules...</p> : <div className="overflow-x-auto"><div className="min-w-max"><div className="grid border-b border-slate-100 bg-slate-50/70" style={{ gridTemplateColumns: `240px repeat(${visibleDays.length}, minmax(112px, 1fr))` }}><div className="sticky left-0 z-10 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-500">Driver Name</div>{visibleDays.map((day) => <div className={`border-l border-slate-100 px-2 py-3 text-center text-xs font-medium ${dateOnly(day) === today ? "bg-purple-50 text-purple-700" : "text-slate-500"}`} key={dateOnly(day)}>{formatDay(day)}</div>)}</div>{pageDrivers.map((driver) => <div className="grid border-b border-slate-100" key={driver.driverId} style={{ gridTemplateColumns: `240px repeat(${visibleDays.length}, minmax(112px, 1fr))` }}><div className="sticky left-0 z-10 flex items-center gap-3 bg-white px-4 py-3"><div className="grid h-9 w-9 place-items-center rounded-full bg-purple-50 text-xs font-bold text-purple-700">{driver.name.split(" ").map((part) => part[0]).join("").slice(0, 2)}</div><div><p className="max-w-40 truncate text-sm font-semibold">{driver.name}</p><p className="max-w-40 truncate text-xs text-slate-400">{driver.vehicleName}</p><p className={`text-[10px] font-semibold ${driver.availability === "unavailable" ? "text-red-500" : "text-emerald-600"}`}>{driver.availability}</p></div></div>{visibleDays.map((day) => { const daySchedules = filtered.filter((schedule) => schedule.driverId === driver.driverId && schedule.date === dateOnly(day)); return <div className="min-h-24 border-l border-slate-100 p-1.5" key={dateOnly(day)}>{daySchedules.map((schedule) => { const reasons = conflictMap.get(schedule.scheduleId) ?? []; const tone = reasons.length ? "border-red-300 bg-red-50 text-red-700" : schedule.status === "completed" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : schedule.status === "pending" ? "border-amber-200 bg-amber-50 text-amber-700" : schedule.status === "cancelled" ? "border-slate-200 bg-slate-100 text-slate-500" : "border-blue-200 bg-blue-50 text-blue-700"; return <button className={`mb-1 w-full rounded-lg border p-2 text-left text-[11px] transition hover:-translate-y-0.5 hover:shadow-sm ${tone}`} key={schedule.scheduleId} onClick={() => setSelectedSchedule(schedule)} type="button"><span className="block font-semibold">{reasons.length ? "⚠ " : ""}{shiftOptions.find((shift) => shift.value === schedule.shiftType)?.short}</span><span>{formatTime(schedule.startTime)} – {formatTime(schedule.endTime)}</span></button>; })}</div>; })}</div>)}</div></div>}
+    </AdminCard>
+    <Pagination currentPage={activePage} onPageChange={setCurrentPage} tone="purple" totalPages={totalPages} totalRecords={calendarDrivers.length} />
+    {selectedSchedule ? <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/20 p-4" onClick={() => setSelectedSchedule(null)} role="presentation"><div className="w-full max-w-sm rounded-2xl border border-slate-100 bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()} role="dialog"><div className="flex justify-between"><div><p className="text-xs font-semibold uppercase tracking-wide text-purple-600">Schedule Details</p><h3 className="mt-1 text-lg font-semibold">{selectedSchedule.shiftName}</h3></div><button onClick={() => setSelectedSchedule(null)} type="button">×</button></div><div className="mt-4 grid grid-cols-2 gap-3 text-sm"><p><span className="block text-xs text-slate-400">Driver</span>{selectedSchedule.driverName}</p><p><span className="block text-xs text-slate-400">Vehicle</span>{selectedSchedule.vehicleName}</p><p><span className="block text-xs text-slate-400">Date</span>{selectedSchedule.date}</p><p><span className="block text-xs text-slate-400">Status</span>{statusLabel(selectedSchedule.status)}</p><p className="col-span-2"><span className="block text-xs text-slate-400">Time</span>{formatTime(selectedSchedule.startTime)} – {formatTime(selectedSchedule.endTime)}</p><p className="col-span-2"><span className="block text-xs text-slate-400">Notes</span>{selectedSchedule.notes || "No notes"}</p></div>{(conflictMap.get(selectedSchedule.scheduleId)?.length ?? 0) > 0 ? <div className="mt-4 rounded-xl border border-red-100 bg-red-50 p-3 text-xs text-red-700">{conflictMap.get(selectedSchedule.scheduleId)?.join(" ")}</div> : null}<div className="mt-5 flex justify-end gap-2"><SecondaryButton onClick={() => setSelectedSchedule(null)} type="button">View</SecondaryButton><PrimaryActionButton onClick={() => openEditModal(selectedSchedule)} type="button">Edit</PrimaryActionButton></div></div></div> : null}
+    {isModalOpen ? <ScheduleModal drivers={drivers} editing={Boolean(editingSchedule)} form={form} isSaving={isSaving} onChange={updateForm} onClose={() => { if (!isSaving) setIsModalOpen(false); }} onSubmit={handleSubmit} vehicles={vehicles} /> : null}
+  </section>;
 }

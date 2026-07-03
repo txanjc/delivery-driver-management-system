@@ -29,6 +29,7 @@ type ProfileRow = {
   role: string | null;
   is_active: boolean | null;
   created_at: string | null;
+  updated_at: string | null;
 };
 
 type UserRecord = {
@@ -87,7 +88,7 @@ function toUserRecord(profile: ProfileRow): UserRecord {
     role: normalizeUserRole(profile.role?.trim().toLowerCase()),
     isActive: profile.is_active ?? false,
     createdAt: profile.created_at,
-    updatedAt: null,
+    updatedAt: profile.updated_at,
     lastLoginAt: null,
   };
 }
@@ -536,40 +537,56 @@ export default function AdminUsersPage() {
     setIsLoading(true);
     setErrorMessage("");
 
-    const { data: sessionData, error: sessionError } =
-      await supabase.auth.getSession();
-    if (sessionError || !sessionData.session) {
-      setErrorMessage("You must be signed in as an Administrator to view users.");
+    try {
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+      if (sessionError || !sessionData.session) {
+        setErrorMessage("You must be signed in as an Administrator to view users.");
+        setUsers([]);
+        return false;
+      }
+
+      const response = await fetch("/api/admin/users", {
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+      });
+      const contentType = response.headers.get("content-type") ?? "";
+
+      if (!contentType.toLowerCase().includes("application/json")) {
+        setErrorMessage(
+          "Unable to load user profiles because the server returned an unexpected response.",
+        );
+        setUsers([]);
+        return false;
+      }
+
+      const body: unknown = await response.json();
+      if (!response.ok) {
+        setErrorMessage(`Unable to load user profiles: ${readApiError(body)}`);
+        setUsers([]);
+        return false;
+      }
+
+      const profiles =
+        typeof body === "object" &&
+        body !== null &&
+        "profiles" in body &&
+        Array.isArray(body.profiles)
+          ? body.profiles.filter(isProfileRow)
+          : [];
+
+      setUsers(profiles.map(toUserRecord));
+      return true;
+    } catch {
+      setErrorMessage(
+        "Unable to load user profiles. Please refresh the page and try again.",
+      );
       setUsers([]);
-      setIsLoading(false);
       return false;
-    }
-
-    const response = await fetch("/api/admin/users", {
-      headers: {
-        Authorization: `Bearer ${sessionData.session.access_token}`,
-      },
-    });
-    const body: unknown = await response.json();
-
-    if (!response.ok) {
-      setErrorMessage(`Unable to load user profiles: ${readApiError(body)}`);
-      setUsers([]);
+    } finally {
       setIsLoading(false);
-      return false;
     }
-
-    const profiles =
-      typeof body === "object" &&
-      body !== null &&
-      "profiles" in body &&
-      Array.isArray(body.profiles)
-        ? body.profiles.filter(isProfileRow)
-        : [];
-
-    setUsers(profiles.map(toUserRecord));
-    setIsLoading(false);
-    return true;
   }, []);
 
   useEffect(() => {

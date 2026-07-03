@@ -4,6 +4,12 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { supabase } from "@/lib/supabase";
+import { fetchAdministratorJson } from "@/lib/admin-api-client";
+import {
+  AdminCard,
+  AdminPageIntro,
+  PrimaryActionButton,
+} from "../_components/admin-design-system";
 import { DEFAULT_PAGE_SIZE, Pagination } from "../_components/Pagination";
 import {
   normalizeVehicleStatus,
@@ -26,7 +32,13 @@ type VehicleRow = {
   registration_number: string | null;
   registration_expiry_date: string | null;
   status: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
+
+type AssignmentSchedule = { schedule_id: string; shift_date: string | null; shift_type: string | null; shift_name: string | null; start_time: string | null; end_time: string | null; status: string | null };
+type VehicleAssignmentRow = { vehicle_id: string | null; driver_name: string | null; driver_email: string | null; schedule: AssignmentSchedule };
+type VehicleAssignment = { driverName: string; driverEmail: string; schedule: AssignmentSchedule | null };
 
 type VehicleRecord = {
   vehicleId: string;
@@ -42,6 +54,8 @@ type VehicleRecord = {
   registrationNumber: string;
   registrationExpiry: string;
   status: VehicleStatus;
+  createdAt: string | null;
+  updatedAt: string | null;
 };
 
 type VehicleFormState = {
@@ -138,10 +152,12 @@ function toVehicleRecord(vehicle: VehicleRow): VehicleRecord {
     vehicleType: vehicle.vehicle_type ?? "",
     mileage: vehicle.mileage === null ? "" : String(vehicle.mileage),
     insurancePolicyNumber: vehicle.insurance_policy_number ?? "",
-    insuranceExpiry: vehicle.insurance_expiry_date ?? "",
+    insuranceExpiry: vehicle.insurance_expiry_date?.slice(0, 10) ?? "",
     registrationNumber: vehicle.registration_number ?? "",
-    registrationExpiry: vehicle.registration_expiry_date ?? "",
+    registrationExpiry: vehicle.registration_expiry_date?.slice(0, 10) ?? "",
     status: toVehicleStatus(vehicle.status),
+    createdAt: vehicle.created_at,
+    updatedAt: vehicle.updated_at,
   };
 }
 
@@ -174,6 +190,11 @@ function toNullableNumber(value: string): number | null {
   return Number.isFinite(numericValue) ? numericValue : null;
 }
 
+function toDateOnlyValue(value: string): string | null {
+  const dateOnlyValue = value.trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateOnlyValue) ? dateOnlyValue : null;
+}
+
 function toVehiclePayload(formState: VehicleFormState): VehiclePayload {
   return {
     vehicle_number: formState.vehicleNumber.trim() || null,
@@ -184,9 +205,9 @@ function toVehiclePayload(formState: VehicleFormState): VehiclePayload {
     vehicle_type: formState.vehicleType.trim() || null,
     mileage: toNullableNumber(formState.mileage),
     insurance_policy_number: formState.insurancePolicyNumber.trim() || null,
-    insurance_expiry_date: formState.insuranceExpiry || null,
+    insurance_expiry_date: toDateOnlyValue(formState.insuranceExpiry),
     registration_number: formState.registrationNumber.trim() || null,
-    registration_expiry_date: formState.registrationExpiry || null,
+    registration_expiry_date: toDateOnlyValue(formState.registrationExpiry),
     status: toVehicleStatusValue(formState.status),
   };
 }
@@ -202,15 +223,18 @@ function formatMileage(mileage: string) {
 }
 
 function formatDate(value: string) {
-  if (!value) {
-    return "Not set";
-  }
+  const dateOnlyValue = value.trim().slice(0, 10);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOnlyValue);
+  if (!match) return "Not set";
 
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(value));
+  const monthNames = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ];
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return "Not set";
+  return `${monthNames[month - 1]} ${day}, ${match[1]}`;
 }
 
 function getVehicleName(vehicle: VehicleRecord) {
@@ -219,6 +243,24 @@ function getVehicleName(vehicle: VehicleRecord) {
     .join(" ");
 
   return vehicleName || "Unnamed vehicle";
+}
+
+function toVehicleAssignment(row: VehicleAssignmentRow): VehicleAssignment {
+  return {
+    driverName: row.driver_name || "Unnamed driver",
+    driverEmail: row.driver_email ?? "",
+    schedule: row.schedule.status === "cancelled" ? null : row.schedule,
+  };
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return "Not recorded";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+function DetailField({ label, value }: { label: string; value: string }) {
+  return <div><p className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</p><p className="mt-1 text-sm font-medium text-slate-700">{value}</p></div>;
 }
 
 function VehicleKpiCard({
@@ -234,66 +276,108 @@ function VehicleKpiCard({
 }) {
   return (
     <div
-      className={`rounded-2xl p-5 ${
-        accent ? "bg-white text-black" : "bg-[#222222] text-white"
-      }`}
+      className={`rounded-[20px] border p-5 shadow-sm ${accent ? "border-[#172f3a] bg-[#172f3a] text-white" : "border-slate-100 bg-white text-[#17232b]"}`}
     >
-      <p className="text-xs text-zinc-400">{label}</p>
-      <p className="mt-4 text-3xl font-semibold tracking-tight">{value}</p>
-      <p className="mt-1 text-xs text-zinc-500">{detail}</p>
+      <p className={accent ? "text-xs text-slate-300" : "text-xs text-slate-500"}>{label}</p>
+      <p className="mt-4 text-3xl font-semibold tracking-[-0.03em]">{value}</p>
+      <p className="mt-1 text-xs text-slate-400">{detail}</p>
     </div>
   );
 }
 
 function VehicleModal({
   mode,
+  vehicle,
+  assignment,
   formState,
+  isEditing,
+  isDirty,
   isSaving,
+  onCancel,
   onChange,
   onClose,
+  onEdit,
   onSubmit,
 }: {
-  mode: "create" | "edit";
+  mode: "create" | "view";
+  vehicle: VehicleRecord | null;
+  assignment: VehicleAssignment | null;
   formState: VehicleFormState;
+  isEditing: boolean;
+  isDirty: boolean;
   isSaving: boolean;
+  onCancel: () => void;
   onChange: (field: keyof VehicleFormState, value: string) => void;
   onClose: () => void;
+  onEdit: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
-  const title = mode === "create" ? "Add Vehicle" : "Edit Vehicle";
-  const buttonLabel = mode === "create" ? "Save Vehicle" : "Save Changes";
+  const isCreateMode = mode === "create";
+  const fieldsEnabled = isCreateMode || isEditing;
+  const previewVehicle: VehicleRecord = vehicle ?? {
+    vehicleId: "", vehicleNumber: formState.vehicleNumber, plateNumber: formState.plateNumber,
+    make: formState.make, model: formState.model, year: formState.year,
+    vehicleType: formState.vehicleType, mileage: formState.mileage,
+    insurancePolicyNumber: formState.insurancePolicyNumber, insuranceExpiry: formState.insuranceExpiry,
+    registrationNumber: formState.registrationNumber, registrationExpiry: formState.registrationExpiry,
+    status: formState.status, createdAt: null, updatedAt: null,
+  };
+
+  useEffect(() => {
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = overflow; };
+  }, []);
+
+  const inputClass = "mt-2 h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-60";
 
   return (
     <div
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-md"
       role="dialog"
     >
-      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl border border-white/10 bg-[#222222] p-5 text-white shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-4">
+      <div className={`max-h-[94vh] w-full overflow-hidden rounded-[24px] border border-white bg-white/95 p-1.5 text-[#17232b] shadow-2xl shadow-slate-900/20 ring-1 ring-purple-100/50 ${isCreateMode ? "max-w-4xl" : "max-w-[1500px]"}`}>
+       <div className="user-modal-scrollbar max-h-[calc(94vh-0.75rem)] overflow-y-auto rounded-[19px] p-5 sm:p-6">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
           <div>
-            <h2 className="text-xl font-semibold">{title}</h2>
-            <p className="mt-1 text-sm text-zinc-400">
-              Maintain fleet records used by future assignment workflows.
+            <h2 className="text-xl font-semibold">{isCreateMode ? "Create Vehicle" : "Vehicle Details"}</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {isCreateMode ? "Add a vehicle to the operational fleet." : "Review vehicle details, maintenance data, and schedule context."}
             </p>
           </div>
           <button
-            className="rounded-full border border-white/10 px-3 py-1.5 text-sm text-zinc-300 transition hover:bg-white/10"
+            aria-label="Close vehicle details"
+            className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-500 transition hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700"
+            disabled={isSaving}
             onClick={onClose}
             type="button"
           >
-            Close
+            <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeLinecap="round" strokeWidth="2" /></svg>
           </button>
         </div>
 
         <form className="mt-5 space-y-5" onSubmit={onSubmit}>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className={isCreateMode ? "" : "grid gap-5 lg:grid-cols-[250px_minmax(480px,1fr)_290px]"}>
+          {!isCreateMode ? <aside className="border-b border-dashed border-slate-200 pb-5 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-purple-600">Vehicle Overview</p>
+            <div className="mt-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-purple-100 text-2xl font-bold text-purple-700">{previewVehicle.year || "VE"}</div>
+            <h3 className="mt-4 text-lg font-semibold">{getVehicleName(previewVehicle)}</h3>
+            <div className="mt-2"><VehicleStatusBadge status={previewVehicle.status} /></div>
+            <div className="mt-5 grid gap-4 border-t border-slate-100 pt-4">
+              <DetailField label="Vehicle number" value={previewVehicle.vehicleNumber || "Not recorded"} />
+              <DetailField label="License plate" value={previewVehicle.plateNumber || "Not recorded"} />
+              <DetailField label="Created at" value={formatDateTime(previewVehicle.createdAt)} />
+              <DetailField label="Updated at" value={formatDateTime(previewVehicle.updatedAt)} />
+            </div>
+          </aside> : null}
+          <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-purple-600">Vehicle Fields</p><fieldset className="mt-4 grid gap-3 md:grid-cols-2" disabled={!fieldsEnabled}>
             <label className="block">
-              <span className="text-sm font-medium text-zinc-300">
+              <span className="text-sm font-medium text-slate-600">
                 Vehicle Number
               </span>
               <input
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                className={inputClass}
                 onChange={(event) =>
                   onChange("vehicleNumber", event.target.value)
                 }
@@ -301,36 +385,36 @@ function VehicleModal({
               />
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-zinc-300">
+              <span className="text-sm font-medium text-slate-600">
                 License Plate
               </span>
               <input
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                className={inputClass}
                 onChange={(event) => onChange("plateNumber", event.target.value)}
                 required
                 value={formState.plateNumber}
               />
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-zinc-300">Make</span>
+              <span className="text-sm font-medium text-slate-600">Make</span>
               <input
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                className={inputClass}
                 onChange={(event) => onChange("make", event.target.value)}
                 value={formState.make}
               />
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-zinc-300">Model</span>
+              <span className="text-sm font-medium text-slate-600">Model</span>
               <input
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                className={inputClass}
                 onChange={(event) => onChange("model", event.target.value)}
                 value={formState.model}
               />
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-zinc-300">Year</span>
+              <span className="text-sm font-medium text-slate-600">Year</span>
               <input
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                className={inputClass}
                 min="1900"
                 onChange={(event) => onChange("year", event.target.value)}
                 type="number"
@@ -338,19 +422,19 @@ function VehicleModal({
               />
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-zinc-300">
+              <span className="text-sm font-medium text-slate-600">
                 Vehicle Type
               </span>
               <input
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                className={inputClass}
                 onChange={(event) => onChange("vehicleType", event.target.value)}
                 value={formState.vehicleType}
               />
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-zinc-300">Mileage</span>
+              <span className="text-sm font-medium text-slate-600">Mileage</span>
               <input
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                className={inputClass}
                 min="0"
                 onChange={(event) => onChange("mileage", event.target.value)}
                 type="number"
@@ -358,11 +442,11 @@ function VehicleModal({
               />
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-zinc-300">
+              <span className="text-sm font-medium text-slate-600">
                 Insurance Policy Number
               </span>
               <input
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                className={inputClass}
                 onChange={(event) =>
                   onChange("insurancePolicyNumber", event.target.value)
                 }
@@ -370,11 +454,11 @@ function VehicleModal({
               />
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-zinc-300">
+              <span className="text-sm font-medium text-slate-600">
                 Insurance Expiry
               </span>
               <input
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
+                className={inputClass}
                 onChange={(event) =>
                   onChange("insuranceExpiry", event.target.value)
                 }
@@ -383,11 +467,11 @@ function VehicleModal({
               />
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-zinc-300">
+              <span className="text-sm font-medium text-slate-600">
                 Registration Number
               </span>
               <input
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-lime-300"
+                className={inputClass}
                 onChange={(event) =>
                   onChange("registrationNumber", event.target.value)
                 }
@@ -395,11 +479,11 @@ function VehicleModal({
               />
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-zinc-300">
+              <span className="text-sm font-medium text-slate-600">
                 Registration Expiry
               </span>
               <input
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
+                className={inputClass}
                 onChange={(event) =>
                   onChange("registrationExpiry", event.target.value)
                 }
@@ -407,10 +491,10 @@ function VehicleModal({
                 value={formState.registrationExpiry}
               />
             </label>
-            <label className="block md:col-span-2">
-              <span className="text-sm font-medium text-zinc-300">Status</span>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-600">Status</span>
               <select
-                className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-lime-300"
+                className={`${inputClass} appearance-none pr-9`}
                 onChange={(event) => onChange("status", event.target.value)}
                 value={formState.status}
               >
@@ -419,26 +503,41 @@ function VehicleModal({
                 ))}
               </select>
             </label>
+          </fieldset></div>
+          {!isCreateMode ? <aside className="border-t border-dashed border-slate-200 pt-5 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-purple-600">Schedule / Assignment</p>
+            {assignment ? <div className="mt-4">
+              <div className="rounded-2xl bg-purple-50 p-4"><p className="text-xs text-purple-500">Current assigned driver</p><p className="mt-1 font-semibold text-purple-900">{assignment.driverName}</p>{assignment.driverEmail ? <p className="mt-1 break-all text-xs text-purple-600">{assignment.driverEmail}</p> : null}</div>
+              {assignment.schedule ? <div className="mt-4 grid gap-4 rounded-2xl border border-slate-100 p-4">
+                <DetailField label="Related schedule" value={assignment.schedule.shift_name || "Scheduled shift"} />
+                <DetailField label="Shift date" value={formatDate(assignment.schedule.shift_date ?? "")} />
+                <DetailField label="Shift type" value={assignment.schedule.shift_type || "Not set"} />
+                <div className="grid grid-cols-2 gap-3"><DetailField label="Start time" value={assignment.schedule.start_time || "Not set"} /><DetailField label="End time" value={assignment.schedule.end_time || "Not set"} /></div>
+                <DetailField label="Status" value={assignment.schedule.status || "Not set"} />
+              </div> : <p className="mt-4 rounded-2xl border border-dashed border-slate-200 p-4 text-sm leading-6 text-slate-500">No active schedule assignment found for this vehicle.</p>}
+            </div> : <p className="mt-4 rounded-2xl border border-dashed border-slate-200 p-4 text-sm leading-6 text-slate-500">No active schedule assignment found for this vehicle.</p>}
+          </aside> : null}
           </div>
 
-          <div className="flex flex-col-reverse gap-3 border-t border-white/10 pt-5 sm:flex-row sm:justify-end">
+          <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
+            {!isCreateMode && !isEditing ? <PrimaryActionButton disabled={isSaving} onClick={onEdit} type="button">Edit</PrimaryActionButton> : <>
             <button
-              className="rounded-full border border-white/10 px-5 py-2.5 text-sm font-semibold text-zinc-300 transition hover:bg-white/10"
+              className="rounded-full border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
               disabled={isSaving}
-              onClick={onClose}
+              onClick={isCreateMode ? onClose : onCancel}
               type="button"
             >
               Cancel
             </button>
-            <button
-              className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isSaving}
+            <PrimaryActionButton
+              disabled={isSaving || (!isCreateMode && !isDirty)}
               type="submit"
             >
-              {isSaving ? "Saving..." : buttonLabel}
-            </button>
+              {isSaving ? "Saving..." : isCreateMode ? "Create Vehicle" : "Save Changes"}
+            </PrimaryActionButton></>}
           </div>
         </form>
+       </div>
       </div>
     </div>
   );
@@ -447,6 +546,7 @@ function VehicleModal({
 export default function AdminVehiclesPage() {
   const searchParams = useSearchParams();
   const [vehicles, setVehicles] = useState<VehicleRecord[]>([]);
+  const [assignments, setAssignments] = useState<Record<string, VehicleAssignment | null>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -455,6 +555,7 @@ export default function AdminVehiclesPage() {
   const [editingVehicle, setEditingVehicle] = useState<VehicleRecord | null>(
     null,
   );
+  const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
     if (searchParams.get("action") !== "create") return;
@@ -463,11 +564,25 @@ export default function AdminVehiclesPage() {
   }, [searchParams]);
   const [formState, setFormState] =
     useState<VehicleFormState>(emptyVehicleForm);
+  const [initialFormState, setInitialFormState] = useState<VehicleFormState>(emptyVehicleForm);
   const [currentPage, setCurrentPage] = useState(1);
+  const [searchInput, setSearchInput] = useState("");
+  const [statusFilter, setStatusFilter] = useState<VehicleStatus | "all">("all");
+  const [typeFilter, setTypeFilter] = useState("all");
 
-  const totalPages = Math.max(1, Math.ceil(vehicles.length / DEFAULT_PAGE_SIZE));
+  const vehicleTypes = useMemo(() => Array.from(new Set(vehicles.map((vehicle) => vehicle.vehicleType).filter(Boolean))).sort(), [vehicles]);
+  const filteredVehicles = useMemo(() => {
+    const query = searchInput.trim().toLowerCase();
+    return vehicles.filter((vehicle) => {
+      const matchesSearch = !query || [getVehicleName(vehicle), vehicle.vehicleNumber, vehicle.plateNumber, vehicle.vehicleType].some((value) => value.toLowerCase().includes(query));
+      const matchesStatus = statusFilter === "all" || vehicle.status === statusFilter;
+      const matchesType = typeFilter === "all" || vehicle.vehicleType === typeFilter;
+      return matchesSearch && matchesStatus && matchesType;
+    });
+  }, [searchInput, statusFilter, typeFilter, vehicles]);
+  const totalPages = Math.max(1, Math.ceil(filteredVehicles.length / DEFAULT_PAGE_SIZE));
   const activePage = Math.min(currentPage, totalPages);
-  const paginatedVehicles = vehicles.slice(
+  const paginatedVehicles = filteredVehicles.slice(
     (activePage - 1) * DEFAULT_PAGE_SIZE,
     activePage * DEFAULT_PAGE_SIZE,
   );
@@ -476,23 +591,18 @@ export default function AdminVehiclesPage() {
     setIsLoading(true);
     setErrorMessage("");
 
-    const { data, error } = await supabase
-      .from("vehicles")
-      .select(
-        "vehicle_id, vehicle_number, license_plate, make, model, year, vehicle_type, mileage, insurance_policy_number, insurance_expiry_date, registration_number, registration_expiry_date, status",
-      )
-      .order("created_at", { ascending: false })
-      .returns<VehicleRow[]>();
-
-    if (error) {
-      setErrorMessage(error.message);
+    try {
+      const data = await fetchAdministratorJson<{ vehicles: VehicleRow[] }>("/api/admin/vehicles");
+      setVehicles(data.vehicles.map(toVehicleRecord));
+      return true;
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unable to load vehicles.");
       setVehicles([]);
+      setAssignments({});
+      return false;
+    } finally {
       setIsLoading(false);
-      return;
     }
-
-    setVehicles((data ?? []).map(toVehicleRecord));
-    setIsLoading(false);
   }, []);
 
   useEffect(() => {
@@ -517,17 +627,28 @@ export default function AdminVehiclesPage() {
   function openCreateModal() {
     setEditingVehicle(null);
     setFormState(emptyVehicleForm);
+    setInitialFormState(emptyVehicleForm);
+    setIsEditing(false);
     setErrorMessage("");
     setSuccessMessage("");
     setIsModalOpen(true);
   }
 
-  function openEditModal(vehicle: VehicleRecord) {
+  async function openViewModal(vehicle: VehicleRecord) {
+    const nextForm = toVehicleForm(vehicle);
     setEditingVehicle(vehicle);
-    setFormState(toVehicleForm(vehicle));
+    setFormState(nextForm);
+    setInitialFormState(nextForm);
+    setIsEditing(false);
     setErrorMessage("");
     setSuccessMessage("");
     setIsModalOpen(true);
+    try {
+      const data = await fetchAdministratorJson<{ assignment: VehicleAssignmentRow | null }>(`/api/admin/vehicles?vehicleId=${encodeURIComponent(vehicle.vehicleId)}`);
+      setAssignments((current) => ({ ...current, [vehicle.vehicleId]: data.assignment ? toVehicleAssignment(data.assignment) : null }));
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unable to load schedule assignment.");
+    }
   }
 
   function closeModal() {
@@ -537,7 +658,14 @@ export default function AdminVehiclesPage() {
 
     setIsModalOpen(false);
     setEditingVehicle(null);
+    setIsEditing(false);
     setFormState(emptyVehicleForm);
+  }
+
+  function cancelEditing() {
+    setFormState(initialFormState);
+    setIsEditing(false);
+    setErrorMessage("");
   }
 
   function updateFormState(field: keyof VehicleFormState, value: string) {
@@ -564,7 +692,7 @@ export default function AdminVehiclesPage() {
     const { error } = editingVehicle
       ? await supabase
           .from("vehicles")
-          .update(payload)
+          .update({ ...payload, updated_at: new Date().toISOString() })
           .eq("vehicle_id", editingVehicle.vehicleId)
       : await supabase.from("vehicles").insert(payload);
 
@@ -574,7 +702,11 @@ export default function AdminVehiclesPage() {
       return;
     }
 
-    await loadVehicles();
+    const didRefreshVehicles = await loadVehicles();
+    if (!didRefreshVehicles) {
+      setIsSaving(false);
+      return;
+    }
     setSuccessMessage(
       editingVehicle
         ? "Vehicle updated successfully."
@@ -587,28 +719,13 @@ export default function AdminVehiclesPage() {
   }
 
   return (
-    <section className="space-y-4 text-white">
-      <div className="flex flex-col gap-4 rounded-3xl bg-[#222222] p-5 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-lime-400">
-            Fleet Management
-          </p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-            Vehicles
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
-            Manage vehicle availability, service readiness, compliance dates,
-            and future delivery assignment capacity.
-          </p>
-        </div>
-        <button
-          className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-200"
-          onClick={openCreateModal}
-          type="button"
-        >
-          Add Vehicle
-        </button>
-      </div>
+    <section className="space-y-4 text-[#17232b]">
+      <AdminPageIntro
+        actions={<PrimaryActionButton className="gap-2 px-6 py-3" onClick={openCreateModal} type="button"><span aria-hidden="true" className="text-lg leading-none">+</span><span>Create Vehicle</span></PrimaryActionButton>}
+        description="Manage vehicle availability, service readiness, compliance dates, and assignment capacity across the delivery fleet."
+        eyebrow="Fleet management"
+        title="Vehicles"
+      />
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <VehicleKpiCard
@@ -634,116 +751,117 @@ export default function AdminVehiclesPage() {
         />
       </div>
 
-      <div className="rounded-3xl bg-[#222222] p-5">
+      <AdminCard className="p-4">
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_240px]">
           <label className="block">
             <span className="sr-only">Search vehicles</span>
             <input
-              className="h-11 w-full rounded-full border border-white/10 bg-black/30 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-white/20"
+              className="h-11 w-full rounded-full border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
+              onChange={(event) => { setSearchInput(event.target.value); setCurrentPage(1); }}
               placeholder="Search vehicles"
               type="search"
+              value={searchInput}
             />
           </label>
           <label className="block">
             <span className="sr-only">Status filter</span>
             <select
-              className="h-11 w-full rounded-full border border-white/10 bg-black/30 px-4 text-sm text-zinc-300 outline-none transition focus:border-white/20"
-              defaultValue=""
+              className="users-filter-select h-11 w-full appearance-none rounded-full border border-slate-200 bg-slate-50 px-4 pr-10 text-sm text-slate-600 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
+              onChange={(event) => { setStatusFilter(event.target.value as VehicleStatus | "all"); setCurrentPage(1); }}
+              value={statusFilter}
             >
-              <option value="">Status filter</option>
+              <option value="all">All Statuses</option>
               {vehicleStatuses.map((status) => (
                 <option key={status}>{status}</option>
               ))}
             </select>
           </label>
           <label className="block">
-            <span className="sr-only">Maintenance filter</span>
+            <span className="sr-only">Vehicle type filter</span>
             <select
-              className="h-11 w-full rounded-full border border-white/10 bg-black/30 px-4 text-sm text-zinc-300 outline-none transition focus:border-white/20"
-              defaultValue=""
+              className="users-filter-select h-11 w-full appearance-none rounded-full border border-slate-200 bg-slate-50 px-4 pr-10 text-sm text-slate-600 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
+              onChange={(event) => { setTypeFilter(event.target.value); setCurrentPage(1); }}
+              value={typeFilter}
             >
-              <option value="">Maintenance filter</option>
-              <option value="current">Current</option>
-              <option value="maintenance">Maintenance</option>
-              <option value="out_of_service">Out of Service</option>
+              <option value="all">All Vehicle Types</option>
+              {vehicleTypes.map((type) => <option key={type} value={type}>{type}</option>)}
             </select>
           </label>
         </div>
-      </div>
+      </AdminCard>
 
       {successMessage ? (
-        <p className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+        <p className="fixed right-6 top-6 z-[60] rounded-2xl border border-emerald-200 bg-white px-5 py-4 text-sm font-medium text-emerald-700 shadow-xl">
           {successMessage}
         </p>
       ) : null}
 
       {errorMessage ? (
-        <p className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+        <p className="fixed right-6 top-6 z-[60] max-w-sm rounded-2xl border border-red-200 bg-white px-5 py-4 text-sm font-medium text-red-700 shadow-xl">
           {errorMessage}
         </p>
       ) : null}
 
-      <div className="overflow-hidden rounded-3xl bg-[#222222] text-white">
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+      <AdminCard className="overflow-hidden">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <div>
             <h2 className="text-xl font-medium">Vehicle Records</h2>
-            <p className="mt-1 text-sm text-zinc-500">
+            <p className="mt-1 text-sm text-slate-400">
               Fleet records loaded from the vehicles table.
             </p>
           </div>
         </div>
 
         {isLoading ? (
-          <p className="px-5 py-10 text-sm text-zinc-400">
+          <p className="px-5 py-10 text-sm text-slate-500">
             Loading vehicle records...
           </p>
-        ) : vehicles.length === 0 ? (
+        ) : filteredVehicles.length === 0 ? (
           <div className="px-5 py-16 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-sm font-semibold text-white">
-              DE
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-purple-50 text-sm font-semibold text-purple-700">
+              VE
             </div>
             <h3 className="mt-4 text-lg font-semibold">No vehicles found.</h3>
-            <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-zinc-400">
-              No vehicles found. Add your first vehicle to begin managing fleet
-              operations.
+            <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">
+              {vehicles.length === 0 ? "Add your first vehicle to begin managing fleet operations." : "Try adjusting your search or filters."}
             </p>
           </div>
         ) : (
           <>
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm [&_td]:py-2.5 [&_th]:py-2.5">
-              <thead className="text-left text-xs text-zinc-500">
+              <thead className="border-b border-slate-100 bg-slate-50/70 text-left text-xs text-slate-400">
                 <tr>
                   <th className="px-5 py-4 font-medium">Vehicle</th>
                   <th className="px-5 py-4 font-medium">License Plate</th>
                   <th className="px-5 py-4 font-medium">Mileage</th>
                   <th className="px-5 py-4 font-medium">Insurance Expiry</th>
                   <th className="px-5 py-4 font-medium">
-                    Registration Expiry
-                  </th>
-                  <th className="px-5 py-4 font-medium">
                     Registration Number
                   </th>
-                  <th className="px-5 py-4 font-medium">Status</th>
+                  <th className="px-5 py-4 text-center font-medium">
+                    Registration Expiry
+                  </th>
+                  <th className="px-5 py-4 text-center font-medium">Status</th>
                   <th className="px-5 py-4 text-right font-medium">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5 text-zinc-300">
+              <tbody className="divide-y divide-slate-100 text-slate-500">
                 {paginatedVehicles.map((vehicle) => (
                   <tr
-                    className="transition hover:bg-white/5"
+                    className="transition hover:bg-slate-50/70"
                     key={vehicle.vehicleId}
                   >
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-xs font-semibold text-black">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-purple-50 text-xs font-semibold text-purple-700">
                           {vehicle.make[0]?.toUpperCase() || "V"}
                         </div>
                         <div>
-                          <p className="font-semibold text-white">
+                          <p className="font-semibold text-[#17232b]">
                             {getVehicleName(vehicle)}
                           </p>
-                          <p className="text-xs text-zinc-500">
+                          <p className="text-xs text-slate-400">
                             {vehicle.vehicleNumber || "No vehicle number"}
                           </p>
                         </div>
@@ -759,21 +877,21 @@ export default function AdminVehiclesPage() {
                       {formatDate(vehicle.insuranceExpiry)}
                     </td>
                     <td className="px-5 py-4">
-                      {formatDate(vehicle.registrationExpiry)}
-                    </td>
-                    <td className="px-5 py-4">
                       {vehicle.registrationNumber || "Not recorded"}
                     </td>
-                    <td className="px-5 py-4">
+                    <td className="px-5 py-4 text-center">
+                      {formatDate(vehicle.registrationExpiry)}
+                    </td>
+                    <td className="px-5 py-4 text-center align-middle">
                       <VehicleStatusBadge status={vehicle.status} />
                     </td>
                     <td className="px-5 py-4 text-right">
                       <button
-                        className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-zinc-300 transition hover:bg-white/10"
-                        onClick={() => openEditModal(vehicle)}
+                        className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700"
+                        onClick={() => void openViewModal(vehicle)}
                         type="button"
                       >
-                        Edit
+                        View
                       </button>
                     </td>
                   </tr>
@@ -783,23 +901,30 @@ export default function AdminVehiclesPage() {
             </div>
           </>
         )}
-      </div>
+      </AdminCard>
 
       <Pagination
         currentPage={activePage}
         onPageChange={setCurrentPage}
         totalPages={totalPages}
-        totalRecords={vehicles.length}
+        totalRecords={filteredVehicles.length}
+        tone="purple"
       />
 
       {isModalOpen ? (
         <VehicleModal
+          assignment={editingVehicle ? assignments[editingVehicle.vehicleId] ?? null : null}
           formState={formState}
+          isDirty={JSON.stringify(formState) !== JSON.stringify(initialFormState)}
+          isEditing={isEditing}
           isSaving={isSaving}
-          mode={editingVehicle ? "edit" : "create"}
+          mode={editingVehicle ? "view" : "create"}
+          onCancel={cancelEditing}
           onChange={updateFormState}
           onClose={closeModal}
+          onEdit={() => setIsEditing(true)}
           onSubmit={handleSubmit}
+          vehicle={editingVehicle}
         />
       ) : null}
     </section>

@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 
 import { StatusBadge } from "../_components/admin-ui";
 import { supabase } from "@/lib/supabase";
+import { fetchAdministratorJson } from "@/lib/admin-api-client";
 import { DEFAULT_PAGE_SIZE, Pagination } from "../_components/Pagination";
 
 type DeliveryStatus =
@@ -641,80 +642,19 @@ export default function DeliveriesPage() {
     setIsLoading(true);
     setErrorMessage("");
 
-    const [deliveriesResponse, driversResponse, vehiclesResponse] =
-      await Promise.all([
-        supabase
-          .from("deliveries")
-          .select(
-            `
-        delivery_id,
-        delivery_number,
-        customer_name,
-        customer_phone,
-        pickup_address,
-        delivery_address,
-        assigned_driver_id,
-        assigned_vehicle_id,
-        status,
-        priority,
-        notes,
-        created_at,
-        drivers:assigned_driver_id (
-          driver_id,
-          user_id,
-          profiles:user_id (
-            first_name,
-            last_name,
-            email
-          )
-        ),
-        vehicles:assigned_vehicle_id (
-          vehicle_id,
-          license_plate
-        )
-      `,
-          )
-          .order("created_at", { ascending: false })
-          .returns<DeliveryRow[]>(),
-        supabase
-          .from("drivers")
-          .select(
-            "driver_id, user_id, profiles:user_id (first_name, last_name, email)",
-          )
-          .order("created_at", { ascending: false })
-          .returns<DriverOption[]>(),
-        supabase
-          .from("vehicles")
-          .select("vehicle_id, license_plate, make, model")
-          .order("license_plate", { ascending: true })
-          .returns<VehicleOption[]>(),
-      ]);
-
-    if (deliveriesResponse.error) {
-      setErrorMessage(deliveriesResponse.error.message);
+    try {
+      const data = await fetchAdministratorJson<{ deliveries: DeliveryRow[]; drivers: DriverOption[]; vehicles: VehicleOption[] }>("/api/admin/deliveries");
+      setDeliveries(data.deliveries.map(toDeliveryRecord));
+      setDriverOptions(data.drivers);
+      setVehicleOptions(data.vehicles);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unable to load deliveries.");
       setDeliveries([]);
-      setIsLoading(false);
-      return;
-    }
-
-    if (driversResponse.error) {
-      setErrorMessage(driversResponse.error.message);
       setDriverOptions([]);
-      setIsLoading(false);
-      return;
-    }
-
-    if (vehiclesResponse.error) {
-      setErrorMessage(vehiclesResponse.error.message);
       setVehicleOptions([]);
+    } finally {
       setIsLoading(false);
-      return;
     }
-
-    setDeliveries((deliveriesResponse.data ?? []).map(toDeliveryRecord));
-    setDriverOptions(driversResponse.data ?? []);
-    setVehicleOptions(vehiclesResponse.data ?? []);
-    setIsLoading(false);
   }, []);
 
   useEffect(() => {

@@ -34,6 +34,7 @@ type CreatedProfile = {
   is_active: boolean | null;
   must_change_password: boolean | null;
   created_at: string | null;
+  updated_at?: string | null;
 };
 
 const validRoles: UserRole[] = [...USER_ROLES];
@@ -121,10 +122,18 @@ async function createAuthorizedAdminClients(request: Request) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !publishableKey || !serviceRoleKey) return null;
+  if (!supabaseUrl || !publishableKey || !serviceRoleKey) {
+    return {
+      clients: null,
+      error: "Server Supabase configuration is missing.",
+      status: 500 as const,
+    };
+  }
 
   const accessToken = getBearerToken(request);
-  if (!accessToken) return null;
+  if (!accessToken) {
+    return { clients: null, error: "Authentication is required.", status: 401 as const };
+  }
 
   const requesterSupabase = createClient(supabaseUrl, publishableKey, {
     auth: { autoRefreshToken: false, persistSession: false },
@@ -132,7 +141,9 @@ async function createAuthorizedAdminClients(request: Request) {
   });
   const { data: requesterData, error: requesterError } =
     await requesterSupabase.auth.getUser(accessToken);
-  if (requesterError || !requesterData.user) return null;
+  if (requesterError || !requesterData.user) {
+    return { clients: null, error: "Authentication is required.", status: 401 as const };
+  }
 
   const { data: adminProfile, error: profileError } = await requesterSupabase
     .from("profiles")
@@ -140,26 +151,37 @@ async function createAuthorizedAdminClients(request: Request) {
     .eq("profile_id", requesterData.user.id)
     .maybeSingle<AdminProfile>();
   if (profileError || !isAdministrator(adminProfile?.role) || adminProfile?.is_active !== true) {
-    return null;
+    return {
+      clients: null,
+      error: "Active Administrator access is required.",
+      status: 403 as const,
+    };
   }
 
   return {
-    adminSupabase: createClient(supabaseUrl, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    }),
+    clients: {
+      adminSupabase: createClient(supabaseUrl, serviceRoleKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      }),
+    },
+    error: null,
+    status: 200 as const,
   };
 }
 
 export async function GET(request: Request) {
-  const clients = await createAuthorizedAdminClients(request);
-  if (!clients) return jsonResponse({ error: "Active Administrator access is required." }, 403);
+  const authorization = await createAuthorizedAdminClients(request);
+  if (!authorization.clients) {
+    return jsonResponse({ error: authorization.error }, authorization.status);
+  }
+  const { clients } = authorization;
 
   const profileId = new URL(request.url).searchParams.get("profileId")?.trim();
   if (!profileId) {
     const { data: profiles, error: profilesError } = await clients.adminSupabase
       .from("profiles")
       .select(
-        "profile_id, first_name, last_name, email, phone, role, is_active, created_at",
+        "profile_id, first_name, last_name, email, phone, role, is_active, created_at, updated_at",
       )
       .order("created_at", { ascending: false });
 
@@ -185,8 +207,11 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const clients = await createAuthorizedAdminClients(request);
-  if (!clients) return jsonResponse({ error: "Active Administrator access is required." }, 403);
+  const authorization = await createAuthorizedAdminClients(request);
+  if (!authorization.clients) {
+    return jsonResponse({ error: authorization.error }, authorization.status);
+  }
+  const { clients } = authorization;
 
   let body: unknown;
   try {

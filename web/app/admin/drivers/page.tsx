@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { supabase } from "@/lib/supabase";
+import { fetchAdministratorJson } from "@/lib/admin-api-client";
 import {
   AdminCard,
   AdminPageIntro,
@@ -355,18 +356,9 @@ export default function AdminDriversPage() {
   const loadDriverData = useCallback(async () => {
     setIsLoading(true);
     setErrorMessage("");
-    const [driversResponse, profilesResponse] = await Promise.all([
-      supabase.from("drivers").select("driver_id, user_id, license_number, license_expiry_date, availability, performance_score, assigned_vehicle_id, created_at, updated_at, profiles:user_id (profile_id, first_name, last_name, email, phone, role, is_active), vehicles:assigned_vehicle_id (vehicle_id, vehicle_number, license_plate, make, model)").order("created_at", { ascending: false }).returns<DriverRow[]>(),
-      supabase.from("profiles").select("profile_id, first_name, last_name, email, phone, role, is_active").eq("role", "driver").order("first_name", { ascending: true }).returns<DriverProfile[]>(),
-    ]);
-    if (driversResponse.error || profilesResponse.error) {
-      setErrorMessage(`Unable to load driver records: ${(driversResponse.error ?? profilesResponse.error)?.message}`);
-      setDrivers([]);
-      setDriverProfiles([]);
-      setIsLoading(false);
-      return false;
-    }
-    const loadedDrivers = (driversResponse.data ?? []).map(toDriverRecord);
+    try {
+    const data = await fetchAdministratorJson<{ drivers: DriverRow[]; profiles: DriverProfile[] }>("/api/admin/drivers");
+    const loadedDrivers = data.drivers.map(toDriverRecord);
     const inactiveDriversToNormalize = loadedDrivers.filter(
       (driver) =>
         !driver.isActive &&
@@ -397,9 +389,14 @@ export default function AdminDriversPage() {
     }
 
     setDrivers(loadedDrivers.map(applyInactiveDriverRules));
-    setDriverProfiles(profilesResponse.data ?? []);
-    setIsLoading(false);
+    setDriverProfiles(data.profiles);
     return true;
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unable to load driver records.");
+      setDrivers([]);
+      setDriverProfiles([]);
+      return false;
+    } finally { setIsLoading(false); }
   }, []);
 
   useEffect(() => { queueMicrotask(() => { void loadDriverData(); }); }, [loadDriverData]);
@@ -451,13 +448,19 @@ export default function AdminDriversPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setIsSaving(true); setErrorMessage(""); setSuccessMessage("");
     if (editingDriver) {
-      const { data: linkedProfile, error: profileError } = await supabase
-        .from("profiles")
-        .select("is_active")
-        .eq("profile_id", editingDriver.userId)
-        .single();
+      let linkedProfileIsActive = false;
+      try {
+        const linkedProfile = await fetchAdministratorJson<{ isActive: boolean }>(
+          `/api/admin/drivers?profileId=${encodeURIComponent(editingDriver.userId)}`,
+        );
+        linkedProfileIsActive = linkedProfile.isActive;
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : "Unable to verify driver status.");
+        setIsSaving(false);
+        return;
+      }
 
-      if (profileError || linkedProfile?.is_active !== true) {
+      if (!linkedProfileIsActive) {
         await supabase
           .from("drivers")
           .update({
