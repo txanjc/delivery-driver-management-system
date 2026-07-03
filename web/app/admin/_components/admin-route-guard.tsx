@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import { supabase } from "@/lib/supabase";
+import { isAdministrator } from "@/lib/roles";
 
 type AdminProfile = {
   role: string | null;
@@ -36,7 +37,7 @@ function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number) {
     promise,
     new Promise<never>((_, reject) => {
       window.setTimeout(() => {
-        reject(new Error("Admin verification timed out."));
+        reject(new Error("Administrator verification timed out."));
       }, timeoutMs);
     }),
   ]);
@@ -107,14 +108,14 @@ export function AdminRouteGuard({ children }: { children: ReactNode }) {
           return;
         }
 
-        if (profile.role !== "admin" || profile.is_active !== true) {
+        if (!isAdministrator(profile.role) || profile.is_active !== true) {
           redirectToUnauthorized();
           return;
         }
 
         setAuthorizedPathname(pathname);
       } catch (error) {
-        console.error("Unable to verify admin access:", error);
+        console.error("Unable to verify Administrator access:", error);
         redirectToLogin();
       }
     }
@@ -141,7 +142,7 @@ export function AdminRouteGuard({ children }: { children: ReactNode }) {
       <main className="flex min-h-screen items-center justify-center bg-[#111111] px-6 text-white">
         <div className="text-center">
           <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-          <p className="mt-4 text-sm text-zinc-400">Verifying admin access...</p>
+          <p className="mt-4 text-sm text-zinc-400">Verifying Administrator access...</p>
         </div>
       </main>
     );

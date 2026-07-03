@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import { supabase } from "@/lib/supabase";
+import { isAdministrator } from "@/lib/roles";
 
 import { TimeDateWidget } from "./TimeDateWidget";
 import {
@@ -186,7 +187,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
   const [profileName, setProfileName] = useState({
-    firstName: "Admin",
+    firstName: "Administrator",
     lastName: "User",
   });
   const [userRole, setUserRole] = useState<QuickActionsRole | null>(null);
@@ -214,10 +215,16 @@ export function AdminShell({ children }: { children: ReactNode }) {
       }
 
       setProfileName({
-        firstName: profile.first_name?.trim() || "Admin",
+        firstName: profile.first_name?.trim() || "Administrator",
         lastName: profile.last_name?.trim() || "User",
       });
-      setUserRole(profile.role === "dispatcher" ? "dispatcher" : "admin");
+      setUserRole(
+        profile.role === "dispatcher"
+          ? "dispatcher"
+          : isAdministrator(profile.role)
+            ? "administrator"
+            : null,
+      );
     }
 
     void loadProfileName();
@@ -281,7 +288,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           </span>
         </Link>
 
-        <nav aria-label="Admin navigation" className="mt-8 flex-1 space-y-1">
+        <nav aria-label="Administrator navigation" className="mt-8 flex-1 space-y-1">
           {navigationItems.map((item) => {
             const isActive =
               pathname === item.href ||
@@ -320,7 +327,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
             isSidebarExpanded ? "opacity-100" : "opacity-0"
           }`}
         >
-          DeliverEaze Admin
+          DeliverEaze Administrator
         </p>
       </aside>
 
@@ -405,7 +412,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
                         {fullName}
                       </p>
                       <p className="text-xs text-slate-500">
-                        Operations Manager
+                        {userRole === "administrator"
+                          ? "Administrator"
+                          : "Dispatcher"}
                       </p>
                     </div>
                     <div className="py-2">
@@ -440,7 +449,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           </div>
 
           <nav
-            aria-label="Mobile admin navigation"
+            aria-label="Mobile Administrator navigation"
             className="mt-4 flex gap-2 overflow-x-auto border-t border-slate-100 pt-3 lg:hidden"
           >
             {navigationItems.map((item) => {

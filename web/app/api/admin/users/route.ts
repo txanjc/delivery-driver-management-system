@@ -1,6 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
-
-type UserRole = "admin" | "dispatcher" | "driver";
+import {
+  isAdministrator,
+  USER_ROLES,
+  type UserRole,
+} from "@/lib/roles";
 
 type CreateUserRequest = {
   firstName: string;
@@ -33,7 +36,7 @@ type CreatedProfile = {
   created_at: string | null;
 };
 
-const validRoles: UserRole[] = ["admin", "dispatcher", "driver"];
+const validRoles: UserRole[] = [...USER_ROLES];
 
 function jsonResponse(
   body: {
@@ -136,7 +139,7 @@ async function createAuthorizedAdminClients(request: Request) {
     .select("role, is_active")
     .eq("profile_id", requesterData.user.id)
     .maybeSingle<AdminProfile>();
-  if (profileError || adminProfile?.role !== "admin" || adminProfile.is_active !== true) {
+  if (profileError || !isAdministrator(adminProfile?.role) || adminProfile?.is_active !== true) {
     return null;
   }
 
@@ -149,10 +152,23 @@ async function createAuthorizedAdminClients(request: Request) {
 
 export async function GET(request: Request) {
   const clients = await createAuthorizedAdminClients(request);
-  if (!clients) return jsonResponse({ error: "Active admin access is required." }, 403);
+  if (!clients) return jsonResponse({ error: "Active Administrator access is required." }, 403);
 
   const profileId = new URL(request.url).searchParams.get("profileId")?.trim();
-  if (!profileId) return jsonResponse({ error: "User ID is required." }, 400);
+  if (!profileId) {
+    const { data: profiles, error: profilesError } = await clients.adminSupabase
+      .from("profiles")
+      .select(
+        "profile_id, first_name, last_name, email, phone, role, is_active, created_at",
+      )
+      .order("created_at", { ascending: false });
+
+    if (profilesError) {
+      return jsonResponse({ error: profilesError.message }, 400);
+    }
+
+    return Response.json({ profiles: profiles ?? [] });
+  }
 
   const { data, error } = await clients.adminSupabase.auth.admin.getUserById(profileId);
   if (error || !data.user) {
@@ -170,7 +186,7 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   const clients = await createAuthorizedAdminClients(request);
-  if (!clients) return jsonResponse({ error: "Active admin access is required." }, 403);
+  if (!clients) return jsonResponse({ error: "Active Administrator access is required." }, 403);
 
   let body: unknown;
   try {
@@ -276,11 +292,11 @@ export async function POST(request: Request) {
     .maybeSingle<AdminProfile>();
 
   if (profileError) {
-    return jsonResponse({ error: "Unable to verify admin access." }, 403);
+    return jsonResponse({ error: "Unable to verify Administrator access." }, 403);
   }
 
-  if (adminProfile?.role !== "admin" || adminProfile.is_active !== true) {
-    return jsonResponse({ error: "Only active admins may create users." }, 403);
+  if (!isAdministrator(adminProfile?.role) || adminProfile?.is_active !== true) {
+    return jsonResponse({ error: "Only active Administrators may create users." }, 403);
   }
 
   let requestBody: unknown;

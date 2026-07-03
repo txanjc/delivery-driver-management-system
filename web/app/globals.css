@@ -22,28 +22,31 @@ body {
 }
 
 .user-modal-scrollbar {
-  scrollbar-color: #7c3aed #f3e8ff;
+  scrollbar-color: rgb(109 74 255 / 0.72) transparent;
   scrollbar-width: thin;
+  scrollbar-gutter: stable;
 }
 
 .user-modal-scrollbar::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 
 .user-modal-scrollbar::-webkit-scrollbar-track {
-  margin-block: 14px;
+  margin-block: 12px;
   border-radius: 999px;
-  background: #f3e8ff;
+  background: rgb(243 232 255 / 0.45);
 }
 
 .user-modal-scrollbar::-webkit-scrollbar-thumb {
-  border: 2px solid #f3e8ff;
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: #7c3aed;
+  background: rgb(109 74 255 / 0.68);
+  background-clip: padding-box;
 }
 
 .user-modal-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #6d28d9;
+  background: rgb(93 62 232 / 0.9);
+  background-clip: padding-box;
 }
 
 .user-details-select {

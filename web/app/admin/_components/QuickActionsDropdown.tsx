@@ -3,7 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-export type QuickActionsRole = "admin" | "dispatcher";
+export type QuickActionsRole = "administrator" | "dispatcher";
 
 type QuickAction = {
   label: string;
@@ -13,14 +13,14 @@ type QuickAction = {
 };
 
 const actions: QuickAction[] = [
-  { label: "Add User", href: "/admin/users?action=create", page: "/admin/users", roles: ["admin"] },
-  { label: "Add Driver", href: "/admin/drivers?action=create", page: "/admin/drivers", roles: ["admin", "dispatcher"] },
-  { label: "Add Vehicle", href: "/admin/vehicles?action=create", page: "/admin/vehicles", roles: ["admin", "dispatcher"] },
-  { label: "Create Schedule", href: "/admin/schedules?action=create", page: "/admin/schedules", roles: ["admin", "dispatcher"] },
-  { label: "Create Delivery", href: "/admin/deliveries?action=create", page: "/admin/deliveries", roles: ["admin", "dispatcher"] },
-  { label: "Create Route", href: "/admin/routes?action=create", page: "/admin/routes", roles: ["admin", "dispatcher"] },
-  { label: "Record Expense", href: "/admin/finance", page: "/admin/finance", roles: ["admin"] },
-  { label: "Generate Report", href: "/admin/reports", page: "/admin/reports", roles: ["admin"] },
+  { label: "Add User", href: "/admin/users?action=create", page: "/admin/users", roles: ["administrator"] },
+  { label: "Add Driver", href: "/admin/drivers?action=create", page: "/admin/drivers", roles: ["administrator", "dispatcher"] },
+  { label: "Add Vehicle", href: "/admin/vehicles?action=create", page: "/admin/vehicles", roles: ["administrator", "dispatcher"] },
+  { label: "Create Schedule", href: "/admin/schedules?action=create", page: "/admin/schedules", roles: ["administrator", "dispatcher"] },
+  { label: "Create Delivery", href: "/admin/deliveries?action=create", page: "/admin/deliveries", roles: ["administrator", "dispatcher"] },
+  { label: "Create Route", href: "/admin/routes?action=create", page: "/admin/routes", roles: ["administrator", "dispatcher"] },
+  { label: "Record Expense", href: "/admin/finance", page: "/admin/finance", roles: ["administrator"] },
+  { label: "Generate Report", href: "/admin/reports", page: "/admin/reports", roles: ["administrator"] },
   { label: "Generate Operational Report", href: "/admin/reports", page: "/admin/reports", roles: ["dispatcher"] },
 ];
 
@@ -38,7 +38,7 @@ export function QuickActionsDropdown({ role }: { role: QuickActionsRole }) {
     );
 
     if (pathname === "/admin/settings") {
-      return roleActions.filter((action) => role === "admin" && action.label === "Add User");
+      return roleActions.filter((action) => role === "administrator" && action.label === "Add User");
     }
 
     return roleActions;

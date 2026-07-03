@@ -11,7 +11,7 @@ export default function UnauthorizedPage() {
           Unauthorized
         </h1>
         <p className="mt-3 text-sm leading-6 text-slate-600">
-          Your account does not have active admin access to this portal.
+          Your account does not have active Administrator access to this portal.
         </p>
         <Link
           className="mt-6 inline-flex rounded-md bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"

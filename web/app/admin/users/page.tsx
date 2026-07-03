@@ -9,9 +9,14 @@ import {
   PrimaryActionButton,
 } from "../_components/admin-design-system";
 import { supabase } from "@/lib/supabase";
+import {
+  getUserRoleLabel,
+  normalizeUserRole,
+  USER_ROLES,
+  type UserRole,
+} from "@/lib/roles";
 import { DEFAULT_PAGE_SIZE, Pagination } from "../_components/Pagination";
 
-type UserRole = "admin" | "dispatcher" | "driver";
 type StatusFilter = "active" | "inactive" | "all";
 type RoleFilter = UserRole | "all";
 
@@ -70,21 +75,7 @@ const emptyUserForm: UserFormState = {
   confirmTemporaryPassword: "",
 };
 
-const roleOptions: UserRole[] = ["admin", "dispatcher", "driver"];
-
-function toUserRole(role: string | null): UserRole {
-  const normalizedRole = role?.trim().toLowerCase();
-
-  if (
-    normalizedRole === "admin" ||
-    normalizedRole === "dispatcher" ||
-    normalizedRole === "driver"
-  ) {
-    return normalizedRole;
-  }
-
-  return "driver";
-}
+const roleOptions: UserRole[] = [...USER_ROLES];
 
 function toUserRecord(profile: ProfileRow): UserRecord {
   return {
@@ -93,7 +84,7 @@ function toUserRecord(profile: ProfileRow): UserRecord {
     lastName: profile.last_name ?? "",
     email: profile.email ?? "",
     phone: profile.phone ?? "",
-    role: toUserRole(profile.role),
+    role: normalizeUserRole(profile.role?.trim().toLowerCase()),
     isActive: profile.is_active ?? false,
     createdAt: profile.created_at,
     updatedAt: null,
@@ -132,7 +123,16 @@ function getUserName(user: UserRecord) {
 }
 
 function formatRole(role: UserRole) {
-  return role.charAt(0).toUpperCase() + role.slice(1);
+  return getUserRoleLabel(role);
+}
+
+function isProfileRow(value: unknown): value is ProfileRow {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "profile_id" in value &&
+    typeof value.profile_id === "string"
+  );
 }
 
 function normalizeSearchValue(value: string) {
@@ -224,7 +224,7 @@ function UserKpiCard({
 
 function RoleBadge({ role }: { role: UserRole }) {
   const tone =
-    role === "admin"
+    role === "administrator"
       ? "bg-purple-50 text-purple-700"
       : role === "dispatcher"
         ? "bg-blue-50 text-blue-700"
@@ -306,9 +306,9 @@ function UserModal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-md"
       role="dialog"
     >
-      <div className="max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-[24px] border border-white bg-white/95 text-[#17232b] shadow-2xl shadow-slate-900/20 ring-1 ring-purple-100/50 backdrop-blur-xl">
-      <div className="user-modal-scrollbar max-h-[92vh] overflow-y-auto overscroll-contain scroll-smooth p-5 sm:p-6">
-        <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
+      <div className="max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-[24px] border border-white bg-white/95 p-1.5 text-[#17232b] shadow-2xl shadow-slate-900/20 ring-1 ring-purple-100/50 backdrop-blur-xl">
+      <div className={`user-modal-scrollbar max-h-[calc(92vh-0.75rem)] overflow-y-auto overscroll-contain rounded-[19px] scroll-smooth ${isCreateMode ? "p-4 sm:p-5" : "p-5 sm:p-6"}`}>
+        <div className={`flex items-start justify-between gap-4 border-b border-slate-100 ${isCreateMode ? "pb-3" : "pb-4"}`}>
           <div>
             <h2 className="text-xl font-semibold">
               {isCreateMode ? "Create User" : "User Details"}
@@ -330,7 +330,7 @@ function UserModal({
           </button>
         </div>
 
-        <form className="mt-5 space-y-5" onSubmit={onSubmit}>
+        <form className={isCreateMode ? "mt-4 space-y-4" : "mt-5 space-y-5"} onSubmit={onSubmit}>
           {errorMessage ? (
             <p className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</p>
           ) : null}
@@ -340,7 +340,7 @@ function UserModal({
               <div className="flex flex-col items-center text-center">
                 <div className="flex h-20 w-20 items-center justify-center rounded-full bg-purple-100 text-2xl font-semibold text-purple-700">{initials}</div>
                 <p className="mt-3 text-lg font-semibold">{[formState.firstName, formState.lastName].filter(Boolean).join(" ") || "Unnamed user"}</p>
-                <p className="mt-1 max-w-full break-all text-xs text-slate-400">{user?.profileId ?? "Not recorded"}</p>
+                <p className="mt-1 max-w-full break-all text-[10px] leading-4 tracking-[-0.01em] text-slate-400">{user?.profileId ?? "Not recorded"}</p>
                 <div className="mt-2 flex flex-wrap justify-center gap-2">
                   <RoleBadge role={formState.role} />
                   <UserStatusBadge isActive={formState.isActive} />
@@ -357,7 +357,7 @@ function UserModal({
               </div>
             </aside>
           ) : null}
-          <div className="grid content-start gap-4 md:grid-cols-2">
+          <div className={`grid content-start md:grid-cols-2 ${isCreateMode ? "gap-x-4 gap-y-3" : "gap-4"}`}>
             <label className="block">
               <span className="text-sm font-medium text-slate-600">
                 First Name
@@ -419,7 +419,7 @@ function UserModal({
             ) : null}
             {!isCreateMode && isEditing ? (
               <fieldset className="grid gap-4 rounded-2xl border border-blue-100 bg-blue-50/50 p-4 md:col-span-2 md:grid-cols-2">
-                <legend className="px-2 text-sm font-semibold text-slate-700">Optional password reset</legend>
+                <legend className="px-2 text-sm font-semibold text-slate-700">Password Reset</legend>
                 <label className="block">
                   <span className="text-sm font-medium text-slate-600">Temporary Password</span>
                   <input className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100" minLength={8} onChange={(event) => onChange("temporaryPassword", event.target.value)} type="password" value={formState.temporaryPassword} />
@@ -465,7 +465,7 @@ function UserModal({
           </div>
           </div>
 
-          <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
+          <div className={`flex flex-col-reverse gap-3 border-t border-slate-100 sm:flex-row sm:justify-end ${isCreateMode ? "pt-4" : "pt-5"}`}>
             {!isCreateMode && !isEditing ? (
               <button className="rounded-full bg-purple-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-purple-700" disabled={isSaving} onClick={onEdit} type="button">Edit</button>
             ) : (
@@ -536,22 +536,38 @@ export default function AdminUsersPage() {
     setIsLoading(true);
     setErrorMessage("");
 
-    const { data, error } = await supabase
-      .from("profiles")
-      .select(
-        "profile_id, first_name, last_name, email, phone, role, is_active, created_at",
-      )
-      .order("created_at", { ascending: false })
-      .returns<ProfileRow[]>();
-
-    if (error) {
-      setErrorMessage(`Unable to load user profiles: ${error.message}`);
+    const { data: sessionData, error: sessionError } =
+      await supabase.auth.getSession();
+    if (sessionError || !sessionData.session) {
+      setErrorMessage("You must be signed in as an Administrator to view users.");
       setUsers([]);
       setIsLoading(false);
       return false;
     }
 
-    setUsers((data ?? []).map(toUserRecord));
+    const response = await fetch("/api/admin/users", {
+      headers: {
+        Authorization: `Bearer ${sessionData.session.access_token}`,
+      },
+    });
+    const body: unknown = await response.json();
+
+    if (!response.ok) {
+      setErrorMessage(`Unable to load user profiles: ${readApiError(body)}`);
+      setUsers([]);
+      setIsLoading(false);
+      return false;
+    }
+
+    const profiles =
+      typeof body === "object" &&
+      body !== null &&
+      "profiles" in body &&
+      Array.isArray(body.profiles)
+        ? body.profiles.filter(isProfileRow)
+        : [];
+
+    setUsers(profiles.map(toUserRecord));
     setIsLoading(false);
     return true;
   }, []);
@@ -574,7 +590,7 @@ export default function AdminUsersPage() {
   const userStats = useMemo(() => {
     return {
       active: users.filter((user) => user.isActive).length,
-      admins: users.filter((user) => user.role === "admin").length,
+      administrators: users.filter((user) => user.role === "administrator").length,
       dispatchers: users.filter((user) => user.role === "dispatcher").length,
       drivers: users.filter((user) => user.role === "driver").length,
     };
@@ -621,7 +637,7 @@ export default function AdminUsersPage() {
 
     const { data } = await supabase.auth.getSession();
     if (!data.session) {
-      setErrorMessage("You must be signed in as an admin to view account details.");
+      setErrorMessage("You must be signed in as an Administrator to view account details.");
       setIsLoadingDetails(false);
       return;
     }
@@ -700,7 +716,7 @@ export default function AdminUsersPage() {
 
       const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session) {
-        setErrorMessage("You must be signed in as an admin to update users.");
+        setErrorMessage("You must be signed in as an Administrator to update users.");
         setIsSaving(false);
         return;
       }
@@ -740,7 +756,7 @@ export default function AdminUsersPage() {
         await supabase.auth.getSession();
 
       if (sessionError || !sessionData.session) {
-        setErrorMessage("You must be signed in as an admin to create users.");
+        setErrorMessage("You must be signed in as an Administrator to create users.");
         setIsSaving(false);
         return;
       }
@@ -793,13 +809,36 @@ export default function AdminUsersPage() {
     <section className="space-y-4 text-[#17232b]">
       <AdminPageIntro
         actions={
-          <button className="inline-flex items-center justify-center gap-2 rounded-full bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-sm shadow-blue-200 transition hover:-translate-y-0.5 hover:bg-blue-700 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2" onClick={openCreateModal} type="button">
-            <span aria-hidden="true" className="text-lg leading-none">+</span>
+          <PrimaryActionButton className="gap-2 px-6 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:ring-offset-2" onClick={openCreateModal} type="button">
+            <svg
+              aria-hidden="true"
+              className="h-5 w-5 shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <path
+                d="M14.5 19.25H4.75v-.75a4.75 4.75 0 0 1 9.5 0v.75ZM9.5 11.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+                fill="currentColor"
+              />
+              <circle cx="17.5" cy="7" fill="currentColor" r="4.25" />
+              <path
+                d="M17.5 4.75v4.5M15.25 7h4.5"
+                stroke="white"
+                strokeLinecap="round"
+                strokeWidth="1.5"
+              />
+              <path
+                d="M15.2 3.25A8.25 8.25 0 1 0 17.75 10"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeWidth="1.5"
+              />
+            </svg>
             <span>Create User</span>
-          </button>
+          </PrimaryActionButton>
         }
         description={
-          "Manage operational profile records, user roles, contact details, and active status for the admin and dispatch workflows."
+          "Manage operational profile records, user roles, contact details, and active status for Administrator and dispatch workflows."
         }
         eyebrow="Access operations"
         title="Users"
@@ -818,9 +857,9 @@ export default function AdminUsersPage() {
           value={String(userStats.active)}
         />
         <UserKpiCard
-          detail="Admin portal operators"
-          label="Admins"
-          value={String(userStats.admins)}
+          detail="Administrator portal operators"
+          label="Administrators"
+          value={String(userStats.administrators)}
         />
         <UserKpiCard
           detail="Dispatch workflow users"
@@ -857,7 +896,7 @@ export default function AdminUsersPage() {
               value={roleFilter}
             >
               <option value="all">All Roles</option>
-              <option value="admin">Administrator</option>
+              <option value="administrator">Administrator</option>
               <option value="dispatcher">Dispatcher</option>
               <option value="driver">Driver</option>
             </select>
@@ -873,8 +912,8 @@ export default function AdminUsersPage() {
               value={statusFilter}
             >
               <option value="all">All Users</option>
-              <option value="active">Active Users</option>
-              <option value="inactive">Inactive Users</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
             </select>
           </label>
         </div>
@@ -983,7 +1022,7 @@ export default function AdminUsersPage() {
         onPageChange={setCurrentPage}
         totalPages={totalPages}
         totalRecords={filteredUsers.length}
-        tone="blue"
+        tone="purple"
       />
 
       {isModalOpen ? (

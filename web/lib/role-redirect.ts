@@ -1,7 +1,9 @@
-export type WebUserRole = "admin" | "dispatcher" | "driver";
+import { isAdministrator, type StoredUserRole } from "./roles";
+
+export type WebUserRole = StoredUserRole;
 
 export function getRoleRedirectPath(role: WebUserRole) {
-  if (role === "admin") {
+  if (isAdministrator(role)) {
     return "/admin";
   }
 
