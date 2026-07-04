@@ -76,7 +76,6 @@ type DriverFormState = {
 };
 
 type DriverPayload = {
-  user_id?: string;
   license_number: string | null;
   license_expiry_date: string | null;
   availability: string | null;
@@ -406,7 +405,7 @@ export default function AdminDriversPage() {
   const availableProfiles = useMemo(() => {
     const usedIds = new Set(drivers.map((driver) => driver.userId));
     return driverProfiles.filter(
-      (profile) => profile.is_active === true && !usedIds.has(profile.profile_id),
+      (profile) => profile.is_active === true && profile.role === "driver" && !usedIds.has(profile.profile_id),
     );
   }, [driverProfiles, drivers]);
 
@@ -461,15 +460,7 @@ export default function AdminDriversPage() {
       }
 
       if (!linkedProfileIsActive) {
-        await supabase
-          .from("drivers")
-          .update({
-            assigned_vehicle_id: null,
-            availability: "unavailable",
-            performance_score: 0,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("driver_id", editingDriver.driverId);
+        try { await fetchAdministratorJson("/api/admin/drivers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ driver_id: editingDriver.driverId, driver: { license_number: editingDriver.licenseNumber, license_expiry_date: editingDriver.licenseExpiry || null, availability: "unavailable", performance_score: 0 } }) }); } catch { /* The API still normalizes inactive drivers before returning its read-only response. */ }
         await loadDriverData();
         setErrorMessage("Inactive drivers are read-only and cannot be updated.");
         setIsEditing(false);
@@ -482,15 +473,53 @@ export default function AdminDriversPage() {
     const score = payload.performance_score;
     if (score !== null && (score < 0 || score > 100)) { setErrorMessage("Performance Score must be between 0 and 100."); setIsSaving(false); return; }
     if (!editingDriver && !formState.selectedProfileId) { setErrorMessage("Select an existing driver profile."); setIsSaving(false); return; }
-    const { error } = editingDriver
-      ? await supabase
-          .from("drivers")
-          .update({ ...payload, updated_at: new Date().toISOString() })
-          .eq("driver_id", editingDriver.driverId)
-      : await supabase.from("drivers").insert({ ...payload, user_id: formState.selectedProfileId });
-    if (error) { setErrorMessage(error.message); setIsSaving(false); return; }
+    if (!editingDriver) {
+      const selectedProfile = driverProfiles.find((profile) => profile.profile_id === formState.selectedProfileId);
+      if (!selectedProfile) { setErrorMessage("The selected driver profile could not be found. Refresh the page and try again."); setIsSaving(false); return; }
+      if (selectedProfile.is_active !== true) { setErrorMessage("The selected profile is inactive. Activate the profile before creating a driver record."); setIsSaving(false); return; }
+      if (selectedProfile.role !== "driver") { setErrorMessage("The selected profile must have the driver role before a driver record can be created."); setIsSaving(false); return; }
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData.session?.user) {
+        setErrorMessage("Your admin session is unavailable or expired. Sign in again before creating a driver record.");
+        setIsSaving(false);
+        return;
+      }
+
+      const response = await fetch("/api/admin/drivers", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+        user_id: selectedProfile.profile_id,
+        license_number: payload.license_number,
+        license_expiry_date: payload.license_expiry_date,
+        availability: payload.availability,
+        performance_score: payload.performance_score,
+        assigned_vehicle_id: null,
+        updated_at: new Date().toISOString(),
+        }),
+      });
+      const responseBody: unknown = await response.json();
+      if (!response.ok) {
+        const message = typeof responseBody === "object" &&
+          responseBody !== null &&
+          "error" in responseBody &&
+          typeof responseBody.error === "string"
+          ? responseBody.error
+          : "Unable to create driver record.";
+        setErrorMessage(message); setIsSaving(false); return;
+      }
+      if (!(await loadDriverData())) { setIsSaving(false); return; }
+      setSuccessMessage("Driver record created successfully.");
+      setIsSaving(false); setIsModalOpen(false); setEditingDriver(null); setIsEditing(false); setFormState(emptyDriverForm);
+      return;
+    }
+    try { await fetchAdministratorJson("/api/admin/drivers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ driver_id: editingDriver.driverId, driver: payload }) }); } catch (error) { setErrorMessage(error instanceof Error ? error.message : "Unable to update driver."); setIsSaving(false); return; }
     if (!(await loadDriverData())) { setIsSaving(false); return; }
-    setSuccessMessage(editingDriver ? "Driver updated successfully." : "Driver record created successfully.");
+    setSuccessMessage("Driver updated successfully.");
     setIsSaving(false); setIsModalOpen(false); setEditingDriver(null); setIsEditing(false); setFormState(emptyDriverForm);
   }
 

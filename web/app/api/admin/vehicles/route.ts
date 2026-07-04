@@ -1,5 +1,13 @@
 import { apiError, authorizeAdministratorRequest } from "@/lib/server/administrator-api";
 
+function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
+function parseVehicle(value: unknown) {
+  if (!isRecord(value) || typeof value.license_plate !== "string" || !value.license_plate.trim() || !["available", "assigned", "maintenance_due", "out_of_service"].includes(String(value.status))) return null;
+  const nullableText = (field: unknown) => typeof field === "string" ? field.trim() || null : null;
+  const nullableNumber = (field: unknown) => field === null || (typeof field === "number" && Number.isFinite(field)) ? field : null;
+  return { vehicle_number: nullableText(value.vehicle_number), license_plate: value.license_plate.trim(), make: nullableText(value.make), model: nullableText(value.model), year: nullableNumber(value.year), vehicle_type: nullableText(value.vehicle_type), mileage: nullableNumber(value.mileage), insurance_policy_number: nullableText(value.insurance_policy_number), insurance_expiry_date: nullableText(value.insurance_expiry_date), registration_number: nullableText(value.registration_number), registration_expiry_date: nullableText(value.registration_expiry_date), status: value.status, updated_at: new Date().toISOString() };
+}
+
 export async function GET(request: Request) {
   const authorization = await authorizeAdministratorRequest(request);
   if (!authorization.client) return authorization.response;
@@ -41,4 +49,23 @@ export async function GET(request: Request) {
     driver_email: profile?.email ?? null,
     schedule,
   } });
+}
+
+export async function POST(request: Request) {
+  const authorization = await authorizeAdministratorRequest(request);
+  if (!authorization.client) return authorization.response;
+  let body: unknown; try { body = await request.json(); } catch { return apiError("Request body must be valid JSON.", 400); }
+  const vehicle = parseVehicle(body); if (!vehicle) return apiError("Invalid vehicle request.", 400);
+  const { error } = await authorization.client.from("vehicles").insert(vehicle); if (error) return apiError(error.message, 400);
+  return Response.json({ message: "Vehicle created successfully." }, { status: 201 });
+}
+
+export async function PATCH(request: Request) {
+  const authorization = await authorizeAdministratorRequest(request);
+  if (!authorization.client) return authorization.response;
+  let body: unknown; try { body = await request.json(); } catch { return apiError("Request body must be valid JSON.", 400); }
+  if (!isRecord(body) || typeof body.vehicle_id !== "string") return apiError("A vehicle ID is required.", 400);
+  const vehicle = parseVehicle(body.vehicle); if (!vehicle) return apiError("Invalid vehicle update request.", 400);
+  const { error } = await authorization.client.from("vehicles").update(vehicle).eq("vehicle_id", body.vehicle_id.trim()); if (error) return apiError(error.message, 400);
+  return Response.json({ message: "Vehicle updated successfully." });
 }

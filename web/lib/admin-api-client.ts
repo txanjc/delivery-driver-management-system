@@ -9,14 +9,15 @@ function readError(body: unknown) {
     : "The server could not complete this request.";
 }
 
-export async function fetchAdministratorJson<T>(path: string): Promise<T> {
+export async function fetchAdministratorJson<T>(path: string, init?: RequestInit): Promise<T> {
   const { data, error } = await supabase.auth.getSession();
   if (error || !data.session) {
     throw new Error("You must be signed in as an Administrator.");
   }
 
   const response = await fetch(path, {
-    headers: { Authorization: `Bearer ${data.session.access_token}` },
+    ...init,
+    headers: { ...init?.headers, Authorization: `Bearer ${data.session.access_token}` },
   });
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes("application/json")) {

@@ -3,7 +3,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-import { supabase } from "@/lib/supabase";
 import { fetchAdministratorJson } from "@/lib/admin-api-client";
 import {
   AdminCard,
@@ -127,7 +126,7 @@ function toVehicleStatus(status: string | null): VehicleStatus {
 
 function toVehicleStatusValue(status: VehicleStatus) {
   if (status === "Assigned") {
-    return "in_service";
+    return "assigned";
   }
 
   if (status === "Maintenance") {
@@ -513,7 +512,6 @@ function VehicleModal({
                 <DetailField label="Shift date" value={formatDate(assignment.schedule.shift_date ?? "")} />
                 <DetailField label="Shift type" value={assignment.schedule.shift_type || "Not set"} />
                 <div className="grid grid-cols-2 gap-3"><DetailField label="Start time" value={assignment.schedule.start_time || "Not set"} /><DetailField label="End time" value={assignment.schedule.end_time || "Not set"} /></div>
-                <DetailField label="Status" value={assignment.schedule.status || "Not set"} />
               </div> : <p className="mt-4 rounded-2xl border border-dashed border-slate-200 p-4 text-sm leading-6 text-slate-500">No active schedule assignment found for this vehicle.</p>}
             </div> : <p className="mt-4 rounded-2xl border border-dashed border-slate-200 p-4 text-sm leading-6 text-slate-500">No active schedule assignment found for this vehicle.</p>}
           </aside> : null}
@@ -689,15 +687,10 @@ export default function AdminVehiclesPage() {
       return;
     }
 
-    const { error } = editingVehicle
-      ? await supabase
-          .from("vehicles")
-          .update({ ...payload, updated_at: new Date().toISOString() })
-          .eq("vehicle_id", editingVehicle.vehicleId)
-      : await supabase.from("vehicles").insert(payload);
-
-    if (error) {
-      setErrorMessage(error.message);
+    try {
+      await fetchAdministratorJson("/api/admin/vehicles", { method: editingVehicle ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(editingVehicle ? { vehicle_id: editingVehicle.vehicleId, vehicle: payload } : payload) });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unable to save vehicle.");
       setIsSaving(false);
       return;
     }
