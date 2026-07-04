@@ -258,6 +258,12 @@ function formatDateTime(value: string | null) {
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
+function formatTime(value: string | null) {
+  if (!value) return "Not set";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(date);
+}
+
 function DetailField({ label, value }: { label: string; value: string }) {
   return <div><p className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</p><p className="mt-1 text-sm font-medium text-slate-700">{value}</p></div>;
 }
@@ -506,12 +512,11 @@ function VehicleModal({
           {!isCreateMode ? <aside className="border-t border-dashed border-slate-200 pt-5 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-purple-600">Schedule / Assignment</p>
             {assignment ? <div className="mt-4">
-              <div className="rounded-2xl bg-purple-50 p-4"><p className="text-xs text-purple-500">Current assigned driver</p><p className="mt-1 font-semibold text-purple-900">{assignment.driverName}</p>{assignment.driverEmail ? <p className="mt-1 break-all text-xs text-purple-600">{assignment.driverEmail}</p> : null}</div>
+              <div className="rounded-2xl bg-purple-50 p-4"><p className="text-xs text-purple-500">Next assigned driver</p><p className="mt-1 font-semibold text-purple-900">{assignment.driverName}</p>{assignment.driverEmail ? <p className="mt-1 break-all text-xs text-purple-600">{assignment.driverEmail}</p> : null}</div>
               {assignment.schedule ? <div className="mt-4 grid gap-4 rounded-2xl border border-slate-100 p-4">
                 <DetailField label="Related schedule" value={assignment.schedule.shift_name || "Scheduled shift"} />
                 <DetailField label="Shift date" value={formatDate(assignment.schedule.shift_date ?? "")} />
-                <DetailField label="Shift type" value={assignment.schedule.shift_type || "Not set"} />
-                <div className="grid grid-cols-2 gap-3"><DetailField label="Start time" value={assignment.schedule.start_time || "Not set"} /><DetailField label="End time" value={assignment.schedule.end_time || "Not set"} /></div>
+                <div className="grid grid-cols-2 gap-3"><DetailField label="Start time" value={formatTime(assignment.schedule.start_time)} /><DetailField label="End time" value={formatTime(assignment.schedule.end_time)} /></div>
               </div> : <p className="mt-4 rounded-2xl border border-dashed border-slate-200 p-4 text-sm leading-6 text-slate-500">No active schedule assignment found for this vehicle.</p>}
             </div> : <p className="mt-4 rounded-2xl border border-dashed border-slate-200 p-4 text-sm leading-6 text-slate-500">No active schedule assignment found for this vehicle.</p>}
           </aside> : null}

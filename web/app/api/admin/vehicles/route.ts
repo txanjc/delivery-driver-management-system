@@ -23,7 +23,9 @@ export async function GET(request: Request) {
     .select("schedule_id, vehicle_id, driver_id, shift_date, shift_type, shift_name, start_time, end_time, status")
     .eq("vehicle_id", vehicleId)
     .neq("status", "cancelled")
-    .order("shift_date", { ascending: false });
+    .gt("end_time", new Date().toISOString())
+    .order("start_time", { ascending: true })
+    .limit(1);
   if (scheduleError) return apiError(scheduleError.message, 400);
   const schedule = schedules?.[0];
   if (!schedule?.driver_id) return Response.json({ assignment: null });
