@@ -181,6 +181,7 @@ function Icon({ name }: { name: IconName }) {
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const isRoutesWorkspace = pathname === "/admin/routes";
   const router = useRouter();
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -254,9 +255,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-950">
+    <div className={`min-h-screen text-slate-950 ${isRoutesWorkspace ? "bg-[#eef5f8]" : "bg-slate-100"}`}>
       <aside
-        className={`fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden border-r border-slate-200 bg-white px-3 py-5 shadow-xl shadow-slate-900/5 transition-[width] duration-300 ease-out lg:flex ${
+        className={`fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden border-r px-3 py-5 transition-[width] duration-300 ease-out lg:flex ${isRoutesWorkspace ? "border-white/70 bg-white/55 shadow-xl shadow-slate-900/5 backdrop-blur-2xl" : "border-slate-200 bg-white shadow-xl shadow-slate-900/5"} ${
           isSidebarExpanded ? "w-72" : "w-20"
         }`}
         onBlur={(event) => {
@@ -336,7 +337,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           isSidebarExpanded ? "lg:pl-72" : "lg:pl-20"
         }`}
       >
-        <header className="sticky top-0 z-20 border-b border-slate-100 bg-white/95 px-5 py-4 backdrop-blur-xl lg:px-8">
+        <header className={`sticky top-0 z-20 border-b px-5 py-4 lg:px-8 ${isRoutesWorkspace ? "routes-glass-header border-transparent bg-transparent" : "border-slate-100 bg-white/95 backdrop-blur-xl"}`}>
           <div className="flex items-center justify-between gap-4 lg:grid lg:grid-cols-[1fr_minmax(18rem,24rem)_1fr]">
             <div className="lg:hidden">
               <Link className="flex items-center gap-3" href="/admin">
@@ -360,6 +361,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
               </span>
               <input
                 className="h-10 w-full rounded-full border border-slate-200 bg-slate-50 pl-10 pr-4 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
+                onChange={isRoutesWorkspace ? (event) => window.dispatchEvent(new CustomEvent("deliver-eaze:routes-search", { detail: event.target.value })) : undefined}
                 placeholder="Search deliveries, routes, drivers"
                 type="search"
               />
@@ -476,7 +478,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           </nav>
         </header>
 
-        <main className="mx-auto w-full max-w-[1480px] px-4 py-5 sm:px-5 lg:px-7 lg:py-6">
+        <main className={isRoutesWorkspace ? "-mt-[73px] h-screen w-full overflow-hidden" : "mx-auto w-full max-w-[1480px] px-4 py-5 sm:px-5 lg:px-7 lg:py-6"} data-routes-workspace={isRoutesWorkspace || undefined}>
           {children}
         </main>
       </div>
