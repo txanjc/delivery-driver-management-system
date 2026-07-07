@@ -1,5 +1,8 @@
 "use client";
 
+import { AppIcons } from "@/config/icons";
+import { AppButton } from "@/components/ui/AppButton";
+
 export const DEFAULT_PAGE_SIZE = 10;
 
 type PaginationProps = {
@@ -37,23 +40,6 @@ function getPageItems(currentPage: number, totalPages: number): PageItem[] {
   ];
 }
 
-function ChevronIcon({ direction }: { direction: "left" | "right" }) {
-  return (
-    <svg
-      aria-hidden
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2.25"
-      viewBox="0 0 24 24"
-    >
-      <path d={direction === "left" ? "m15 18-6-6 6-6" : "m9 18 6-6-6-6"} />
-    </svg>
-  );
-}
-
 export function Pagination({
   currentPage,
   totalPages,
@@ -70,6 +56,8 @@ export function Pagination({
   const firstVisibleRecord = totalRecords === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
   const lastVisibleRecord = Math.min(safeCurrentPage * pageSize, totalRecords);
   const isPurple = tone === "purple";
+  const PreviousIcon = AppIcons.previous;
+  const NextIcon = AppIcons.next;
 
   function changePage(page: number) {
     onPageChange(Math.min(Math.max(page, 1), safeTotalPages));
@@ -85,33 +73,34 @@ export function Pagination({
       </span>
 
       <div className={`flex min-w-0 items-center justify-center gap-1 rounded-full border px-1.5 py-1.5 sm:col-start-2 ${isPurple ? "border-white/80 bg-white/70 shadow-[0_10px_30px_-16px_rgba(109,74,255,0.45),inset_0_1px_0_rgba(255,255,255,0.9)] ring-1 ring-purple-100/70 backdrop-blur-xl" : tone === "blue" ? "border-slate-200 bg-white shadow-sm" : "border-transparent bg-slate-100"}`}>
-        <button
-          className={`flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-xs font-semibold text-slate-600 transition focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:text-slate-300 disabled:opacity-100 ${isPurple ? "hover:bg-purple-50/80 hover:text-purple-700 focus-visible:ring-purple-400" : "hover:bg-blue-50 hover:text-blue-700 focus-visible:ring-blue-400"}`}
+        <AppButton
+          className={`h-8 min-h-8 px-2 text-xs disabled:opacity-100 ${isPurple ? "focus-visible:ring-purple-400" : "focus-visible:ring-blue-400"}`}
           disabled={safeCurrentPage === 1}
+          icon={PreviousIcon}
           onClick={() => changePage(safeCurrentPage - 1)}
+          size="sm"
           type="button"
+          variant="pagination"
         >
-          <ChevronIcon direction="left" />
           <span className="hidden sm:inline">Previous</span>
-        </button>
+        </AppButton>
 
         <div className="flex min-w-0 items-center gap-0.5 px-1">
           {pageItems.map((item) =>
             typeof item === "number" ? (
-              <button
+              <AppButton
                 aria-current={item === safeCurrentPage ? "page" : undefined}
                 aria-label={`Go to page ${item}`}
-                className={`relative flex h-8 min-w-8 shrink-0 items-center justify-center rounded-full px-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 ${isPurple ? "focus-visible:ring-purple-400" : tone === "blue" ? "focus-visible:ring-blue-400" : "focus-visible:ring-indigo-500"} ${
-                  item === safeCurrentPage
-                    ? isPurple ? "z-10 bg-[#6d4aff] text-white shadow-[0_7px_16px_-7px_rgba(109,74,255,0.9)]" : tone === "blue" ? "z-10 bg-blue-600 text-white shadow-sm" : "z-10 -my-1 h-9 min-w-9 bg-indigo-600 text-white shadow-[0_0_0_4px_rgba(129,140,248,0.24),0_8px_18px_-7px_rgba(79,70,229,0.8)]"
-                    : isPurple ? "text-slate-600 hover:bg-purple-50/80 hover:text-purple-700" : tone === "blue" ? "text-slate-600 hover:bg-blue-50 hover:text-blue-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
-                }`}
+                active={item === safeCurrentPage}
+                className={`relative h-8 min-h-8 min-w-8 px-2 text-sm ${isPurple ? "focus-visible:ring-purple-400" : tone === "blue" ? "focus-visible:ring-blue-400" : "focus-visible:ring-indigo-500"}`}
                 key={item}
                 onClick={() => changePage(item)}
+                size="sm"
                 type="button"
+                variant="pagination"
               >
                 {item}
-              </button>
+              </AppButton>
             ) : (
               <span
                 aria-hidden
@@ -124,15 +113,17 @@ export function Pagination({
           )}
         </div>
 
-        <button
-          className={`flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-xs font-semibold text-slate-600 transition focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:text-slate-300 disabled:opacity-100 ${isPurple ? "hover:bg-purple-50/80 hover:text-purple-700 focus-visible:ring-purple-400" : "hover:bg-blue-50 hover:text-blue-700 focus-visible:ring-blue-400"}`}
+        <AppButton
+          className={`h-8 min-h-8 px-2 text-xs disabled:opacity-100 ${isPurple ? "focus-visible:ring-purple-400" : "focus-visible:ring-blue-400"}`}
           disabled={safeCurrentPage === safeTotalPages}
+          icon={NextIcon}
           onClick={() => changePage(safeCurrentPage + 1)}
+          size="sm"
           type="button"
+          variant="pagination"
         >
           <span className="hidden sm:inline">Next</span>
-          <ChevronIcon direction="right" />
-        </button>
+        </AppButton>
       </div>
 
       <p className="text-center text-xs font-medium text-slate-500 sm:col-start-3 sm:row-start-1 sm:justify-self-end sm:text-right">

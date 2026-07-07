@@ -11,6 +11,7 @@ import {
   PrimaryActionButton,
 } from "../_components/admin-design-system";
 import { DEFAULT_PAGE_SIZE, Pagination } from "../_components/Pagination";
+import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
 
 type AvailabilityFilter = "all" | "available" | "on_delivery" | "unavailable";
 type StatusFilter = "all" | "active" | "inactive";
@@ -203,12 +204,11 @@ function matchesDriverSearch(driver: DriverRecord, search: string) {
     .some((value) => value.toLowerCase().includes(query));
 }
 
-function DriverKpiCard({ label, value, detail, accent = false }: { label: string; value: string; detail: string; accent?: boolean }) {
+function DriverKpiCard({ label, value, detail, accent = false, isLoading = false }: { label: string; value: string; detail: string; accent?: boolean; isLoading?: boolean }) {
   return (
     <div className={`rounded-[20px] border p-5 shadow-sm ${accent ? "border-[#172f3a] bg-[#172f3a] text-white" : "border-slate-100 bg-white text-[#17232b]"}`}>
       <p className={accent ? "text-xs text-slate-300" : "text-xs text-slate-500"}>{label}</p>
-      <p className="mt-4 text-3xl font-semibold tracking-[-0.03em]">{value}</p>
-      <p className="mt-1 text-xs text-slate-400">{detail}</p>
+      {isLoading ? <><Skeleton className="mt-4 h-9 w-20" rounded="rounded-full" /><Skeleton className="mt-2 h-3 w-32" rounded="rounded-full" /></> : <><p className="mt-4 text-3xl font-semibold tracking-[-0.03em]">{value}</p><p className="mt-1 text-xs text-slate-400">{detail}</p></>}
     </div>
   );
 }
@@ -530,10 +530,10 @@ export default function AdminDriversPage() {
       <AdminPageIntro actions={<PrimaryActionButton className="gap-2 px-6 py-3 focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:ring-offset-2" onClick={openCreateModal} type="button"><span aria-hidden="true" className="text-lg leading-none">+</span><span>Create Driver</span></PrimaryActionButton>} description="Monitor driver profiles, license readiness, availability, performance, and vehicle assignments across the delivery network." eyebrow="Fleet operations" title="Drivers" />
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <DriverKpiCard accent detail="All operational records" label="Total Drivers" value={String(stats.total)} />
-        <DriverKpiCard detail="Ready for assignment" label="Available Drivers" value={String(stats.available)} />
-        <DriverKpiCard detail="Currently moving deliveries" label="On Delivery" value={String(stats.onDelivery)} />
-        <DriverKpiCard detail="Not available for assignment" label="Unavailable Drivers" value={String(stats.unavailable)} />
+        <DriverKpiCard accent detail="All operational records" isLoading={isLoading} label="Total Drivers" value={String(stats.total)} />
+        <DriverKpiCard detail="Ready for assignment" isLoading={isLoading} label="Available Drivers" value={String(stats.available)} />
+        <DriverKpiCard detail="Currently moving deliveries" isLoading={isLoading} label="On Delivery" value={String(stats.onDelivery)} />
+        <DriverKpiCard detail="Not available for assignment" isLoading={isLoading} label="Unavailable Drivers" value={String(stats.unavailable)} />
       </div>
 
       <AdminCard className="p-4"><div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_180px_180px]">
@@ -548,7 +548,7 @@ export default function AdminDriversPage() {
 
       <AdminCard className="overflow-hidden">
         <div className="border-b border-slate-100 px-5 py-4"><h2 className="text-xl font-medium">Driver Records</h2><p className="mt-1 text-sm text-slate-400">Driver records joined to profiles and assigned vehicles.</p></div>
-        {isLoading ? <p className="px-5 py-10 text-sm text-slate-500">Loading driver records...</p> : filteredDrivers.length === 0 ? <div className="px-5 py-16 text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-purple-50 text-sm font-semibold text-purple-700">DR</div><h3 className="mt-4 text-lg font-semibold">No drivers found.</h3><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">{drivers.length === 0 ? "Create a driver record to begin managing fleet availability." : "Try adjusting your search or filters."}</p></div> : <div className="overflow-x-auto"><table className="min-w-full text-sm [&_td]:py-2.5 [&_th]:py-2.5">
+        {isLoading ? <SkeletonTable columns={8} rows={7} /> : filteredDrivers.length === 0 ? <div className="px-5 py-16 text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-purple-50 text-sm font-semibold text-purple-700">DR</div><h3 className="mt-4 text-lg font-semibold">No drivers found.</h3><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">{drivers.length === 0 ? "Create a driver record to begin managing fleet availability." : "Try adjusting your search or filters."}</p></div> : <div className="overflow-x-auto"><table className="min-w-full text-sm [&_td]:py-2.5 [&_th]:py-2.5">
           <thead className="border-b border-slate-100 bg-slate-50/70 text-left text-xs text-slate-400"><tr><th className="px-5 py-4 font-medium">Driver Name</th><th className="px-5 py-4 font-medium">Phone</th><th className="px-5 py-4 font-medium">License Number</th><th className="px-5 py-4 font-medium">License Expiry</th><th className="px-5 py-4 font-medium">Availability</th><th className="px-5 py-4 font-medium">Assigned Vehicle</th><th className="px-5 py-4 font-medium">Performance Score</th><th className="px-5 py-4 text-right font-medium">Actions</th></tr></thead>
           <tbody className="divide-y divide-slate-100 text-slate-500">{paginatedDrivers.map((driver) => <tr className="transition hover:bg-slate-50/70" key={driver.driverId}>
             <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-purple-50 text-xs font-semibold text-purple-700">{(driver.firstName[0] || "D").toUpperCase()}</div><div><p className="font-semibold text-[#17232b]">{getDriverName(driver)}</p><p className="max-w-32 truncate text-xs text-slate-400">{driver.email || driver.userId}</p></div></div></td>

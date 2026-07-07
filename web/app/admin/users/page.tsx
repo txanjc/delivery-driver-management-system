@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import {
@@ -16,6 +16,7 @@ import {
   type UserRole,
 } from "@/lib/roles";
 import { DEFAULT_PAGE_SIZE, Pagination } from "../_components/Pagination";
+import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
 
 type StatusFilter = "active" | "inactive" | "all";
 type RoleFilter = UserRole | "all";
@@ -202,11 +203,13 @@ function UserKpiCard({
   value,
   detail,
   accent = false,
+  isLoading = false,
 }: {
   label: string;
   value: string;
   detail: string;
   accent?: boolean;
+  isLoading?: boolean;
 }) {
   return (
     <div
@@ -217,8 +220,17 @@ function UserKpiCard({
       }`}
     >
       <p className={accent ? "text-xs text-slate-300" : "text-xs text-slate-500"}>{label}</p>
-      <p className="mt-4 text-3xl font-semibold tracking-[-0.03em]">{value}</p>
-      <p className={accent ? "mt-1 text-xs text-slate-400" : "mt-1 text-xs text-slate-400"}>{detail}</p>
+      {isLoading ? (
+        <>
+          <Skeleton className="mt-4 h-9 w-20" rounded="rounded-full" />
+          <Skeleton className="mt-2 h-3 w-32" rounded="rounded-full" />
+        </>
+      ) : (
+        <>
+          <p className="mt-4 text-3xl font-semibold tracking-[-0.03em]">{value}</p>
+          <p className={accent ? "mt-1 text-xs text-slate-400" : "mt-1 text-xs text-slate-400"}>{detail}</p>
+        </>
+      )}
     </div>
   );
 }
@@ -349,12 +361,12 @@ function UserModal({
                 <p className="mt-3 break-all text-sm text-slate-500">{formState.email || "No email"}</p>
                 <div className="mt-1 text-xs text-slate-400">
                   <span>Last login: </span>
-                  <span>{isLoadingDetails ? "Loading..." : formatDateTime(user?.lastLoginAt ?? null)}</span>
+                  {isLoadingDetails ? <Skeleton className="mt-1 h-3 w-24" rounded="rounded-full" /> : <span>{formatDateTime(user?.lastLoginAt ?? null)}</span>}
                 </div>
               </div>
               <div className="mt-5 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2 lg:grid-cols-1">
                 <DetailField label="Created at" value={formatDateTime(user?.createdAt ?? null)} />
-                <DetailField label="Last updated at" value={isLoadingDetails ? "Loading..." : formatDateTime(user?.updatedAt ?? null)} />
+                <DetailField label="Last updated at" value={isLoadingDetails ? <Skeleton className="h-3 w-28" rounded="rounded-full" /> : formatDateTime(user?.updatedAt ?? null)} />
               </div>
             </aside>
           ) : null}
@@ -499,7 +511,7 @@ function UserModal({
   );
 }
 
-function DetailField({ label, value }: { label: string; value: string }) {
+function DetailField({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
       <p className="text-sm font-medium text-slate-600">{label}</p>
@@ -870,21 +882,25 @@ export default function AdminUsersPage() {
         <UserKpiCard
           accent
           detail="Profiles allowed to operate"
+          isLoading={isLoading}
           label="Active Users"
           value={String(userStats.active)}
         />
         <UserKpiCard
           detail="Administrator portal operators"
+          isLoading={isLoading}
           label="Administrators"
           value={String(userStats.administrators)}
         />
         <UserKpiCard
           detail="Dispatch workflow users"
+          isLoading={isLoading}
           label="Dispatchers"
           value={String(userStats.dispatchers)}
         />
         <UserKpiCard
           detail="Driver profiles available"
+          isLoading={isLoading}
           label="Drivers"
           value={String(userStats.drivers)}
         />
@@ -959,9 +975,7 @@ export default function AdminUsersPage() {
         </div>
 
         {isLoading ? (
-          <p className="px-5 py-10 text-sm text-slate-500">
-            Loading user profiles...
-          </p>
+          <SkeletonTable columns={7} rows={7} />
         ) : filteredUsers.length === 0 ? (
           <div className="px-5 py-16 text-center">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-purple-50 text-sm font-semibold text-purple-700">

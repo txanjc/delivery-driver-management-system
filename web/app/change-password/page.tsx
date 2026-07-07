@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { SkeletonButton, SkeletonText } from "@/components/ui/Skeleton";
 import { getRoleRedirectPath, type WebUserRole } from "@/lib/role-redirect";
 import { supabase } from "@/lib/supabase";
 
@@ -140,7 +141,22 @@ export default function ChangePasswordPage() {
         </div>
 
         {isLoading ? (
-          <p className="text-sm text-slate-600">Loading account...</p>
+          <div aria-busy="true" aria-live="polite" className="space-y-5">
+            <span className="sr-only">Loading account information</span>
+            <div>
+              <SkeletonText lines={1} widths={["w-28"]} />
+              <div className="mt-2 h-10 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                <SkeletonText lines={1} widths={["w-full"]} />
+              </div>
+            </div>
+            <div>
+              <SkeletonText lines={1} widths={["w-36"]} />
+              <div className="mt-2 h-10 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                <SkeletonText lines={1} widths={["w-full"]} />
+              </div>
+            </div>
+            <SkeletonButton className="h-10 w-full rounded-md" />
+          </div>
         ) : (
           <form className="space-y-5" onSubmit={handleSubmit}>
             <div>

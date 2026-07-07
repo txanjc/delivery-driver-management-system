@@ -14,6 +14,7 @@ import {
   normalizeVehicleStatus,
   VehicleStatusBadge,
 } from "../_components/admin-ui";
+import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
 
 type VehicleStatus = "Available" | "Assigned" | "Maintenance" | "Out of Service";
 
@@ -273,19 +274,30 @@ function VehicleKpiCard({
   value,
   detail,
   accent = false,
+  isLoading = false,
 }: {
   label: string;
   value: string;
   detail: string;
   accent?: boolean;
+  isLoading?: boolean;
 }) {
   return (
     <div
       className={`rounded-[20px] border p-5 shadow-sm ${accent ? "border-[#172f3a] bg-[#172f3a] text-white" : "border-slate-100 bg-white text-[#17232b]"}`}
     >
       <p className={accent ? "text-xs text-slate-300" : "text-xs text-slate-500"}>{label}</p>
-      <p className="mt-4 text-3xl font-semibold tracking-[-0.03em]">{value}</p>
-      <p className="mt-1 text-xs text-slate-400">{detail}</p>
+      {isLoading ? (
+        <>
+          <Skeleton className="mt-4 h-9 w-20" rounded="rounded-full" />
+          <Skeleton className="mt-2 h-3 w-32" rounded="rounded-full" />
+        </>
+      ) : (
+        <>
+          <p className="mt-4 text-3xl font-semibold tracking-[-0.03em]">{value}</p>
+          <p className="mt-1 text-xs text-slate-400">{detail}</p>
+        </>
+      )}
     </div>
   );
 }
@@ -729,21 +741,25 @@ export default function AdminVehiclesPage() {
         <VehicleKpiCard
           accent
           detail="All fleet records"
+          isLoading={isLoading}
           label="Total Vehicles"
           value={String(vehicleStats.total)}
         />
         <VehicleKpiCard
           detail="Ready for dispatch"
+          isLoading={isLoading}
           label="Available Vehicles"
           value={String(vehicleStats.available)}
         />
         <VehicleKpiCard
           detail="Reserved for active work"
+          isLoading={isLoading}
           label="Assigned Vehicles"
           value={String(vehicleStats.assigned)}
         />
         <VehicleKpiCard
           detail="Requires inspection or service"
+          isLoading={isLoading}
           label="Maintenance Due"
           value={String(vehicleStats.maintenance)}
         />
@@ -811,9 +827,7 @@ export default function AdminVehiclesPage() {
         </div>
 
         {isLoading ? (
-          <p className="px-5 py-10 text-sm text-slate-500">
-            Loading vehicle records...
-          </p>
+          <SkeletonTable columns={8} rows={7} />
         ) : filteredVehicles.length === 0 ? (
           <div className="px-5 py-16 text-center">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-purple-50 text-sm font-semibold text-purple-700">

@@ -1,9 +1,14 @@
 "use client";
 
-import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
+import {
+  Skeleton,
+  SkeletonButton,
+  SkeletonKpiGrid,
+  SkeletonPageHeader,
+} from "@/components/ui/Skeleton";
 import { supabase } from "@/lib/supabase";
 import { isAdministrator } from "@/lib/roles";
 
@@ -17,6 +22,8 @@ type SupabaseSingleResponse<T> = {
   data: T | null;
   error: { message: string } | null;
 };
+
+type VerificationState = "checking" | "authorized";
 
 const adminVerificationTimeoutMs = 5000;
 
@@ -44,10 +51,8 @@ function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number) {
 }
 
 export function AdminRouteGuard({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
-  const [authorizedPathname, setAuthorizedPathname] = useState<string | null>(
-    null,
-  );
+  const [verificationState, setVerificationState] =
+    useState<VerificationState>("checking");
 
   useEffect(() => {
     let isMounted = true;
@@ -113,7 +118,7 @@ export function AdminRouteGuard({ children }: { children: ReactNode }) {
           return;
         }
 
-        setAuthorizedPathname(pathname);
+        setVerificationState("authorized");
       } catch (error) {
         console.error("Unable to verify Administrator access:", error);
         redirectToLogin();
@@ -126,7 +131,7 @@ export function AdminRouteGuard({ children }: { children: ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
-        setAuthorizedPathname(null);
+        setVerificationState("checking");
         redirectToLogin();
       }
     });
@@ -135,18 +140,52 @@ export function AdminRouteGuard({ children }: { children: ReactNode }) {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, [pathname]);
+  }, []);
 
-  if (authorizedPathname !== pathname) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-[#111111] px-6 text-white">
-        <div className="text-center">
-          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-          <p className="mt-4 text-sm text-zinc-400">Verifying Administrator access...</p>
-        </div>
-      </main>
-    );
+  if (verificationState === "checking") {
+    return <AdminShellLoadingSkeleton />;
   }
 
   return children;
+}
+
+function AdminShellLoadingSkeleton() {
+  return (
+    <main className="min-h-screen bg-slate-100 text-[#17232b]">
+      <div aria-busy="true" aria-live="polite" className="flex min-h-screen">
+        <span className="sr-only">Loading your workspace</span>
+        <aside className="hidden w-20 shrink-0 border-r border-slate-200 bg-white px-3 py-5 shadow-xl shadow-slate-900/5 lg:block">
+          <Skeleton className="mx-auto h-10 w-10" rounded="rounded-xl" />
+          <div className="mt-8 space-y-3">
+            {Array.from({ length: 10 }).map((_, index) => (
+              <Skeleton className="mx-auto h-12 w-12" key={index} rounded="rounded-xl" />
+            ))}
+          </div>
+        </aside>
+        <div className="min-w-0 flex-1">
+          <header className="border-b border-slate-100 bg-white/95 px-5 py-4 backdrop-blur-xl lg:px-8">
+            <div className="flex items-center justify-between gap-4 lg:grid lg:grid-cols-[1fr_minmax(18rem,24rem)_1fr]">
+              <div className="hidden items-center gap-2 lg:flex">
+                <SkeletonButton className="w-32" />
+                <SkeletonButton className="w-36" />
+              </div>
+              <Skeleton className="hidden h-10 w-full lg:block" rounded="rounded-full" />
+              <div className="flex items-center justify-end gap-3">
+                <Skeleton className="h-10 w-10" rounded="rounded-full" />
+                <Skeleton className="h-10 w-36" rounded="rounded-full" />
+              </div>
+            </div>
+          </header>
+          <section className="space-y-4 px-5 py-6 lg:px-8">
+            <SkeletonPageHeader />
+            <SkeletonKpiGrid />
+            <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+              <Skeleton className="h-64 w-full" rounded="rounded-[18px]" />
+              <Skeleton className="h-64 w-full" rounded="rounded-[18px]" />
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  );
 }

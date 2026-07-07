@@ -3,6 +3,8 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { AppIcons } from "@/config/icons";
+
 export type QuickActionsRole = "administrator" | "dispatcher";
 
 type QuickAction = {
@@ -31,6 +33,7 @@ export function QuickActionsDropdown({ role }: { role: QuickActionsRole }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const PlusIcon = AppIcons.create;
 
   const availableActions = useMemo(() => {
     const roleActions = actions.filter(
@@ -99,9 +102,7 @@ export function QuickActionsDropdown({ role }: { role: QuickActionsRole }) {
         ref={triggerRef}
         type="button"
       >
-        <svg aria-hidden className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-          <path d="M12 5v14M5 12h14" />
-        </svg>
+        <PlusIcon aria-hidden className="shrink-0" size={18} weight="bold" />
       </button>
 
       {isOpen ? (
@@ -140,9 +141,7 @@ export function QuickActionsDropdown({ role }: { role: QuickActionsRole }) {
               type="button"
             >
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-                <svg aria-hidden className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
+                <PlusIcon aria-hidden size={15} weight="bold" />
               </span>
               {action.label}
             </button>

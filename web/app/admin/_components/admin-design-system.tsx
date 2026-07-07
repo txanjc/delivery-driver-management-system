@@ -1,5 +1,11 @@
 import Link from "next/link";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ReactNode } from "react";
+
+import {
+  type AppButtonProps,
+  PrimaryActionButton as BasePrimaryActionButton,
+  SecondaryActionButton,
+} from "@/components/ui/AppButton";
 
 function classes(...values: Array<string | undefined>) {
   return values.filter(Boolean).join(" ");
@@ -79,17 +85,11 @@ export function PrimaryActionButton({
   className,
   children,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement>) {
+}: AppButtonProps) {
   return (
-    <button
-      className={classes(
-        "inline-flex items-center justify-center rounded-full bg-[#6d4aff] px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-purple-200 transition hover:-translate-y-0.5 hover:bg-[#5d3ee8] hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60",
-        className,
-      )}
-      {...props}
-    >
+    <BasePrimaryActionButton className={className} {...props}>
       {children}
-    </button>
+    </BasePrimaryActionButton>
   );
 }
 
@@ -97,16 +97,10 @@ export function SecondaryButton({
   className,
   children,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement>) {
+}: AppButtonProps) {
   return (
-    <button
-      className={classes(
-        "inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700",
-        className,
-      )}
-      {...props}
-    >
+    <SecondaryActionButton className={className} {...props}>
       {children}
-    </button>
+    </SecondaryActionButton>
   );
 }

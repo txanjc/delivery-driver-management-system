@@ -7,7 +7,9 @@ import {
   PrimaryActionButton,
   SecondaryButton,
 } from "../_components/admin-design-system";
+import { AppIcons, type AppIconName } from "@/config/icons";
 import { fetchAdministratorJson } from "@/lib/admin-api-client";
+import { Skeleton } from "@/components/ui/Skeleton";
 
 type SettingsData = {
   system: {
@@ -130,11 +132,19 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+function SectionTitle({
+  children,
+  icon,
+}: {
+  children: React.ReactNode;
+  icon: AppIconName;
+}) {
+  const Icon = AppIcons[icon];
+
   return (
     <h2 className="mb-4 flex items-center gap-2 text-sm font-bold text-slate-900">
       <span className="grid h-6 w-6 place-items-center rounded-lg bg-blue-50 text-xs text-blue-600">
-        *
+        <Icon aria-hidden size={15} weight="bold" />
       </span>
       {children}
     </h2>
@@ -172,6 +182,10 @@ export default function SettingsPage() {
     }),
     [data],
   );
+  const SettingsIcon = AppIcons.settings;
+  const SaveIcon = AppIcons.save;
+  const AllowedIcon = AppIcons.completed;
+  const DeniedIcon = AppIcons.cancelled;
 
   async function save(scope: string) {
     setSaving(true);
@@ -199,7 +213,7 @@ export default function SettingsPage() {
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-blue-600 text-lg font-bold text-white shadow-sm shadow-blue-200">
-            *
+            <SettingsIcon aria-hidden size={22} weight="fill" />
           </span>
           <div>
             <h1 className="text-2xl font-bold tracking-[-0.035em]">Settings</h1>
@@ -214,6 +228,7 @@ export default function SettingsPage() {
           onClick={() => void save("all")}
           type="button"
         >
+          <SaveIcon aria-hidden className="mr-2" size={15} weight="bold" />
           Save All Changes
         </PrimaryActionButton>
       </div>
@@ -231,33 +246,35 @@ export default function SettingsPage() {
 
       <div className="space-y-4">
           <AdminCard className="p-5">
-            <SectionTitle>System Information</SectionTitle>
+            <SectionTitle icon="settings">System Information</SectionTitle>
             <div className="grid gap-3 md:grid-cols-5">
               {[
-                ["System Name", data?.system.name ?? "DeliverEaze DDMS"],
-                ["Version", data?.system.version ?? "v0.1.0"],
-                ["Environment", data?.system.environment ?? "Production"],
-                ["Last Updated", data ? formatDateTime(data.system.lastUpdated) : "Loading..."],
-                ["Time Zone", data?.system.timeZone ?? "(UTC-04:00) Atlantic Time (ET)"],
-              ].map(([label, value]) => (
+                ["System Name", data?.system.name ?? "DeliverEaze DDMS", "brand"],
+                ["Version", data?.system.version ?? "v0.1.0", "identification"],
+                ["Environment", data?.system.environment ?? "Production", "layers"],
+                ["Last Updated", data ? formatDateTime(data.system.lastUpdated) : "", "refresh"],
+                ["Time Zone", data?.system.timeZone ?? "(UTC-04:00) Atlantic Time (ET)", "clock"],
+              ].map(([label, value, icon]) => {
+                const InfoIcon = AppIcons[icon as AppIconName];
+                return (
                 <div className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3.5 py-3" key={label}>
                   <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-xs text-blue-600">
-                    *
+                    <InfoIcon aria-hidden size={18} weight="bold" />
                   </span>
                   <div className="min-w-0">
                     <p className="text-[11px] font-semibold text-slate-500">{label}</p>
                     <p className="mt-1 truncate text-xs font-bold text-slate-800">
-                      {value}
+                      {label === "Last Updated" && !data ? <Skeleton className="h-3 w-28" rounded="rounded-full" /> : value}
                     </p>
                   </div>
                 </div>
-              ))}
+              );})}
             </div>
           </AdminCard>
 
           <div className="grid gap-4 lg:grid-cols-2">
             <AdminCard className="p-5">
-              <SectionTitle>System Configuration</SectionTitle>
+              <SectionTitle icon="settings">System Configuration</SectionTitle>
               <div className="grid gap-x-4 gap-y-3 sm:grid-cols-3">
                 <Field label="Company Name">
                   <input
@@ -360,7 +377,7 @@ export default function SettingsPage() {
             </AdminCard>
 
             <AdminCard className="p-5">
-              <SectionTitle>Security Settings</SectionTitle>
+              <SectionTitle icon="insurance">Security Settings</SectionTitle>
               <div className="divide-y divide-slate-100">
                 {[
                   [
@@ -450,7 +467,7 @@ export default function SettingsPage() {
 
           <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
             <AdminCard className="p-5">
-              <SectionTitle>Notification Preferences</SectionTitle>
+              <SectionTitle icon="notifications">Notification Preferences</SectionTitle>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[460px] text-left text-xs">
                   <thead className="text-slate-500">
@@ -498,7 +515,7 @@ export default function SettingsPage() {
             </AdminCard>
 
             <AdminCard className="p-5">
-              <SectionTitle>User Permissions</SectionTitle>
+              <SectionTitle icon="users">User Permissions</SectionTitle>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[700px] text-center text-xs">
                   <thead className="bg-slate-50 text-slate-500">
@@ -531,7 +548,11 @@ export default function SettingsPage() {
                                     : "border-red-200 text-red-500"
                                 }`}
                               >
-                                {allowed ? "o" : "x"}
+                                {allowed ? (
+                                  <AllowedIcon aria-hidden size={12} weight="bold" />
+                                ) : (
+                                  <DeniedIcon aria-hidden size={12} weight="bold" />
+                                )}
                               </span>
                             </td>
                           );

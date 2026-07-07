@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import { AppIcons } from "@/config/icons";
+
 const timeFormatter = new Intl.DateTimeFormat("en-US", {
   hour: "2-digit",
   minute: "2-digit",
@@ -15,6 +17,7 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
 
 export function TimeDateWidget() {
   const [currentDate, setCurrentDate] = useState<Date | null>(null);
+  const CalendarIcon = AppIcons.calendar;
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -53,20 +56,7 @@ export function TimeDateWidget() {
       />
 
       <span className="flex items-center gap-2.5 whitespace-nowrap text-xs font-semibold text-slate-700">
-        <svg
-          aria-hidden
-          className="h-3.5 w-3.5 text-indigo-500"
-          fill="none"
-          stroke="currentColor"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="1.75"
-          viewBox="0 0 24 24"
-        >
-          <path d="M7 3v3M17 3v3M4 9h16" />
-          <rect height="17" rx="2" width="18" x="3" y="4" />
-          <path d="M8 13h.01M12 13h.01M16 13h.01M8 17h.01M12 17h.01M16 17h.01" />
-        </svg>
+        <CalendarIcon aria-hidden className="text-indigo-500" size={15} weight="bold" />
         <time dateTime={currentDate?.toISOString()}>
           {currentDate ? dateFormatter.format(currentDate) : "--- --"}
         </time>
