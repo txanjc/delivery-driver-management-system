@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { apiError, authorizeAdministratorRequest } from "@/lib/server/administrator-api";
+import { findRelevantAssignment, isVehicleOperational } from "@/lib/operations";
 
 const statuses = ["pending", "assigned", "in_transit", "delivered", "delayed", "failed", "returned"] as const;
 const priorities = ["low", "normal", "high", "urgent"] as const;
@@ -12,7 +13,13 @@ type DeliveryInput = {
   customer_name: string;
   customer_phone: string | null;
   pickup_address: string;
+  pickup_place_id: string | null;
+  pickup_latitude: number | null;
+  pickup_longitude: number | null;
   delivery_address: string;
+  delivery_place_id: string | null;
+  delivery_latitude: number | null;
+  delivery_longitude: number | null;
   assigned_driver_id: string | null;
   assigned_vehicle_id: string | null;
   status: DeliveryStatus;
@@ -28,6 +35,43 @@ function nullableText(value: unknown) {
   return value === null || value === undefined ? null : typeof value === "string" ? value.trim() || null : undefined;
 }
 
+function nullableNumber(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : undefined;
+  }
+  return undefined;
+}
+
+function validLatitude(value: number | null) {
+  return value === null || (value >= -90 && value <= 90);
+}
+
+function validLongitude(value: number | null) {
+  return value === null || (value >= -180 && value <= 180);
+}
+
+function hasCoordinateMismatch(latitude: number | null, longitude: number | null) {
+  return (latitude === null) !== (longitude === null);
+}
+
+function mappedLocationChanged(existing: Record<string, unknown>, input: DeliveryInput) {
+  const sameNumber = (left: unknown, right: number | null) => {
+    if (left === null && right === null) return true;
+    return typeof left === "number" && right !== null && Math.abs(left - right) < 0.000001;
+  };
+  return existing.pickup_address !== input.pickup_address
+    || existing.pickup_place_id !== input.pickup_place_id
+    || !sameNumber(existing.pickup_latitude, input.pickup_latitude)
+    || !sameNumber(existing.pickup_longitude, input.pickup_longitude)
+    || existing.delivery_address !== input.delivery_address
+    || existing.delivery_place_id !== input.delivery_place_id
+    || !sameNumber(existing.delivery_latitude, input.delivery_latitude)
+    || !sameNumber(existing.delivery_longitude, input.delivery_longitude);
+}
+
 function parseDelivery(value: unknown): DeliveryInput | null {
   if (!isRecord(value)) return null;
   const deliveryNumber = typeof value.delivery_number === "string" ? value.delivery_number.trim() : "";
@@ -35,11 +79,19 @@ function parseDelivery(value: unknown): DeliveryInput | null {
   const pickupAddress = typeof value.pickup_address === "string" ? value.pickup_address.trim() : "";
   const deliveryAddress = typeof value.delivery_address === "string" ? value.delivery_address.trim() : "";
   const customerPhone = nullableText(value.customer_phone);
+  const pickupPlaceId = nullableText(value.pickup_place_id);
+  const pickupLatitude = nullableNumber(value.pickup_latitude);
+  const pickupLongitude = nullableNumber(value.pickup_longitude);
+  const deliveryPlaceId = nullableText(value.delivery_place_id);
+  const deliveryLatitude = nullableNumber(value.delivery_latitude);
+  const deliveryLongitude = nullableNumber(value.delivery_longitude);
   const driverId = nullableText(value.assigned_driver_id);
   const vehicleId = nullableText(value.assigned_vehicle_id);
   const notes = nullableText(value.notes);
-  if (!deliveryNumber || !customerName || !pickupAddress || !deliveryAddress || customerPhone === undefined || driverId === undefined || vehicleId === undefined || notes === undefined || !statuses.includes(value.status as DeliveryStatus) || !priorities.includes(value.priority as DeliveryPriority)) return null;
-  return { delivery_number: deliveryNumber, customer_name: customerName, customer_phone: customerPhone, pickup_address: pickupAddress, delivery_address: deliveryAddress, assigned_driver_id: driverId, assigned_vehicle_id: vehicleId, status: value.status as DeliveryStatus, priority: value.priority as DeliveryPriority, notes };
+  if (!deliveryNumber || !customerName || !pickupAddress || !deliveryAddress || customerPhone === undefined || pickupPlaceId === undefined || pickupLatitude === undefined || pickupLongitude === undefined || deliveryPlaceId === undefined || deliveryLatitude === undefined || deliveryLongitude === undefined || driverId === undefined || vehicleId === undefined || notes === undefined || !statuses.includes(value.status as DeliveryStatus) || !priorities.includes(value.priority as DeliveryPriority)) return null;
+  if (!validLatitude(pickupLatitude) || !validLongitude(pickupLongitude) || !validLatitude(deliveryLatitude) || !validLongitude(deliveryLongitude)) return null;
+  if (hasCoordinateMismatch(pickupLatitude, pickupLongitude) || hasCoordinateMismatch(deliveryLatitude, deliveryLongitude)) return null;
+  return { delivery_number: deliveryNumber, customer_name: customerName, customer_phone: customerPhone, pickup_address: pickupAddress, pickup_place_id: pickupPlaceId, pickup_latitude: pickupLatitude, pickup_longitude: pickupLongitude, delivery_address: deliveryAddress, delivery_place_id: deliveryPlaceId, delivery_latitude: deliveryLatitude, delivery_longitude: deliveryLongitude, assigned_driver_id: driverId, assigned_vehicle_id: vehicleId, status: value.status as DeliveryStatus, priority: value.priority as DeliveryPriority, notes };
 }
 
 async function requesterId(client: SupabaseClient, request: Request) {
@@ -54,17 +106,21 @@ async function resolveAssignment(client: SupabaseClient, input: DeliveryInput) {
   let vehicleId = input.assigned_vehicle_id;
   let scheduleId: string | null = null;
 
-  if (driverId || vehicleId) {
-    let query = client.from("schedules").select("schedule_id, driver_id, vehicle_id, start_time, end_time").eq("status", "scheduled").lte("start_time", now).gt("end_time", now).order("start_time", { ascending: false }).limit(1);
-    query = driverId ? query.eq("driver_id", driverId) : query.eq("vehicle_id", vehicleId);
-    const { data: schedules, error } = await query;
+  if (driverId) {
+    const { data: schedules, error } = await client.from("schedules").select("schedule_id, driver_id, vehicle_id, start_time, end_time, status").eq("driver_id", driverId).neq("status", "cancelled").gt("end_time", now).not("vehicle_id", "is", null).order("start_time", { ascending: true });
     if (error) return { error: error.message, input, scheduleId };
-    const activeSchedule = schedules?.[0];
-    if (activeSchedule) {
-      driverId = activeSchedule.driver_id;
-      vehicleId = activeSchedule.vehicle_id;
-      scheduleId = activeSchedule.schedule_id;
+    const relevantSchedule = findRelevantAssignment(schedules ?? []);
+    if (!relevantSchedule?.vehicle_id) {
+      return { error: "The assigned driver must have an active or upcoming vehicle schedule.", input, scheduleId };
     }
+    if (vehicleId && vehicleId !== relevantSchedule.vehicle_id) {
+      return { error: "The assigned vehicle must match the driver's schedule.", input, scheduleId };
+    }
+    driverId = relevantSchedule.driver_id;
+    vehicleId = relevantSchedule.vehicle_id;
+    scheduleId = relevantSchedule.schedule_id ?? null;
+  } else if (vehicleId) {
+    return { error: "Select a scheduled driver so the vehicle can be derived from the schedule.", input, scheduleId };
   }
 
   if (driverId) {
@@ -79,7 +135,7 @@ async function resolveAssignment(client: SupabaseClient, input: DeliveryInput) {
   if (vehicleId) {
     const { data: vehicle, error } = await client.from("vehicles").select("vehicle_id, status").eq("vehicle_id", vehicleId).maybeSingle();
     if (error) return { error: error.message, input, scheduleId };
-    if (!vehicle || ["maintenance_due", "out_of_service"].includes(vehicle.status ?? "")) return { error: "The assigned vehicle must be available for operations.", input, scheduleId };
+    if (!vehicle || !isVehicleOperational(vehicle.status)) return { error: "The assigned vehicle must be available for operations.", input, scheduleId };
   }
 
   return { error: null, input: { ...input, assigned_driver_id: driverId, assigned_vehicle_id: vehicleId }, scheduleId };
@@ -95,7 +151,7 @@ export async function GET(request: Request) {
   const authorization = await authorizeAdministratorRequest(request);
   if (!authorization.client) return authorization.response;
   const [deliveriesResponse, driversResponse, vehiclesResponse, schedulesResponse, routesResponse, historyResponse] = await Promise.all([
-    authorization.client.from("deliveries").select("delivery_id, delivery_number, customer_name, customer_phone, pickup_address, delivery_address, assigned_driver_id, assigned_vehicle_id, status, priority, notes, created_by, created_at, updated_at").order("created_at", { ascending: false }),
+    authorization.client.from("deliveries").select("delivery_id, delivery_number, customer_name, customer_phone, pickup_address, pickup_place_id, pickup_latitude, pickup_longitude, delivery_address, delivery_place_id, delivery_latitude, delivery_longitude, assigned_driver_id, assigned_vehicle_id, status, priority, notes, created_by, created_at, updated_at").order("created_at", { ascending: false }),
     authorization.client.from("drivers").select("driver_id, user_id, assigned_vehicle_id, availability").order("created_at", { ascending: false }),
     authorization.client.from("vehicles").select("vehicle_id, vehicle_number, license_plate, make, model, status").order("vehicle_number", { ascending: true }),
     authorization.client.from("schedules").select("schedule_id, driver_id, vehicle_id, shift_name, shift_type, start_time, end_time, status").neq("status", "cancelled").order("start_time", { ascending: true }),
@@ -139,12 +195,15 @@ export async function PATCH(request: Request) {
   const deliveryId = isRecord(body) && typeof body.delivery_id === "string" ? body.delivery_id.trim() : "";
   const parsed = parseDelivery(isRecord(body) ? body.delivery : null);
   if (!deliveryId || !parsed) return apiError("Invalid delivery update request.", 400);
-  const { data: existing, error: existingError } = await authorization.client.from("deliveries").select("delivery_id, status").eq("delivery_id", deliveryId).maybeSingle();
+  const { data: existing, error: existingError } = await authorization.client.from("deliveries").select("delivery_id, status, pickup_address, pickup_place_id, pickup_latitude, pickup_longitude, delivery_address, delivery_place_id, delivery_latitude, delivery_longitude").eq("delivery_id", deliveryId).maybeSingle();
   if (existingError || !existing) return apiError(existingError?.message ?? "Delivery not found.", 404);
   const resolved = await resolveAssignment(authorization.client, parsed);
   if (resolved.error) return apiError(resolved.error, 400);
   const { error } = await authorization.client.from("deliveries").update({ ...resolved.input, updated_at: new Date().toISOString() }).eq("delivery_id", deliveryId);
   if (error) return apiError(error.code === "23505" ? "That delivery number already exists." : error.message, error.code === "23505" ? 409 : 400);
+  if (mappedLocationChanged(existing, resolved.input)) {
+    await authorization.client.from("routes").update({ origin_address: resolved.input.pickup_address, origin_latitude: resolved.input.pickup_latitude, origin_longitude: resolved.input.pickup_longitude, destination_address: resolved.input.delivery_address, destination_latitude: resolved.input.delivery_latitude, destination_longitude: resolved.input.delivery_longitude, estimated_distance_km: null, estimated_duration_minutes: null, route_polyline: null, maps_url: null, route_provider: "stale_delivery_address", route_generated_at: null }).eq("delivery_id", deliveryId);
+  }
   if (existing.status !== resolved.input.status) await recordStatusHistory(authorization.client, deliveryId, resolved.input.status, changedBy);
   return Response.json({ message: "Delivery updated successfully.", scheduleId: resolved.scheduleId });
 }

@@ -1,5 +1,6 @@
 import { apiError, authorizeAdministratorRequest } from "@/lib/server/administrator-api";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { deriveVehicleStatus } from "@/lib/operations";
 
 type ScheduleInput = {
   driver_id: string;
@@ -42,14 +43,26 @@ async function synchronizeAssignments(client: SupabaseClient, driverIds: string[
   for (const driverId of Array.from(new Set(driverIds.filter(Boolean)))) {
     const { data: activeSchedules, error } = await client.from("schedules").select("vehicle_id, start_time").eq("driver_id", driverId).neq("status", "cancelled").gt("end_time", now).not("vehicle_id", "is", null).order("start_time", { ascending: true }).limit(1);
     if (error) return error;
-    const { error: updateError } = await client.from("drivers").update({ assigned_vehicle_id: activeSchedules?.[0]?.vehicle_id ?? null, updated_at: now }).eq("driver_id", driverId);
-    if (updateError) return updateError;
+    const nextVehicleId = activeSchedules?.[0]?.vehicle_id ?? null;
+    const { data: driver, error: driverError } = await client.from("drivers").select("assigned_vehicle_id").eq("driver_id", driverId).maybeSingle();
+    if (driverError) return driverError;
+    if (driver?.assigned_vehicle_id !== nextVehicleId) {
+      const { error: updateError } = await client.from("drivers").update({ assigned_vehicle_id: nextVehicleId, updated_at: now }).eq("driver_id", driverId);
+      if (updateError) return updateError;
+    }
   }
   for (const vehicleId of Array.from(new Set(vehicleIds.filter(Boolean)))) {
-    const { count, error } = await client.from("schedules").select("schedule_id", { count: "exact", head: true }).eq("vehicle_id", vehicleId).neq("status", "cancelled").gt("end_time", now);
+    const [{ data: vehicle, error: vehicleError }, { data: schedules, error }] = await Promise.all([
+      client.from("vehicles").select("status").eq("vehicle_id", vehicleId).maybeSingle(),
+      client.from("schedules").select("driver_id, vehicle_id, start_time, end_time, status").eq("vehicle_id", vehicleId).neq("status", "cancelled").gt("end_time", now),
+    ]);
+    if (vehicleError) return vehicleError;
     if (error) return error;
-    const { error: updateError } = await client.from("vehicles").update({ status: count && count > 0 ? "assigned" : "available", updated_at: now }).eq("vehicle_id", vehicleId);
-    if (updateError) return updateError;
+    const nextStatus = deriveVehicleStatus(vehicle?.status, schedules ?? []);
+    if (vehicle && vehicle.status !== nextStatus) {
+      const { error: updateError } = await client.from("vehicles").update({ status: nextStatus, updated_at: now }).eq("vehicle_id", vehicleId);
+      if (updateError) return updateError;
+    }
   }
   return null;
 }

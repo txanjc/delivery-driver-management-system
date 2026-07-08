@@ -72,6 +72,55 @@ body {
   filter: grayscale(1) opacity(0.8);
 }
 
+.deliver-eaze-place-autocomplete {
+  display: block;
+  width: 100%;
+  color-scheme: light;
+  border: 1px solid rgb(226 232 240);
+  border-radius: 0.75rem;
+  background: rgb(248 250 252);
+  color: rgb(15 23 42);
+  font: inherit;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  outline: none;
+  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+  --gmpx-color-surface: rgb(248 250 252);
+  --gmpx-color-on-surface: rgb(15 23 42);
+  --gmpx-color-primary: rgb(126 34 206);
+  --gmpx-font-family-base: var(--font-plus-jakarta-sans), Arial, Helvetica, sans-serif;
+  --gmpx-font-size-base: 0.875rem;
+  --gmpx-font-size-sm: 0.75rem;
+  --gmpx-border-radius: 0.75rem;
+}
+
+.deliver-eaze-place-autocomplete:focus,
+.deliver-eaze-place-autocomplete:focus-within {
+  border-color: rgb(216 180 254);
+  background: white;
+  box-shadow: 0 0 0 2px rgb(243 232 255);
+}
+
+.deliver-eaze-place-autocomplete::part(input) {
+  min-height: 2.75rem;
+  width: 100%;
+  border: 0;
+  border-radius: 0.75rem;
+  background: rgb(248 250 252);
+  color: rgb(15 23 42);
+  font: inherit;
+  padding: 0 1rem;
+  outline: none;
+}
+
+.deliver-eaze-place-autocomplete:focus-within::part(input) {
+  background: white;
+}
+
+.deliver-eaze-place-autocomplete::part(input)::placeholder {
+  color: rgb(148 163 184);
+}
+
 main[data-routes-workspace="true"] > section > div:nth-child(2),
 main[data-routes-workspace="true"] > section > aside {
   top: 88px;
@@ -82,9 +131,9 @@ main[data-routes-workspace="true"] > section > aside {
 .routes-glass-header > div > div:last-child > button,
 .routes-glass-header > div > div:last-child > div > button {
   border: 1px solid rgb(255 255 255 / 0.82);
-  background: rgb(255 255 255 / 0.58);
-  box-shadow: 0 16px 36px -20px rgb(15 23 42 / 0.48), inset 0 1px 0 rgb(255 255 255 / 0.9);
-  backdrop-filter: blur(18px) saturate(140%);
+  background: linear-gradient(135deg, rgb(255 255 255 / 0.78), rgb(246 243 255 / 0.58));
+  box-shadow: 0 14px 34px -22px rgb(15 23 42 / 0.5), inset 0 1px 0 rgb(255 255 255 / 0.9);
+  backdrop-filter: blur(18px) saturate(150%);
 }
 
 .routes-glass-header > div > label {
@@ -98,5 +147,20 @@ main[data-routes-workspace="true"] > section > aside {
 }
 
 .routes-glass-header > div > div:first-child > div:nth-child(2) > button {
+  border-color: rgb(255 255 255 / 0.68);
+  background: linear-gradient(135deg, rgb(109 74 255 / 0.92), rgb(79 109 245 / 0.84));
+  color: white;
   box-shadow: 0 16px 34px -17px rgb(79 70 229 / 0.72), inset 0 1px 0 rgb(255 255 255 / 0.28);
+}
+
+.routes-glass-header > div > div:first-child > div:nth-child(2) > button:hover,
+.routes-glass-header > div > div:first-child > div:nth-child(2) > button[aria-expanded="true"] {
+  background: linear-gradient(135deg, rgb(93 62 232 / 0.96), rgb(79 109 245 / 0.9));
+  box-shadow: 0 18px 38px -16px rgb(79 70 229 / 0.78), inset 0 1px 0 rgb(255 255 255 / 0.34);
+}
+
+.routes-glass-header > div > div:last-child > button:hover,
+.routes-glass-header > div > div:last-child > div > button:hover,
+.routes-glass-header > div > div:last-child > div > button[aria-expanded="true"] {
+  background: rgb(255 255 255 / 0.86);
 }

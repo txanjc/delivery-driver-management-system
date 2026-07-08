@@ -238,7 +238,7 @@ function formatDate(value: string) {
 }
 
 function getVehicleName(vehicle: VehicleRecord) {
-  const vehicleName = [vehicle.make, vehicle.model, vehicle.year]
+  const vehicleName = [vehicle.make, vehicle.model]
     .filter(Boolean)
     .join(" ");
 
@@ -378,12 +378,13 @@ function VehicleModal({
           <div className={isCreateMode ? "" : "grid gap-5 lg:grid-cols-[250px_minmax(480px,1fr)_290px]"}>
           {!isCreateMode ? <aside className="border-b border-dashed border-slate-200 pb-5 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-5">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-purple-600">Vehicle Overview</p>
-            <div className="mt-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-purple-100 text-2xl font-bold text-purple-700">{previewVehicle.year || "VE"}</div>
+            <div className="mt-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-purple-100 px-2 text-center text-lg font-bold text-purple-700">{previewVehicle.vehicleNumber || "VE"}</div>
             <h3 className="mt-4 text-lg font-semibold">{getVehicleName(previewVehicle)}</h3>
+            <p className="mt-1 text-sm font-medium text-slate-400">{previewVehicle.vehicleNumber || "No vehicle number"}</p>
             <div className="mt-2"><VehicleStatusBadge status={previewVehicle.status} /></div>
             <div className="mt-5 grid gap-4 border-t border-slate-100 pt-4">
-              <DetailField label="Vehicle number" value={previewVehicle.vehicleNumber || "Not recorded"} />
               <DetailField label="License plate" value={previewVehicle.plateNumber || "Not recorded"} />
+              <DetailField label="Year" value={previewVehicle.year || "Not recorded"} />
               <DetailField label="Created at" value={formatDateTime(previewVehicle.createdAt)} />
               <DetailField label="Updated at" value={formatDateTime(previewVehicle.updatedAt)} />
             </div>

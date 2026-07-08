@@ -1,5 +1,6 @@
--- Allow active admins to read all profile records for Admin User Management.
--- RLS stays enabled; non-admin users do not receive this broad read access.
+-- Repair the shared admin-check helper after profile primary key rename.
+-- Existing applied policies call this function, so replacing it fixes reads
+-- without changing table structure.
 
 create or replace function public.is_authenticated_admin()
 returns boolean
@@ -19,12 +20,3 @@ $$;
 
 revoke all on function public.is_authenticated_admin() from public;
 grant execute on function public.is_authenticated_admin() to authenticated;
-
-alter table public.profiles enable row level security;
-
-drop policy if exists "Admins can read profile records" on public.profiles;
-create policy "Admins can read profile records"
-on public.profiles
-for select
-to authenticated
-using (public.is_authenticated_admin());

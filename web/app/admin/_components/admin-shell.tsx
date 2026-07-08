@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { AppIcons, type AppIconName } from "@/config/icons";
@@ -45,6 +45,8 @@ type ProfileName = {
   role: string | null;
 };
 
+type OpenTopbarMenu = "quick-actions" | "user-profile" | null;
+
 function getInitials(firstName: string, lastName: string) {
   return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || "AU";
 }
@@ -54,22 +56,31 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const isRoutesWorkspace = pathname === "/admin/routes";
   const router = useRouter();
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [openTopbarMenu, setOpenTopbarMenu] = useState<OpenTopbarMenu>(null);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
+  const [routesSearch, setRoutesSearch] = useState("");
   const [profileName, setProfileName] = useState({
     firstName: "Administrator",
     lastName: "User",
   });
   const [userRole, setUserRole] = useState<QuickActionsRole | null>(null);
+  const quickActionsRef = useRef<HTMLDivElement>(null);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
+  const profileTriggerRef = useRef<HTMLButtonElement>(null);
   const fullName = `${profileName.firstName} ${profileName.lastName}`.trim();
+  const isQuickActionsOpen = openTopbarMenu === "quick-actions";
+  const isProfileOpen = openTopbarMenu === "user-profile";
   const initials = getInitials(profileName.firstName, profileName.lastName);
   const BrandIcon = AppIcons.brand;
   const SearchIcon = AppIcons.search;
   const BellIcon = AppIcons.notifications;
   const CaretDownIcon = AppIcons.dropdown;
   const LogoutIcon = AppIcons.logout;
+  const profileMenuSurfaceClass = isRoutesWorkspace
+    ? "border-white/75 bg-white/75 bg-[linear-gradient(135deg,rgba(255,255,255,.82),rgba(246,243,255,.58))] shadow-[0_24px_70px_-24px_rgba(15,23,42,.40)] ring-white/70 backdrop-blur-xl"
+    : "border-white/80 bg-white/95 shadow-[0_24px_70px_-24px_rgba(15,23,42,.28)] ring-slate-900/5 backdrop-blur-xl";
 
   useEffect(() => {
     let isMounted = true;
@@ -118,6 +129,53 @@ export function AdminShell({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    const closeMenu = window.setTimeout(() => setOpenTopbarMenu(null), 0);
+    if (pathname !== "/admin/routes") {
+      queueMicrotask(() => setRoutesSearch(""));
+    }
+    return () => window.clearTimeout(closeMenu);
+  }, [pathname]);
+
+  useEffect(() => {
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target as Node;
+
+      if (
+        quickActionsRef.current?.contains(target) ||
+        profileMenuRef.current?.contains(target)
+      ) {
+        return;
+      }
+
+      setOpenTopbarMenu(null);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      setOpenTopbarMenu((current) => {
+        if (current === "user-profile") {
+          profileTriggerRef.current?.focus();
+        } else if (current === "quick-actions") {
+          quickActionsRef.current?.querySelector("button")?.focus();
+        }
+
+        return null;
+      });
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
   async function handleLogout() {
     setIsLoggingOut(true);
     setLogoutError("");
@@ -131,16 +189,16 @@ export function AdminShell({ children }: { children: ReactNode }) {
       return;
     }
 
-    setIsProfileOpen(false);
+    setOpenTopbarMenu(null);
     router.replace("/login");
     router.refresh();
     window.location.replace("/login");
   }
 
   return (
-    <div className={`min-h-screen text-slate-950 ${isRoutesWorkspace ? "bg-[#eef5f8]" : "bg-slate-100"}`}>
+    <div className={`${isRoutesWorkspace ? "h-screen overflow-hidden bg-[#eef5f8]" : "min-h-screen bg-slate-100"} text-slate-950`}>
       <aside
-        className={`fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden border-r px-3 py-5 transition-[width] duration-300 ease-out lg:flex ${isRoutesWorkspace ? "border-white/70 bg-white/55 shadow-xl shadow-slate-900/5 backdrop-blur-2xl" : "border-slate-200 bg-white shadow-xl shadow-slate-900/5"} ${
+        className={`fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden border-r border-slate-200 bg-white px-3 py-5 shadow-xl shadow-slate-900/5 transition-[width] duration-300 ease-out lg:flex ${
           isSidebarExpanded ? "w-72" : "w-20"
         }`}
         onBlur={(event) => {
@@ -231,7 +289,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           isSidebarExpanded ? "lg:pl-72" : "lg:pl-20"
         }`}
       >
-        <header className={`sticky top-0 z-20 border-b px-5 py-4 lg:px-8 ${isRoutesWorkspace ? "routes-glass-header border-transparent bg-transparent" : "border-slate-100 bg-white/95 backdrop-blur-xl"}`}>
+        <header className={`sticky top-0 z-40 border-b px-5 py-4 lg:px-8 ${isRoutesWorkspace ? "routes-glass-header border-transparent bg-transparent" : "border-slate-100 bg-white/95 backdrop-blur-xl"}`}>
           <div className="flex items-center justify-between gap-4 lg:grid lg:grid-cols-[1fr_minmax(18rem,24rem)_1fr]">
             <div className="lg:hidden">
               <Link className="flex items-center gap-3" href="/admin">
@@ -246,7 +304,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
             <div className="hidden items-center gap-2 justify-self-start lg:flex">
               <TimeDateWidget />
-              {isProfileLoading ? <SkeletonButton className="w-36" /> : userRole ? <QuickActionsDropdown role={userRole} /> : null}
+              {isProfileLoading ? <SkeletonButton className="w-36" /> : userRole ? <div ref={quickActionsRef}><QuickActionsDropdown isOpen={isQuickActionsOpen} onOpenChange={(nextIsOpen) => setOpenTopbarMenu(nextIsOpen ? "quick-actions" : null)} role={userRole} /></div> : null}
             </div>
 
             <label className="relative hidden w-full justify-self-center lg:block">
@@ -254,11 +312,25 @@ export function AdminShell({ children }: { children: ReactNode }) {
                 <SearchIcon aria-hidden size={18} weight="bold" />
               </span>
               <input
-                className="h-10 w-full rounded-full border border-slate-200 bg-slate-50 pl-10 pr-4 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
-                onChange={isRoutesWorkspace ? (event) => window.dispatchEvent(new CustomEvent("deliver-eaze:routes-search", { detail: event.target.value })) : undefined}
+                className={`h-10 w-full rounded-full border border-slate-200 bg-slate-50 pl-10 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100 ${isRoutesWorkspace ? "pr-10" : "pr-4"}`}
+                onChange={isRoutesWorkspace ? (event) => { setRoutesSearch(event.target.value); window.dispatchEvent(new CustomEvent("deliver-eaze:routes-search", { detail: event.target.value })); } : undefined}
                 placeholder="Search deliveries, routes, drivers"
                 type="search"
+                value={isRoutesWorkspace ? routesSearch : undefined}
               />
+              {isRoutesWorkspace && routesSearch ? (
+                <button
+                  aria-label="Clear route search"
+                  className="absolute right-3 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-slate-400 transition hover:bg-white/70 hover:text-purple-700"
+                  onClick={() => {
+                    setRoutesSearch("");
+                    window.dispatchEvent(new CustomEvent("deliver-eaze:routes-search", { detail: "" }));
+                  }}
+                  type="button"
+                >
+                  <AppIcons.close aria-hidden size={14} weight="bold" />
+                </button>
+              ) : null}
             </label>
 
             <div className="flex items-center gap-3 lg:justify-self-end">
@@ -273,13 +345,15 @@ export function AdminShell({ children }: { children: ReactNode }) {
                 </span>
               </button>
 
-              <div className="relative">
+              <div className="relative" ref={profileMenuRef}>
                 <button
+                  aria-controls="user-profile-menu"
                   aria-expanded={isProfileOpen}
                   aria-haspopup="menu"
                   aria-busy={isProfileLoading}
                   className="flex items-center gap-2.5 rounded-full py-1 pl-1 pr-2 text-slate-700 transition hover:bg-slate-100"
-                  onClick={() => setIsProfileOpen((current) => !current)}
+                  onClick={() => setOpenTopbarMenu((current) => current === "user-profile" ? null : "user-profile")}
+                  ref={profileTriggerRef}
                   type="button"
                 >
                   {isProfileLoading ? (
@@ -309,13 +383,13 @@ export function AdminShell({ children }: { children: ReactNode }) {
                 </button>
 
                 {isProfileOpen ? (
-                  <div className="absolute right-0 mt-3 w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl shadow-slate-900/10">
+                  <div className={`absolute right-0 z-50 mt-3 w-56 max-w-[calc(100vw-2rem)] rounded-2xl border p-2 ring-1 ${profileMenuSurfaceClass}`} id="user-profile-menu" role="menu">
                     <div className="border-b border-slate-100 px-3 py-3">
                       {isProfileLoading ? (
                         <Skeleton className="h-10 w-full" rounded="rounded-xl" />
                       ) : (
                         <>
-                          <p className="text-sm font-semibold text-slate-950">
+                          <p className="truncate text-sm font-semibold text-slate-950">
                             {fullName}
                           </p>
                           <p className="text-xs text-slate-500">
@@ -332,7 +406,8 @@ export function AdminShell({ children }: { children: ReactNode }) {
                           className="block rounded-xl px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-100 hover:text-slate-950"
                           href={item.href}
                           key={item.label}
-                          onClick={() => setIsProfileOpen(false)}
+                          onClick={() => setOpenTopbarMenu(null)}
+                          role="menuitem"
                         >
                           {item.label}
                         </Link>
@@ -341,6 +416,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                         className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
                         disabled={isLoggingOut}
                         onClick={() => void handleLogout()}
+                        role="menuitem"
                         type="button"
                       >
                         <LogoutIcon aria-hidden size={16} weight="bold" />

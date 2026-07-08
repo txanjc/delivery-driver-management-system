@@ -12,7 +12,7 @@ as $$
   select exists (
     select 1
     from public.profiles
-    where id = auth.uid()
+    where profile_id = auth.uid()
       and role = 'admin'
       and coalesce(is_active, false) = true
   );

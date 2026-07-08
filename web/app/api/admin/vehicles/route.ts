@@ -1,4 +1,5 @@
 import { apiError, authorizeAdministratorRequest } from "@/lib/server/administrator-api";
+import { deriveVehicleStatus, findRelevantAssignment } from "@/lib/operations";
 
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function parseVehicle(value: unknown) {
@@ -13,9 +14,18 @@ export async function GET(request: Request) {
   if (!authorization.client) return authorization.response;
   const vehicleId = new URL(request.url).searchParams.get("vehicleId")?.trim();
   if (!vehicleId) {
-    const { data, error } = await authorization.client.from("vehicles").select("vehicle_id, vehicle_number, license_plate, make, model, year, vehicle_type, mileage, insurance_policy_number, insurance_expiry_date, registration_number, registration_expiry_date, status, created_at, updated_at").order("created_at", { ascending: false });
+    const [vehiclesResponse, schedulesResponse] = await Promise.all([
+      authorization.client.from("vehicles").select("vehicle_id, vehicle_number, license_plate, make, model, year, vehicle_type, mileage, insurance_policy_number, insurance_expiry_date, registration_number, registration_expiry_date, status, created_at, updated_at").order("created_at", { ascending: false }),
+      authorization.client.from("schedules").select("driver_id, vehicle_id, start_time, end_time, status").neq("status", "cancelled").gt("end_time", new Date().toISOString()),
+    ]);
+    const error = vehiclesResponse.error ?? schedulesResponse.error;
     if (error) return apiError(error.message, 400);
-    return Response.json({ vehicles: data ?? [] });
+    const schedules = schedulesResponse.data ?? [];
+    const vehicles = (vehiclesResponse.data ?? []).map((vehicle) => ({
+      ...vehicle,
+      status: deriveVehicleStatus(vehicle.status, schedules.filter((schedule) => schedule.vehicle_id === vehicle.vehicle_id)),
+    }));
+    return Response.json({ vehicles });
   }
 
   const { data: schedules, error: scheduleError } = await authorization.client
@@ -27,7 +37,7 @@ export async function GET(request: Request) {
     .order("start_time", { ascending: true })
     .limit(1);
   if (scheduleError) return apiError(scheduleError.message, 400);
-  const schedule = schedules?.[0];
+  const schedule = findRelevantAssignment(schedules ?? []);
   if (!schedule?.driver_id) return Response.json({ assignment: null });
 
   const { data: driver, error: driverError } = await authorization.client
