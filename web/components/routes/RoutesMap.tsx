@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
 import { SkeletonMapPanel } from "@/components/ui/Skeleton";
 import {
@@ -33,14 +33,32 @@ export type RoutesMapRoute = {
 type RoutesMapProps = {
   routes: RoutesMapRoute[];
   selectedId: string;
-  layer: "light" | "contrast";
-  zoom: number;
-  currentPosition: { latitude: number; longitude: number } | null;
+  layer: RoutesMapLayer;
   loading: boolean;
+  onReadyChange?: (ready: boolean) => void;
   onSelect: (route: RoutesMapRoute) => void;
 };
 
-const center = { lat: 33.749, lng: -84.388 };
+export type RoutesMapLayer = "roadmap" | "satellite" | "terrain";
+
+export type RoutesMapHandle = {
+  centerOnPosition: (position: { latitude: number; longitude: number }) => void;
+  isReady: () => boolean;
+  resize: () => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+};
+
+export const WESTCHESTER_DEFAULT_CENTER = {
+  lat: 41.033,
+  lng: -73.763,
+};
+
+export const WESTCHESTER_DEFAULT_ZOOM = 11;
+
+const USER_LOCATION_ZOOM = 14;
+const MIN_ZOOM = 3;
+const MAX_ZOOM = 20;
 const routeColors = ["#6d4aff", "#20b970", "#f97316", "#2563eb", "#0891b2"];
 
 function routeColor(id: string) {
@@ -69,19 +87,18 @@ function routeHasCoordinates(route: RoutesMapRoute) {
   );
 }
 
-export function RoutesMap({
+export const RoutesMap = forwardRef<RoutesMapHandle, RoutesMapProps>(function RoutesMap({
   routes,
   selectedId,
   layer,
-  zoom,
-  currentPosition,
   loading,
+  onReadyChange,
   onSelect,
-}: RoutesMapProps) {
+}, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const initialZoomRef = useRef(zoom);
   const mapRef = useRef<google.maps.Map | null>(null);
   const librariesRef = useRef<GoogleMapsLibraries | null>(null);
+  const decodedPathCacheRef = useRef<Map<string, google.maps.LatLng[]>>(new Map());
   const overlaysRef = useRef<{
     polylines: google.maps.Polyline[];
     markers: google.maps.marker.AdvancedMarkerElement[];
@@ -89,6 +106,7 @@ export function RoutesMap({
   }>({ polylines: [], markers: [], listeners: [] });
   const [state, setState] = useState<RoutesMapState>("initializing");
   const [message, setMessage] = useState("");
+  const [currentPosition, setCurrentPosition] = useState<{ latitude: number; longitude: number } | null>(null);
   const mapId = getGoogleMapsConfig().mapId;
   const configurationError = getGoogleMapsConfigurationError();
 
@@ -96,6 +114,43 @@ export function RoutesMap({
     () => routes.filter((route) => routeHasCoordinates(route)),
     [routes],
   );
+  const selectedRoute = useMemo(
+    () => positionedRoutes.find((route) => route.id === selectedId) ?? null,
+    [positionedRoutes, selectedId],
+  );
+
+  useImperativeHandle(ref, () => ({
+    centerOnPosition(position) {
+      const map = mapRef.current;
+      if (!map) return;
+      const center = { lat: position.latitude, lng: position.longitude };
+      setCurrentPosition(position);
+      map.setCenter(center);
+      map.setZoom(USER_LOCATION_ZOOM);
+    },
+    isReady() {
+      return Boolean(mapRef.current) && state === "ready";
+    },
+    resize() {
+      const map = mapRef.current;
+      if (!map) return;
+      google.maps.event.trigger(map, "resize");
+      const center = map.getCenter();
+      if (center) map.setCenter(center);
+    },
+    zoomIn() {
+      const map = mapRef.current;
+      if (!map) return;
+      const currentZoom = map.getZoom() ?? WESTCHESTER_DEFAULT_ZOOM;
+      map.setZoom(Math.min(MAX_ZOOM, currentZoom + 1));
+    },
+    zoomOut() {
+      const map = mapRef.current;
+      if (!map) return;
+      const currentZoom = map.getZoom() ?? WESTCHESTER_DEFAULT_ZOOM;
+      map.setZoom(Math.max(MIN_ZOOM, currentZoom - 1));
+    },
+  }), [state]);
 
   useEffect(() => {
     if (configurationError) {
@@ -119,16 +174,18 @@ export function RoutesMap({
 
         librariesRef.current = libraries;
         mapRef.current = new libraries.maps.Map(containerRef.current, {
-          center,
+          center: WESTCHESTER_DEFAULT_CENTER,
           disableDefaultUI: true,
           fullscreenControl: false,
+          keyboardShortcuts: false,
           mapId,
           mapTypeControl: false,
           mapTypeId: "roadmap",
           streetViewControl: false,
-          zoom: Math.round(12 * initialZoomRef.current),
+          zoom: WESTCHESTER_DEFAULT_ZOOM,
           zoomControl: false,
         });
+        onReadyChange?.(true);
         setState("ready");
       } catch {
         if (!cancelled) {
@@ -149,20 +206,34 @@ export function RoutesMap({
       });
       overlaysRef.current = { listeners: [], markers: [], polylines: [] };
       mapRef.current = null;
+      onReadyChange?.(false);
     };
-  }, [configurationError, mapId]);
+  }, [configurationError, mapId, onReadyChange]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    map.setZoom(Math.round(12 * zoom));
-  }, [zoom]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    map.setMapTypeId(layer === "contrast" ? "terrain" : "roadmap");
+    map.setMapTypeId(layer);
   }, [layer]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      const map = mapRef.current;
+      if (!map) return;
+      const center = map.getCenter();
+      google.maps.event.trigger(map, "resize");
+      if (center) map.setCenter(center);
+    });
+
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -182,6 +253,8 @@ export function RoutesMap({
     }
 
     if (!positionedRoutes.length && !currentPosition) {
+      map.setCenter(WESTCHESTER_DEFAULT_CENTER);
+      map.setZoom(WESTCHESTER_DEFAULT_ZOOM);
       queueMicrotask(() => {
         setState("empty");
         setMessage("No route coordinates available.");
@@ -195,6 +268,7 @@ export function RoutesMap({
     });
 
     const bounds = new google.maps.LatLngBounds();
+    const routesToFit = selectedRoute ? [selectedRoute] : positionedRoutes;
 
     for (const route of positionedRoutes) {
       const color = routeColor(route.id);
@@ -204,11 +278,13 @@ export function RoutesMap({
         lat: route.destinationLat as number,
         lng: route.destinationLng as number,
       };
-      bounds.extend(origin);
-      bounds.extend(destination);
 
       if (route.polyline) {
-        const path = libraries.geometry.encoding.decodePath(route.polyline);
+        let path = decodedPathCacheRef.current.get(route.polyline);
+        if (!path) {
+          path = libraries.geometry.encoding.decodePath(route.polyline);
+          decodedPathCacheRef.current.set(route.polyline, path);
+        }
         const polyline = new google.maps.Polyline({
           clickable: true,
           map,
@@ -222,7 +298,9 @@ export function RoutesMap({
         overlaysRef.current.listeners.push(
           polyline.addListener("click", () => onSelect(route)),
         );
-        path.forEach((point) => bounds.extend(point));
+        if (routesToFit.some((item) => item.id === route.id)) {
+          path.forEach((point) => bounds.extend(point));
+        }
       }
 
       const originMarker = new libraries.marker.AdvancedMarkerElement({
@@ -244,12 +322,11 @@ export function RoutesMap({
       );
     }
 
-    if (currentPosition) {
+    if (currentPosition && !selectedRoute) {
       const position = {
         lat: currentPosition.latitude,
         lng: currentPosition.longitude,
       };
-      bounds.extend(position);
       overlaysRef.current.markers.push(
         new libraries.marker.AdvancedMarkerElement({
           content: makeMarkerNode("#2563eb", true, "ME"),
@@ -258,21 +335,38 @@ export function RoutesMap({
           title: "Current location",
         }),
       );
+      map.setCenter(position);
+      map.setZoom(USER_LOCATION_ZOOM);
+      return;
+    } else if (currentPosition) {
+      overlaysRef.current.markers.push(
+        new libraries.marker.AdvancedMarkerElement({
+          content: makeMarkerNode("#2563eb", true, "ME"),
+          map,
+          position: { lat: currentPosition.latitude, lng: currentPosition.longitude },
+          title: "Current location",
+        }),
+      );
+    }
+
+    for (const route of routesToFit) {
+      if (route.originLat !== null && route.originLng !== null) bounds.extend({ lat: route.originLat, lng: route.originLng });
+      if (route.destinationLat !== null && route.destinationLng !== null) bounds.extend({ lat: route.destinationLat, lng: route.destinationLng });
     }
 
     if (!bounds.isEmpty()) {
       map.fitBounds(bounds, 72);
     }
-  }, [currentPosition, loading, onSelect, positionedRoutes, selectedId]);
+  }, [currentPosition, loading, onSelect, positionedRoutes, selectedId, selectedRoute]);
 
   const showSkeleton = state === "initializing";
   const showMessage =
     state === "not_configured" || state === "empty" || state === "error";
 
   return (
-    <div aria-busy={state === "initializing" || state === "loading_routes"} className="absolute inset-0 overflow-hidden bg-[#edf4f3]">
+    <div aria-busy={state === "initializing" || state === "loading_routes"} className="absolute inset-0 bg-[#edf4f3]">
       {showSkeleton ? <SkeletonMapPanel className="absolute inset-0 h-full w-full rounded-none" /> : null}
-      <div className="absolute inset-0" ref={containerRef} />
+      <div className="absolute inset-0 h-full w-full" ref={containerRef} />
       {state === "loading_routes" ? (
         <div className="pointer-events-none absolute right-5 top-20 z-20 rounded-xl bg-white/80 px-4 py-2 text-xs font-medium text-slate-500 shadow-lg backdrop-blur-sm">
           Loading route data...
@@ -292,4 +386,4 @@ export function RoutesMap({
       ) : null}
     </div>
   );
-}
+});

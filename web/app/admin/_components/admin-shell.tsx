@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import type { ReactNode } from "react";
 
 import { AppIcons, type AppIconName } from "@/config/icons";
@@ -46,6 +47,9 @@ type ProfileName = {
 };
 
 type OpenTopbarMenu = "quick-actions" | "user-profile" | null;
+type RoutesShellStyle = CSSProperties & {
+  "--routes-sidebar-width"?: string;
+};
 
 function getInitials(firstName: string, lastName: string) {
   return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || "AU";
@@ -78,6 +82,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const BellIcon = AppIcons.notifications;
   const CaretDownIcon = AppIcons.dropdown;
   const LogoutIcon = AppIcons.logout;
+  const routesShellStyle: RoutesShellStyle | undefined = isRoutesWorkspace
+    ? { "--routes-sidebar-width": isSidebarExpanded ? "18rem" : "5rem" }
+    : undefined;
   const profileMenuSurfaceClass = isRoutesWorkspace
     ? "border-white/75 bg-white/75 bg-[linear-gradient(135deg,rgba(255,255,255,.82),rgba(246,243,255,.58))] shadow-[0_24px_70px_-24px_rgba(15,23,42,.40)] ring-white/70 backdrop-blur-xl"
     : "border-white/80 bg-white/95 shadow-[0_24px_70px_-24px_rgba(15,23,42,.28)] ring-slate-900/5 backdrop-blur-xl";
@@ -196,7 +203,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className={`${isRoutesWorkspace ? "h-screen overflow-hidden bg-[#eef5f8]" : "min-h-screen bg-slate-100"} text-slate-950`}>
+    <div className={`${isRoutesWorkspace ? "h-dvh overflow-hidden bg-[#edf4f3]" : "min-h-screen bg-slate-100"} text-slate-950`}>
       <aside
         className={`fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden border-r border-slate-200 bg-white px-3 py-5 shadow-xl shadow-slate-900/5 transition-[width] duration-300 ease-out lg:flex ${
           isSidebarExpanded ? "w-72" : "w-20"
@@ -285,11 +292,16 @@ export function AdminShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div
-        className={`transition-[padding] duration-300 ease-out ${
-          isSidebarExpanded ? "lg:pl-72" : "lg:pl-20"
-        }`}
+        className={
+          isRoutesWorkspace
+            ? "relative h-dvh overflow-hidden transition-[margin] duration-300 ease-out motion-reduce:transition-none lg:ml-[var(--routes-sidebar-width)]"
+            : `relative transition-[padding] duration-300 ease-out ${
+                isSidebarExpanded ? "lg:pl-72" : "lg:pl-20"
+              }`
+        }
+        style={routesShellStyle}
       >
-        <header className={`sticky top-0 z-40 border-b px-5 py-4 lg:px-8 ${isRoutesWorkspace ? "routes-glass-header border-transparent bg-transparent" : "border-slate-100 bg-white/95 backdrop-blur-xl"}`}>
+        <header className={`z-40 border-b px-5 py-4 lg:px-8 ${isRoutesWorkspace ? "routes-glass-header absolute inset-x-0 top-0 border-transparent bg-transparent" : "sticky top-0 border-slate-100 bg-white/95 backdrop-blur-xl"}`}>
           <div className="flex items-center justify-between gap-4 lg:grid lg:grid-cols-[1fr_minmax(18rem,24rem)_1fr]">
             <div className="lg:hidden">
               <Link className="flex items-center gap-3" href="/admin">
@@ -302,9 +314,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
               </Link>
             </div>
 
-            <div className="hidden items-center gap-2 justify-self-start lg:flex">
-              <TimeDateWidget />
-              {isProfileLoading ? <SkeletonButton className="w-36" /> : userRole ? <div ref={quickActionsRef}><QuickActionsDropdown isOpen={isQuickActionsOpen} onOpenChange={(nextIsOpen) => setOpenTopbarMenu(nextIsOpen ? "quick-actions" : null)} role={userRole} /></div> : null}
+            <div className={`hidden items-center justify-self-start lg:flex ${isRoutesWorkspace ? "shrink-0 flex-nowrap gap-3" : "gap-2"}`}>
+              {isRoutesWorkspace ? <div className="shrink-0"><TimeDateWidget /></div> : <TimeDateWidget />}
+              {isProfileLoading ? <SkeletonButton className={isRoutesWorkspace ? "w-10 shrink-0" : "w-36"} /> : userRole ? <div className="shrink-0" ref={quickActionsRef}><QuickActionsDropdown isOpen={isQuickActionsOpen} onOpenChange={(nextIsOpen) => setOpenTopbarMenu(nextIsOpen ? "quick-actions" : null)} role={userRole} /></div> : null}
             </div>
 
             <label className="relative hidden w-full justify-self-center lg:block">
@@ -463,7 +475,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           </nav>
         </header>
 
-        <main className={isRoutesWorkspace ? "-mt-[73px] h-screen w-full overflow-hidden" : "mx-auto w-full max-w-[1480px] px-4 py-5 sm:px-5 lg:px-7 lg:py-6"} data-routes-workspace={isRoutesWorkspace || undefined}>
+        <main className={isRoutesWorkspace ? "h-dvh w-full overflow-hidden" : "mx-auto w-full max-w-[1480px] px-4 py-5 sm:px-5 lg:px-7 lg:py-6"} data-routes-workspace={isRoutesWorkspace || undefined}>
           {children}
         </main>
       </div>

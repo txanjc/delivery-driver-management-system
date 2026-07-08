@@ -155,7 +155,7 @@ export async function GET(request: Request) {
     authorization.client.from("drivers").select("driver_id, user_id, assigned_vehicle_id, availability").order("created_at", { ascending: false }),
     authorization.client.from("vehicles").select("vehicle_id, vehicle_number, license_plate, make, model, status").order("vehicle_number", { ascending: true }),
     authorization.client.from("schedules").select("schedule_id, driver_id, vehicle_id, shift_name, shift_type, start_time, end_time, status").neq("status", "cancelled").order("start_time", { ascending: true }),
-    authorization.client.from("routes").select("route_id, delivery_id, origin_name, origin_address, destination_name, destination_address, estimated_distance_km, estimated_duration_minutes, actual_distance_km, actual_duration_minutes, maps_url, route_provider, sequence_order, created_at"),
+    authorization.client.from("routes").select("route_id, delivery_id, origin, destination, origin_name, origin_address, destination_name, destination_address, estimated_distance_km, estimated_duration_minutes, actual_distance_km, actual_duration_minutes, maps_url, route_provider, sequence_order, created_at"),
     authorization.client.from("delivery_status_history").select("*").order("created_at", { ascending: false }),
   ]);
   const error = deliveriesResponse.error ?? driversResponse.error ?? vehiclesResponse.error ?? schedulesResponse.error ?? routesResponse.error;
@@ -202,7 +202,7 @@ export async function PATCH(request: Request) {
   const { error } = await authorization.client.from("deliveries").update({ ...resolved.input, updated_at: new Date().toISOString() }).eq("delivery_id", deliveryId);
   if (error) return apiError(error.code === "23505" ? "That delivery number already exists." : error.message, error.code === "23505" ? 409 : 400);
   if (mappedLocationChanged(existing, resolved.input)) {
-    await authorization.client.from("routes").update({ origin_address: resolved.input.pickup_address, origin_latitude: resolved.input.pickup_latitude, origin_longitude: resolved.input.pickup_longitude, destination_address: resolved.input.delivery_address, destination_latitude: resolved.input.delivery_latitude, destination_longitude: resolved.input.delivery_longitude, estimated_distance_km: null, estimated_duration_minutes: null, route_polyline: null, maps_url: null, route_provider: "stale_delivery_address", route_generated_at: null }).eq("delivery_id", deliveryId);
+    await authorization.client.from("routes").update({ origin: resolved.input.pickup_address, destination: resolved.input.delivery_address, origin_address: resolved.input.pickup_address, origin_latitude: resolved.input.pickup_latitude, origin_longitude: resolved.input.pickup_longitude, destination_address: resolved.input.delivery_address, destination_latitude: resolved.input.delivery_latitude, destination_longitude: resolved.input.delivery_longitude, estimated_distance_km: null, estimated_duration_minutes: null, route_polyline: null, maps_url: null, route_provider: "stale_delivery_address", route_generated_at: null }).eq("delivery_id", deliveryId);
   }
   if (existing.status !== resolved.input.status) await recordStatusHistory(authorization.client, deliveryId, resolved.input.status, changedBy);
   return Response.json({ message: "Delivery updated successfully.", scheduleId: resolved.scheduleId });

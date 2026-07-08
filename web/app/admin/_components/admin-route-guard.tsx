@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -11,6 +12,7 @@ import {
 } from "@/components/ui/Skeleton";
 import { supabase } from "@/lib/supabase";
 import { isAdministrator } from "@/lib/roles";
+import { RoutesGuardLoadingState } from "../routes/routes-loading-state";
 
 type AdminProfile = {
   role: string | null;
@@ -51,6 +53,7 @@ function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number) {
 }
 
 export function AdminRouteGuard({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const [verificationState, setVerificationState] =
     useState<VerificationState>("checking");
 
@@ -143,6 +146,10 @@ export function AdminRouteGuard({ children }: { children: ReactNode }) {
   }, []);
 
   if (verificationState === "checking") {
+    if (pathname === "/admin/routes") {
+      return <RoutesGuardLoadingState />;
+    }
+
     return <AdminShellLoadingSkeleton />;
   }
 
