@@ -1,5 +1,6 @@
 import type { Delivery } from "@/types/delivery";
 import type { Driver, Profile } from "@/types/driver";
+import type { DriverNotification } from "@/types/notification";
 import type { Route } from "@/types/route";
 import type { Schedule, VehicleSummary } from "@/types/schedule";
 
@@ -7,15 +8,6 @@ type TableDefinition<Row> = {
   Row: Row;
   Insert: Partial<Row>;
   Update: Partial<Row>;
-};
-
-type Notification = {
-  notification_id: string;
-  user_id: string | null;
-  title: string | null;
-  message: string | null;
-  is_read: boolean | null;
-  created_at: string | null;
 };
 
 export type Database = {
@@ -27,7 +19,7 @@ export type Database = {
       vehicles: TableDefinition<VehicleSummary>;
       deliveries: TableDefinition<Delivery>;
       routes: TableDefinition<Route>;
-      notifications: TableDefinition<Notification>;
+      notifications: TableDefinition<DriverNotification>;
     };
   };
 };
