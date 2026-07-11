@@ -1,26 +1,34 @@
 import type { PropsWithChildren, ReactNode } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { DriverHeader } from "@/components/shared/DriverHeader";
 import { colors, spacing } from "@/theme/shared";
 
 type ScreenProps = PropsWithChildren<{
+  eyebrow?: string;
   title: string;
   subtitle?: string;
   action?: ReactNode;
+  showProfileButton?: boolean;
 }>;
 
-export function Screen({ title, subtitle, action, children }: ScreenProps) {
+const NATIVE_TAB_BAR_HEIGHT = 88;
+const TAB_BAR_CONTENT_SPACING = 84;
+
+export function Screen({ title, subtitle, action, children, eyebrow, showProfileButton = false }: ScreenProps) {
+  const insets = useSafeAreaInsets();
+  const { fontScale, width } = useWindowDimensions();
+  const compact = width < 390 || fontScale > 1.08;
+  const bottomContentInset = insets.bottom + NATIVE_TAB_BAR_HEIGHT + TAB_BAR_CONTENT_SPACING;
+
   return (
-    <ScrollView contentContainerStyle={styles.content} style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerText}>
-          <Text style={styles.title}>{title}</Text>
-          {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
-        </View>
-        {action}
-      </View>
-      {children}
-    </ScrollView>
+    <View style={styles.container}>
+      <DriverHeader action={action} eyebrow={eyebrow} showProfileButton={showProfileButton} subtitle={subtitle} title={title} />
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomContentInset, paddingHorizontal: compact ? 18 : 20 }]} style={styles.scroller}>
+        {children}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -71,30 +79,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     flex: 1,
   },
+  scroller: {
+    backgroundColor: colors.background,
+    flex: 1,
+  },
   content: {
     gap: spacing.gap,
-    padding: spacing.screen,
+    paddingHorizontal: spacing.screen,
     paddingBottom: 32,
-  },
-  header: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: 12,
-    justifyContent: "space-between",
-  },
-  headerText: {
-    flex: 1,
-    gap: 4,
-  },
-  title: {
-    color: colors.text,
-    fontSize: 28,
-    fontWeight: "800",
-  },
-  subtitle: {
-    color: colors.muted,
-    fontSize: 14,
-    lineHeight: 20,
+    paddingTop: spacing.gap,
   },
   card: {
     backgroundColor: colors.surface,

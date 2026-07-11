@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text } from "react-native";
 import { Card, Screen, textStyles } from "@/components/shared/Screen";
 import { useAuth } from "@/hooks/useAuth";
 import { colors } from "@/theme/shared";
+import { triggerButtonHaptic } from "@/utils/haptics";
 
 function displayName(firstName: string | null | undefined, lastName: string | null | undefined, email: string | null | undefined) {
   return [firstName, lastName].filter(Boolean).join(" ") || email || "Driver";
@@ -23,7 +24,7 @@ export default function ProfileScreen() {
         <Text style={textStyles.value}>{driver?.availability ?? "Availability unavailable"}</Text>
         <Text style={textStyles.body}>{driver?.assigned_vehicle_id ? `Assigned vehicle: ${driver.assigned_vehicle_id}` : "No vehicle assigned"}</Text>
       </Card>
-      <Pressable onPress={() => void signOut()} style={styles.button}>
+      <Pressable onPress={() => void signOut()} onPressIn={triggerButtonHaptic} style={styles.button}>
         <Text style={styles.buttonText}>Sign Out</Text>
       </Pressable>
     </Screen>
@@ -35,8 +36,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: colors.text,
     borderRadius: 8,
-    minHeight: 48,
     justifyContent: "center",
+    minHeight: 48,
   },
   buttonText: {
     color: "#ffffff",
