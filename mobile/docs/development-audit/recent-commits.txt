@@ -1,0 +1,8 @@
+﻿COMMAND: git log --since="6 hours ago" --date=iso --name-status
+EXIT_CODE: 0
+
+
+===== STAT =====
+COMMAND: git log --since="6 hours ago" --date=iso --stat
+EXIT_CODE: 0
+

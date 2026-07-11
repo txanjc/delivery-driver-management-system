@@ -1,0 +1,4 @@
+﻿COMMAND: git diff --cached
+EXIT_CODE: 0
+
+

@@ -1,0 +1,29 @@
+﻿COMMAND: git diff --stat; git diff --cached --stat
+EXIT_CODE: 0
+
+===== DIFF STAT =====
+ mobile/AGENTS.md                              |  395 +-
+ mobile/app.json                               |   12 +-
+ mobile/app/(auth)/login.tsx                   |    3 +-
+ mobile/app/(driver)/(tabs)/_layout.tsx        |   26 +-
+ mobile/app/(driver)/(tabs)/deliveries.tsx     |    5 +-
+ mobile/app/(driver)/(tabs)/index.tsx          |  936 ++++-
+ mobile/app/(driver)/(tabs)/profile.tsx        |   46 -
+ mobile/app/(driver)/(tabs)/schedule.tsx       |    2 +-
+ mobile/app/(driver)/_layout.tsx               |   15 +-
+ mobile/app/(driver)/delivery/[deliveryId].tsx |   44 +-
+ mobile/app/(driver)/route/[routeId].tsx       |   31 +-
+ mobile/app/_layout.tsx                        |   29 +-
+ mobile/components/shared/Screen.tsx           |   59 +-
+ mobile/package-lock.json                      | 4871 +++++++++++++++++--------
+ mobile/package.json                           |   60 +-
+ mobile/services/delivery.service.ts           |    9 +
+ mobile/services/route.service.ts              |   46 +-
+ mobile/services/schedule.service.ts           |    9 +
+ mobile/theme/shared.ts                        |    4 +-
+ mobile/tsconfig.json                          |   26 +-
+ mobile/types/database.ts                      |   12 +-
+ 21 files changed, 4891 insertions(+), 1749 deletions(-)
+
+===== CACHED STAT =====
+

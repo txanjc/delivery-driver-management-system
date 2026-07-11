@@ -1,0 +1,3 @@
+﻿COMMAND: git reflog --since="6 hours ago" --date=iso
+EXIT_CODE: 0
+

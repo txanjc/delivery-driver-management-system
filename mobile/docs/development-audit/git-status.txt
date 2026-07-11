@@ -1,0 +1,3 @@
+﻿COMMAND: git branch --show-current; git rev-parse HEAD; git status; git status --short
+EXIT_CODE: 0
+

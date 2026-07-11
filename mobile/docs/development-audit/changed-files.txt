@@ -1,0 +1,90 @@
+﻿COMMAND: git diff --name-status; git diff --cached --name-status; git status --short
+EXIT_CODE: 0
+
+===== DIFF NAME STATUS =====
+M	mobile/AGENTS.md
+M	mobile/app.json
+M	mobile/app/(auth)/login.tsx
+M	mobile/app/(driver)/(tabs)/_layout.tsx
+M	mobile/app/(driver)/(tabs)/deliveries.tsx
+M	mobile/app/(driver)/(tabs)/index.tsx
+D	mobile/app/(driver)/(tabs)/profile.tsx
+M	mobile/app/(driver)/(tabs)/schedule.tsx
+M	mobile/app/(driver)/_layout.tsx
+M	mobile/app/(driver)/delivery/[deliveryId].tsx
+M	mobile/app/(driver)/route/[routeId].tsx
+M	mobile/app/_layout.tsx
+M	mobile/components/shared/Screen.tsx
+M	mobile/package-lock.json
+M	mobile/package.json
+M	mobile/services/delivery.service.ts
+M	mobile/services/route.service.ts
+M	mobile/services/schedule.service.ts
+M	mobile/theme/shared.ts
+M	mobile/tsconfig.json
+M	mobile/types/database.ts
+
+===== CACHED NAME STATUS =====
+
+===== STATUS SHORT =====
+ M mobile/AGENTS.md
+ M mobile/app.json
+ M mobile/app/(auth)/login.tsx
+ M mobile/app/(driver)/(tabs)/_layout.tsx
+ M mobile/app/(driver)/(tabs)/deliveries.tsx
+ M mobile/app/(driver)/(tabs)/index.tsx
+ D mobile/app/(driver)/(tabs)/profile.tsx
+ M mobile/app/(driver)/(tabs)/schedule.tsx
+ M mobile/app/(driver)/_layout.tsx
+ M mobile/app/(driver)/delivery/[deliveryId].tsx
+ M mobile/app/(driver)/route/[routeId].tsx
+ M mobile/app/_layout.tsx
+ M mobile/components/shared/Screen.tsx
+ M mobile/package-lock.json
+ M mobile/package.json
+ M mobile/services/delivery.service.ts
+ M mobile/services/route.service.ts
+ M mobile/services/schedule.service.ts
+ M mobile/theme/shared.ts
+ M mobile/tsconfig.json
+ M mobile/types/database.ts
+?? mobile/app/(driver)/(tabs)/_layout.ios.tsx
+?? mobile/app/(driver)/(tabs)/alerts.tsx
+?? mobile/app/(driver)/(tabs)/status.tsx
+?? mobile/app/(driver)/profile.tsx
+?? mobile/app/(driver)/proof-of-delivery/
+?? mobile/components/dashboard/
+?? mobile/components/shared/DriverHeader.tsx
+?? mobile/components/shared/DriverTabBar.android.tsx
+?? mobile/components/shared/DriverTabBar.tsx
+?? mobile/components/shared/GlassActionButton.android.tsx
+?? mobile/components/shared/GlassActionButton.ios.tsx
+?? mobile/components/shared/GlassActionButton.tsx
+?? mobile/components/shared/GlassActionButton.web.tsx
+?? mobile/components/shared/GlassButton.android.tsx
+?? mobile/components/shared/GlassButton.ios.tsx
+?? mobile/components/shared/GlassButton.tsx
+?? mobile/components/shared/GlassButton.web.tsx
+?? mobile/components/shared/LiquidGlassButton.android.tsx
+?? mobile/components/shared/LiquidGlassButton.ios.tsx
+?? mobile/components/shared/LiquidGlassButton.tsx
+?? mobile/components/shared/LiquidGlassButton.web.tsx
+?? mobile/components/shared/ProfileButton.android.tsx
+?? mobile/components/shared/ProfileButton.ios.tsx
+?? mobile/components/shared/ProfileButton.tsx
+?? mobile/components/shared/ProfileButton.web.tsx
+?? mobile/components/shared/ScrollEdgeBlur.android.tsx
+?? mobile/components/shared/ScrollEdgeBlur.ios.tsx
+?? mobile/components/shared/ScrollEdgeBlur.tsx
+?? mobile/components/shared/ScrollEdgeBlur.web.tsx
+?? mobile/components/shared/driverTabs.ts
+?? mobile/components/shared/profileButtonHelpers.ts
+?? mobile/docs/
+?? mobile/hooks/useUnreadNotificationCount.ts
+?? mobile/providers/UnreadNotificationCountProvider.tsx
+?? mobile/services/notification.service.ts
+?? mobile/theme/dashboard.ts
+?? mobile/types/notification.ts
+?? mobile/utils/
+?? supabase/migrations/202607100001_driver_read_policies.sql
+

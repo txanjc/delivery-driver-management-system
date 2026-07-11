@@ -1,0 +1,100 @@
+﻿COMMAND: cd mobile; npx expo install --check
+START: 2026-07-11T01:56:39.8123478-04:00
+EXIT_CODE: 0
+END: 2026-07-11T01:56:44.0812693-04:00
+
+env: load .env
+env: export EXPO_PUBLIC_SUPABASE_URL EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+Dependencies are up to date
+
+
+============================================================
+
+COMMAND: cd mobile; npx expo-doctor
+START: 2026-07-11T01:56:44.0888579-04:00
+EXIT_CODE: 0
+END: 2026-07-11T01:56:51.6140122-04:00
+
+env: load .env
+env: export EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY EXPO_PUBLIC_SUPABASE_URL
+Running 18 checks on your project...
+18/18 checks passed. No issues detected!
+
+
+============================================================
+
+COMMAND: cd mobile; npx tsc --noEmit
+START: 2026-07-11T01:56:51.6150622-04:00
+EXIT_CODE: 0
+END: 2026-07-11T01:56:56.6233953-04:00
+
+
+
+============================================================
+
+COMMAND: cd mobile; npx expo export --platform web
+START: 2026-07-11T01:56:56.6244096-04:00
+EXIT_CODE: 0
+END: 2026-07-11T01:57:10.6278168-04:00
+
+env: load .env
+env: export EXPO_PUBLIC_SUPABASE_URL EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+React Compiler enabled
+Starting Metro Bundler
+Static rendering is enabled. Learn more: https://docs.expo.dev/router/reference/static-rendering/
+Web node_modules\expo-router\entry.js ▓▓░░░░░░░░░░░░░░ 16.0% ( 94/235)
+λ node_modules\expo-router\node\render.js ▓▓▓▓▓░░░░░░░░░░░ 36.6% (277/458)
+λ Bundled 3824ms node_modules\expo-router\node\render.js (1294 modules)
+Web Bundled 4507ms node_modules\expo-router\entry.js (1268 modules)
+
+› web bundles (2):
+_expo/static/css/native-tabs.module-78b0f59737571f455720970791a36bdd.css (2.54 kB)
+_expo/static/js/web/entry-dae229397f3c3f4a21a2b66636988b15.js (2.5 MB)
+
+› Static routes (32):
+/ (index) (20.4 kB)
+/login (20.4 kB)
+/alerts (20.5 kB)
+/status (20.5 kB)
+/profile (20.5 kB)
+/_sitemap (19.3 kB)
+/schedule (20.5 kB)
+/+not-found (19.3 kB)
+/deliveries (20.5 kB)
+/(auth)/login (20.4 kB)
+/(tabs) (20.5 kB)
+/(tabs)/alerts (20.5 kB)
+/(tabs)/status (20.5 kB)
+/(driver) (20.5 kB)
+/(driver)/alerts (20.5 kB)
+/(tabs)/schedule (20.5 kB)
+/(driver)/status (20.5 kB)
+/route/[routeId] (20.5 kB)
+/(driver)/profile (20.5 kB)
+/(tabs)/deliveries (20.5 kB)
+/(driver)/schedule (20.5 kB)
+/(driver)/deliveries (20.5 kB)
+/(driver)/(tabs) (20.5 kB)
+/delivery/[deliveryId] (20.5 kB)
+/(driver)/(tabs)/alerts (20.5 kB)
+/(driver)/(tabs)/status (20.5 kB)
+/(driver)/(tabs)/schedule (20.5 kB)
+/(driver)/route/[routeId] (20.5 kB)
+/(driver)/(tabs)/deliveries (20.5 kB)
+/(driver)/delivery/[deliveryId] (20.5 kB)
+/proof-of-delivery/[deliveryId] (20.5 kB)
+/(driver)/proof-of-delivery/[deliveryId] (20.5 kB)
+
+Exported: dist
+
+
+============================================================
+
+COMMAND: git status --short web
+EXIT_CODE: 0
+
+============================================================
+COMMAND: git status --short supabase
+EXIT_CODE: 0
+?? supabase/migrations/202607100001_driver_read_policies.sql
+
