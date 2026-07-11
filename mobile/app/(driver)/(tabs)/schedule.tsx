@@ -41,7 +41,7 @@ export default function ScheduleScreen() {
   const upcomingSchedules = schedules.filter((schedule) => schedule.start_time && new Date(schedule.start_time) > new Date()).slice(0, 5);
 
   return (
-    <Screen title="Schedule" subtitle="Schedules are the source of truth for driver and vehicle assignments.">
+    <Screen showProfileButton title="Schedule" subtitle="Schedules are the source of truth for driver and vehicle assignments.">
       {error ? <EmptyState title="Schedule unavailable" message={error} /> : null}
       <Card>
         <Text style={textStyles.label}>Current Schedule</Text>

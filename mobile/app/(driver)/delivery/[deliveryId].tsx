@@ -3,33 +3,53 @@ import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text } from "react-native";
 
 import { Card, EmptyState, LoadingState, Screen, textStyles } from "@/components/shared/Screen";
-import { getDelivery } from "@/services/delivery.service";
-import { getRouteForDelivery } from "@/services/route.service";
+import { useDriverProfile } from "@/hooks/useDriverProfile";
+import { getDeliveryForDriver } from "@/services/delivery.service";
+import { getRouteForDeliveryForDriver } from "@/services/route.service";
 import type { Delivery } from "@/types/delivery";
 import type { Route } from "@/types/route";
 import { colors } from "@/theme/shared";
+import { triggerButtonHaptic } from "@/utils/haptics";
 
 export default function DeliveryDetailsScreen() {
   const { deliveryId } = useLocalSearchParams<{ deliveryId: string }>();
+  const { driver, loading: profileLoading } = useDriverProfile();
   const [delivery, setDelivery] = useState<Delivery | null>(null);
   const [route, setRoute] = useState<Route | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let mounted = true;
+
     async function loadDelivery() {
-      if (!deliveryId) return;
+      if (!deliveryId || profileLoading) return;
 
-      setLoading(true);
-      const deliveryResponse = await getDelivery(deliveryId);
-
-      if (deliveryResponse.error || !deliveryResponse.data) {
-        setError(deliveryResponse.error?.message ?? "Delivery was not found.");
+      if (!driver) {
+        setDelivery(null);
+        setRoute(null);
+        setError("This delivery was not found or is not assigned to your driver record.");
         setLoading(false);
         return;
       }
 
-      const routeResponse = await getRouteForDelivery(deliveryResponse.data.delivery_id);
+      setLoading(true);
+      const deliveryResponse = await getDeliveryForDriver(deliveryId, driver.driver_id);
+
+      if (!mounted) return;
+
+      if (deliveryResponse.error || !deliveryResponse.data) {
+        setDelivery(null);
+        setRoute(null);
+        setError("This delivery was not found or is not assigned to your driver record.");
+        setLoading(false);
+        return;
+      }
+
+      const routeResponse = await getRouteForDeliveryForDriver(deliveryResponse.data.delivery_id, driver.driver_id);
+
+      if (!mounted) return;
+
       setDelivery(deliveryResponse.data);
       setRoute(routeResponse.data ?? null);
       setError(null);
@@ -37,9 +57,13 @@ export default function DeliveryDetailsScreen() {
     }
 
     void loadDelivery();
-  }, [deliveryId]);
 
-  if (loading) {
+    return () => {
+      mounted = false;
+    };
+  }, [deliveryId, driver, profileLoading]);
+
+  if (loading || profileLoading) {
     return <LoadingState label="Loading delivery..." />;
   }
 
@@ -64,8 +88,8 @@ export default function DeliveryDetailsScreen() {
       </Card>
       {route ? (
         <Link asChild href={{ pathname: "/(driver)/route/[routeId]", params: { routeId: route.route_id } }}>
-          <Pressable style={styles.routeButton}>
-            <Text style={styles.routeButtonText}>Open Route Map</Text>
+          <Pressable onPressIn={triggerButtonHaptic} style={styles.routeButton}>
+            <Text style={styles.routeButtonText}>Confirm Route</Text>
           </Pressable>
         </Link>
       ) : (

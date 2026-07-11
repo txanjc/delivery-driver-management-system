@@ -4,6 +4,7 @@ import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput,
 import { Card } from "@/components/shared/Screen";
 import { useAuth } from "@/hooks/useAuth";
 import { colors } from "@/theme/shared";
+import { triggerButtonHaptic } from "@/utils/haptics";
 
 export default function LoginScreen() {
   const { error: authError, loading, signIn } = useAuth();
@@ -54,7 +55,7 @@ export default function LoginScreen() {
           value={password}
         />
         {error || authError ? <Text style={styles.error}>{error ?? authError}</Text> : null}
-        <Pressable disabled={loading} onPress={() => void submit()} style={({ pressed }) => [styles.button, pressed && styles.buttonPressed, loading && styles.buttonDisabled]}>
+        <Pressable disabled={loading} onPress={() => void submit()} onPressIn={triggerButtonHaptic} style={({ pressed }) => [styles.button, pressed && styles.buttonPressed, loading && styles.buttonDisabled]}>
           <Text style={styles.buttonText}>{loading ? "Signing in..." : "Sign In"}</Text>
         </Pressable>
       </Card>

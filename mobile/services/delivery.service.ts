@@ -17,3 +17,12 @@ export async function getDelivery(deliveryId: string) {
     .eq("delivery_id", deliveryId)
     .maybeSingle<Delivery>();
 }
+
+export async function getDeliveryForDriver(deliveryId: string, driverId: string) {
+  return supabase
+    .from("deliveries")
+    .select("delivery_id, delivery_number, customer_name, customer_phone, pickup_address, delivery_address, assigned_driver_id, assigned_vehicle_id, status, priority, notes, created_at, updated_at")
+    .eq("delivery_id", deliveryId)
+    .eq("assigned_driver_id", driverId)
+    .maybeSingle<Delivery>();
+}

@@ -4,24 +4,37 @@ import { Text } from "react-native";
 
 import { Card, EmptyState, LoadingState, Screen, textStyles } from "@/components/shared/Screen";
 import { RouteMap } from "@/components/shared/RouteMap";
-import { getRoute } from "@/services/route.service";
+import { useDriverProfile } from "@/hooks/useDriverProfile";
+import { getRouteForDriver } from "@/services/route.service";
 import type { Route } from "@/types/route";
 
 export default function RouteMapScreen() {
   const { routeId } = useLocalSearchParams<{ routeId: string }>();
+  const { driver, loading: profileLoading } = useDriverProfile();
   const [route, setRoute] = useState<Route | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let mounted = true;
+
     async function loadRoute() {
-      if (!routeId) return;
+      if (!routeId || profileLoading) return;
+
+      if (!driver) {
+        setRoute(null);
+        setError("This route was not found or is not assigned to your driver record.");
+        setLoading(false);
+        return;
+      }
 
       setLoading(true);
-      const response = await getRoute(routeId);
+      const response = await getRouteForDriver(routeId, driver.driver_id);
+
+      if (!mounted) return;
 
       if (response.error || !response.data) {
-        setError(response.error?.message ?? "Route was not found.");
+        setError("This route was not found or is not assigned to your driver record.");
         setRoute(null);
       } else {
         setError(null);
@@ -32,7 +45,11 @@ export default function RouteMapScreen() {
     }
 
     void loadRoute();
-  }, [routeId]);
+
+    return () => {
+      mounted = false;
+    };
+  }, [driver, profileLoading, routeId]);
 
   const region = useMemo(() => {
     if (route?.origin_latitude !== null && route?.origin_longitude !== null && route?.origin_latitude !== undefined && route?.origin_longitude !== undefined) {
@@ -45,7 +62,7 @@ export default function RouteMapScreen() {
     return null;
   }, [route]);
 
-  if (loading) {
+  if (loading || profileLoading) {
     return <LoadingState label="Loading route..." />;
   }
 
@@ -54,7 +71,7 @@ export default function RouteMapScreen() {
   }
 
   return (
-    <Screen title="Route Map" subtitle="Map preview only. Location tracking is not started automatically.">
+    <Screen title="Route Navigation" subtitle="Map preview only. Location tracking is not started automatically.">
       {region ? (
         <RouteMap
           origin={region}

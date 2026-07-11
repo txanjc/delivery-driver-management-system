@@ -7,6 +7,7 @@ import { useDriverProfile } from "@/hooks/useDriverProfile";
 import { getDeliveriesForDriver } from "@/services/delivery.service";
 import type { Delivery } from "@/types/delivery";
 import { colors } from "@/theme/shared";
+import { triggerButtonHaptic } from "@/utils/haptics";
 
 export default function DeliveriesScreen() {
   const { driver } = useDriverProfile();
@@ -40,12 +41,12 @@ export default function DeliveriesScreen() {
   }
 
   return (
-    <Screen title="Deliveries" subtitle="Only deliveries assigned to your driver record are shown.">
+    <Screen showProfileButton title="Deliveries" subtitle="Only deliveries assigned to your driver record are shown.">
       {error ? <EmptyState title="Deliveries unavailable" message={error} /> : null}
       {!error && deliveries.length === 0 ? <EmptyState title="No assigned deliveries" message="Assigned deliveries will appear here when dispatch publishes them." /> : null}
       {deliveries.map((delivery) => (
         <Link asChild href={{ pathname: "/(driver)/delivery/[deliveryId]", params: { deliveryId: delivery.delivery_id } }} key={delivery.delivery_id}>
-          <Pressable>
+          <Pressable onPressIn={triggerButtonHaptic}>
             <Card>
               <Text style={textStyles.label}>#{delivery.delivery_number ?? "Unnumbered"}</Text>
               <Text style={textStyles.value}>{delivery.customer_name ?? "Customer unavailable"}</Text>
