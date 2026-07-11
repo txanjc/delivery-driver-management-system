@@ -13,7 +13,29 @@
     }
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx"
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "components/**/*.ts",
+    "components/**/*.tsx",
+    "features/**/*.ts",
+    "features/**/*.tsx",
+    "hooks/**/*.ts",
+    "hooks/**/*.tsx",
+    "lib/**/*.ts",
+    "lib/**/*.tsx",
+    "providers/**/*.ts",
+    "providers/**/*.tsx",
+    "services/**/*.ts",
+    "services/**/*.tsx",
+    "theme/**/*.ts",
+    "theme/**/*.tsx",
+    "types/**/*.ts",
+    "types/**/*.tsx",
+    "*.d.ts"
+  ],
+  "exclude": [
+    "src",
+    "dist",
+    "node_modules"
   ]
 }
