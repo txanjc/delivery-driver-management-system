@@ -22,6 +22,8 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import { DashboardScrollEdge } from "@/components/dashboard/DashboardScrollEdge";
 import { DeliveryCardStack } from "@/components/deliveries/DeliveryCardStack";
+import { DeliveryDetailsSheet } from "@/components/deliveries/DeliveryDetailsSheet";
+import { DeliveryWorkflowSheet } from "@/components/deliveries/DeliveryWorkflowSheet";
 import { GlassActionButton } from "@/components/shared/GlassActionButton";
 import { ProfileButton } from "@/components/shared/ProfileButton";
 import {
@@ -613,6 +615,8 @@ export default function DeliveriesScreen() {
   const [error, setError] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>("all");
+  const [selectedDelivery, setSelectedDelivery] = useState<Delivery | null>(null);
+  const [workflowDelivery, setWorkflowDelivery] = useState<Delivery | null>(null);
   const requestInFlightRef = useRef(false);
   const reduceMotionEnabled = useReducedMotion();
   const pullDistance = useSharedValue(0);
@@ -673,7 +677,12 @@ export default function DeliveriesScreen() {
         setRoutesByDeliveryId(
           routeResponse.error
             ? {}
-            : Object.fromEntries((routeResponse.data ?? []).filter((route) => route.delivery_id).map((route) => [route.delivery_id as string, route])),
+            : (routeResponse.data ?? []).reduce<Record<string, Route>>((routes, route) => {
+                if (route.delivery_id && !routes[route.delivery_id]) {
+                  routes[route.delivery_id] = route;
+                }
+                return routes;
+              }, {}),
         );
       }
 
@@ -746,6 +755,22 @@ export default function DeliveriesScreen() {
     [router],
   );
 
+  const openDeliveryDetailsSheet = useCallback((delivery: Delivery) => {
+    setSelectedDelivery(delivery);
+  }, []);
+
+  const closeDeliveryDetailsSheet = useCallback(() => {
+    setSelectedDelivery(null);
+  }, []);
+
+  const openDeliveryWorkflowSheet = useCallback((delivery: Delivery) => {
+    setWorkflowDelivery(delivery);
+  }, []);
+
+  const closeDeliveryWorkflowSheet = useCallback(() => {
+    setWorkflowDelivery(null);
+  }, []);
+
   const renderFeaturedDelivery = useCallback<ListRenderItem<Delivery>>(
     ({ item }) => (
       <View style={styles.featuredCardSection}>
@@ -756,14 +781,14 @@ export default function DeliveriesScreen() {
           colors={colors}
           delivery={item}
           emphasized
-          onAction={openDelivery}
-          onOpen={openDelivery}
+          onAction={openDeliveryWorkflowSheet}
+          onOpen={openDeliveryDetailsSheet}
           route={routesByDeliveryId[item.delivery_id] ?? null}
           width={width}
         />
       </View>
     ),
-    [colors, openDelivery, routesByDeliveryId, width],
+    [colors, openDeliveryDetailsSheet, openDeliveryWorkflowSheet, routesByDeliveryId, width],
   );
 
   const renderSecondaryDelivery = useCallback(
@@ -773,12 +798,12 @@ export default function DeliveriesScreen() {
         delivery={item}
         emphasized={false}
         onAction={openDelivery}
-        onOpen={openDelivery}
+        onOpen={openDeliveryDetailsSheet}
         route={routesByDeliveryId[item.delivery_id] ?? null}
         width={width}
       />
     ),
-    [colors, openDelivery, routesByDeliveryId, width],
+    [colors, openDelivery, openDeliveryDetailsSheet, routesByDeliveryId, width],
   );
 
   useEffect(() => {
@@ -1001,6 +1026,19 @@ export default function DeliveriesScreen() {
           </Animated.View>
         </View>
       </Animated.View>
+      <DeliveryDetailsSheet
+        coordinatesLoading={loading || profileLoading}
+        delivery={selectedDelivery}
+        onClose={closeDeliveryDetailsSheet}
+        route={selectedDelivery ? (routesByDeliveryId[selectedDelivery.delivery_id] ?? null) : null}
+        visible={Boolean(selectedDelivery)}
+      />
+      <DeliveryWorkflowSheet
+        delivery={workflowDelivery}
+        onClose={closeDeliveryWorkflowSheet}
+        route={workflowDelivery ? (routesByDeliveryId[workflowDelivery.delivery_id] ?? null) : null}
+        visible={Boolean(workflowDelivery)}
+      />
       <DashboardScrollEdge topInset={insets.top} />
     </View>
   );

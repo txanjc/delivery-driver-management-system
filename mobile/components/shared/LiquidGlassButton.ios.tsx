@@ -32,6 +32,9 @@ export type LiquidGlassButtonProps = {
 
 const ease = Easing.bezier(0.25, 0.1, 0.25, 1).factory();
 const easeOutExpo = Easing.bezier(0.16, 1, 0.3, 1).factory();
+const wideButtonThreshold = 300;
+const compactTouchScale = 1.045;
+const wideTouchScale = 1.012;
 
 function easeOutElastic(bounciness: number) {
   "worklet";
@@ -220,8 +223,9 @@ export const LiquidGlassButton = forwardRef<View, LiquidGlassButtonProps>(
     const variantStyles = getVariantStyles(variant, accentColor, isDisabled, dark);
     const canRenderGlass = reduceTransparencyEnabled === false && isLiquidGlassAvailable() && isGlassEffectAPIAvailable();
     const shouldRenderBlur = reduceTransparencyEnabled === false && !canRenderGlass;
-    const shouldDisableScale = disableScaleAnimation || (buttonSize?.width ?? 0) > 300;
-    const wideButton = (buttonSize?.width ?? 0) > 300;
+    const wideButton = (buttonSize?.width ?? 0) > wideButtonThreshold;
+    const panDeformationLimit = wideButton ? 0.018 : 0.052;
+    const panTranslationLimit = wideButton ? 2.25 : 4;
     const visualRadius = capsule && buttonSize ? getCapsuleRadiusFromHeight(buttonSize.height) : radius;
 
     const { innerStyle, outerStyle } = useMemo(() => splitStyles(style, visualRadius), [style, visualRadius]);
@@ -271,11 +275,18 @@ export const LiquidGlassButton = forwardRef<View, LiquidGlassButtonProps>(
     const panGesture = useMemo(
       () =>
         Gesture.Pan()
-          .enabled(!isDisabled && !shouldDisableScale)
-          .activeOffsetY([-5, 5])
-          .activeOffsetX([-5, 5])
-          .minDistance(0)
+          .enabled(!isDisabled)
+          .activeOffsetY([-6, 6])
+          .activeOffsetX([-6, 6])
+          .minDistance(3)
           .maxPointers(1)
+          .onBegin(() => {
+            "worklet";
+            zIndex.value = 999;
+            if (!disableHighlightEffect) {
+              highlightOpacity.value = withTiming(1, BEGIN_ANIMATION_CONFIG);
+            }
+          })
           .onUpdate((event) => {
             "worklet";
             const dragX = event.translationX;
@@ -284,33 +295,33 @@ export const LiquidGlassButton = forwardRef<View, LiquidGlassButtonProps>(
             const rawFactorX = Math.abs(dragX) / 80;
             const dragFactorY = Math.log(1 + rawFactorY * 2) / Math.log(3);
             const dragFactorX = Math.log(1 + rawFactorX * 2) / Math.log(3);
-            const scaleYFromVertical = dragFactorY * 0.06;
-            const scaleXFromVertical = -dragFactorY * 0.06;
-            const scaleXFromHorizontal = dragFactorX * 0.06;
-            const scaleYFromHorizontal = -dragFactorX * 0.06;
+            const scaleYFromVertical = disableScaleAnimation ? 0 : dragFactorY * panDeformationLimit;
+            const scaleXFromVertical = disableScaleAnimation ? 0 : -dragFactorY * panDeformationLimit;
+            const scaleXFromHorizontal = disableScaleAnimation ? 0 : dragFactorX * panDeformationLimit;
+            const scaleYFromHorizontal = disableScaleAnimation ? 0 : -dragFactorX * panDeformationLimit;
 
             scaleY.value = 1 + scaleYFromVertical + scaleYFromHorizontal;
             scaleX.value = 1 + scaleXFromVertical + scaleXFromHorizontal;
-            translateX.value = Math.sign(dragX) * Math.log(1 + Math.abs(dragX) / 20) * 4;
-            translateY.value = Math.sign(dragY) * Math.log(1 + Math.abs(dragY) / 20) * 4;
+            translateX.value = Math.sign(dragX) * Math.log(1 + Math.abs(dragX) / 20) * panTranslationLimit;
+            translateY.value = Math.sign(dragY) * Math.log(1 + Math.abs(dragY) / 20) * panTranslationLimit;
           })
           .onEnd(resetPressValues)
           .onFinalize(resetPressValues),
-      [isDisabled, resetPressValues, shouldDisableScale],
+      [disableHighlightEffect, disableScaleAnimation, highlightOpacity, isDisabled, panDeformationLimit, panTranslationLimit, resetPressValues, zIndex],
     );
 
     const tapGesture = useMemo(
       () =>
         Gesture.Tap()
           .enabled(!isDisabled)
-          .maxDuration(1000 * 300)
+          .maxDuration(1000)
+          .maxDeltaX(8)
+          .maxDeltaY(8)
           .hitSlop(hitSlop ?? 8)
           .onTouchesDown(() => {
             "worklet";
-            if (!shouldDisableScale) {
-              scale.value = withTiming(1.055, BEGIN_ANIMATION_CONFIG);
-            } else if (wideButton) {
-              scale.value = withTiming(1.015, BEGIN_ANIMATION_CONFIG);
+            if (!disableScaleAnimation) {
+              scale.value = withTiming(wideButton ? wideTouchScale : compactTouchScale, BEGIN_ANIMATION_CONFIG);
             }
 
             if (!disableHighlightEffect) {
@@ -329,10 +340,10 @@ export const LiquidGlassButton = forwardRef<View, LiquidGlassButtonProps>(
               runOnJS(onPress)();
             }
           }),
-      [disableHighlightEffect, hitSlop, isDisabled, onPress, resetPressValues, shouldDisableScale, wideButton],
+      [disableHighlightEffect, disableScaleAnimation, hitSlop, isDisabled, onPress, resetPressValues, wideButton],
     );
 
-    const composedGesture = useMemo(() => Gesture.Exclusive(panGesture, tapGesture), [panGesture, tapGesture]);
+    const composedGesture = useMemo(() => Gesture.Exclusive(tapGesture, panGesture), [panGesture, tapGesture]);
     const materialStyle = [styles.material, innerStyle, { backgroundColor: variantStyles.fillColor, borderColor: variantStyles.borderColor, borderRadius: visualRadius }];
     const highlightStyle = [styles.highlight, { backgroundColor: variantStyles.highlightColor, borderRadius: visualRadius }, animatedHighlightStyle];
 

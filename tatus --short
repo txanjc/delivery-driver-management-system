@@ -1,0 +1,503 @@
+warning: in the working copy of 'mobile/.env.example', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/app/(driver)/(tabs)/deliveries.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/components/shared/LiquidGlassButton.ios.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/package-lock.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/services/delivery.service.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/services/route.service.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/types/delivery.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/types/route.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/eas.json', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/mobile/.env.example b/mobile/.env.example[m
+[1mindex 0ffe745..a7098c8 100644[m
+[1m--- a/mobile/.env.example[m
+[1m+++ b/mobile/.env.example[m
+[36m@@ -1,3 +1,4 @@[m
+ EXPO_PUBLIC_SUPABASE_URL=[m
+ EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=[m
+ EXPO_PUBLIC_GOOGLE_MAPS_API_KEY=[m
+[32m+[m[32mGOOGLE_MAPS_ANDROID_API_KEY=[m
+[1mdiff --git a/mobile/app.json b/mobile/app.json[m
+[1mdeleted file mode 100644[m
+[1mindex 5073c61..0000000[m
+[1m--- a/mobile/app.json[m
+[1m+++ /dev/null[m
+[36m@@ -1,72 +0,0 @@[m
+[31m-{[m
+[31m-  "expo": {[m
+[31m-    "name": "DeliverEaze Driver",[m
+[31m-    "slug": "delivereaze-driver",[m
+[31m-    "version": "1.0.0",[m
+[31m-    "orientation": "portrait",[m
+[31m-    "icon": "./assets/images/icon.png",[m
+[31m-    "scheme": "delivereaze",[m
+[31m-    "userInterfaceStyle": "automatic",[m
+[31m-    "ios": {[m
+[31m-      "icon": "./assets/expo.icon",[m
+[31m-      "bundleIdentifier": "com.quantumpathsolutions.delivereaze.driver",[m
+[31m-      "infoPlist": {[m
+[31m-        "NSLocationWhenInUseUsageDescription": "DeliverEaze Driver uses your location while you are actively completing an assigned route."[m
+[31m-      }[m
+[31m-    },[m
+[31m-    "android": {[m
+[31m-      "package": "com.quantumpathsolutions.delivereaze.driver",[m
+[31m-      "adaptiveIcon": {[m
+[31m-        "backgroundColor": "#E6F4FE",[m
+[31m-        "foregroundImage": "./assets/images/android-icon-foreground.png",[m
+[31m-        "backgroundImage": "./assets/images/android-icon-background.png",[m
+[31m-        "monochromeImage": "./assets/images/android-icon-monochrome.png"[m
+[31m-      },[m
+[31m-      "predictiveBackGestureEnabled": false,[m
+[31m-      "permissions": [[m
+[31m-        "ACCESS_FINE_LOCATION",[m
+[31m-        "ACCESS_COARSE_LOCATION"[m
+[31m-      ][m
+[31m-    },[m
+[31m-    "web": {[m
+[31m-      "output": "static",[m
+[31m-      "favicon": "./assets/images/favicon.png"[m
+[31m-    },[m
+[31m-    "plugins": [[m
+[31m-      "expo-router",[m
+[31m-      [[m
+[31m-        "expo-splash-screen",[m
+[31m-        {[m
+[31m-          "backgroundColor": "#208AEF",[m
+[31m-          "android": {[m
+[31m-            "image": "./assets/images/splash-icon.png",[m
+[31m-            "imageWidth": 76[m
+[31m-          }[m
+[31m-        }[m
+[31m-      ],[m
+[31m-      "expo-secure-store",[m
+[31m-      [[m
+[31m-        "expo-location",[m
+[31m-        {[m
+[31m-          "locationWhenInUsePermission": "DeliverEaze Driver uses your location while you are actively completing an assigned route."[m
+[31m-        }[m
+[31m-      ][m
+[31m-    ],[m
+[31m-    "experiments": {[m
+[31m-      "typedRoutes": false,[m
+[31m-      "reactCompiler": true[m
+[31m-    },[m
+[31m-    "extra": {[m
+[31m-      "router": {},[m
+[31m-      "eas": {[m
+[31m-        "projectId": "24444db3-c392-436d-b907-ab1925cf836e"[m
+[31m-      }[m
+[31m-    },[m
+[31m-    "runtimeVersion": {[m
+[31m-      "policy": "appVersion"[m
+[31m-    },[m
+[31m-    "updates": {[m
+[31m-      "url": "https://u.expo.dev/24444db3-c392-436d-b907-ab1925cf836e"[m
+[31m-    }[m
+[31m-  }[m
+[31m-}[m
+[1mdiff --git a/mobile/app/(driver)/(tabs)/deliveries.tsx b/mobile/app/(driver)/(tabs)/deliveries.tsx[m
+[1mindex 380f76e..1cb9bba 100644[m
+[1m--- a/mobile/app/(driver)/(tabs)/deliveries.tsx[m
+[1m+++ b/mobile/app/(driver)/(tabs)/deliveries.tsx[m
+[36m@@ -22,6 +22,8 @@[m [mimport { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"[m
+ [m
+ import { DashboardScrollEdge } from "@/components/dashboard/DashboardScrollEdge";[m
+ import { DeliveryCardStack } from "@/components/deliveries/DeliveryCardStack";[m
+[32m+[m[32mimport { DeliveryDetailsSheet } from "@/components/deliveries/DeliveryDetailsSheet";[m
+[32m+[m[32mimport { DeliveryWorkflowSheet } from "@/components/deliveries/DeliveryWorkflowSheet";[m
+ import { GlassActionButton } from "@/components/shared/GlassActionButton";[m
+ import { ProfileButton } from "@/components/shared/ProfileButton";[m
+ import {[m
+[36m@@ -613,6 +615,8 @@[m [mexport default function DeliveriesScreen() {[m
+   const [error, setError] = useState(false);[m
+   const [searchQuery, setSearchQuery] = useState("");[m
+   const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>("all");[m
+[32m+[m[32m  const [selectedDelivery, setSelectedDelivery] = useState<Delivery | null>(null);[m
+[32m+[m[32m  const [workflowDelivery, setWorkflowDelivery] = useState<Delivery | null>(null);[m
+   const requestInFlightRef = useRef(false);[m
+   const reduceMotionEnabled = useReducedMotion();[m
+   const pullDistance = useSharedValue(0);[m
+[36m@@ -673,7 +677,12 @@[m [mexport default function DeliveriesScreen() {[m
+         setRoutesByDeliveryId([m
+           routeResponse.error[m
+             ? {}[m
+[31m-            : Object.fromEntries((routeResponse.data ?? []).filter((route) => route.delivery_id).map((route) => [route.delivery_id as string, route])),[m
+[32m+[m[32m            : (routeResponse.data ?? []).reduce<Record<string, Route>>((routes, route) => {[m
+[32m+[m[32m                if (route.delivery_id && !routes[route.delivery_id]) {[m
+[32m+[m[32m                  routes[route.delivery_id] = route;[m
+[32m+[m[32m                }[m
+[32m+[m[32m                return routes;[m
+[32m+[m[32m              }, {}),[m
+         );[m
+       }[m
+ [m
+[36m@@ -746,6 +755,22 @@[m [mexport default function DeliveriesScreen() {[m
+     [router],[m
+   );[m
+ [m
+[32m+[m[32m  const openDeliveryDetailsSheet = useCallback((delivery: Delivery) => {[m
+[32m+[m[32m    setSelectedDelivery(delivery);[m
+[32m+[m[32m  }, []);[m
+[32m+[m
+[32m+[m[32m  const closeDeliveryDetailsSheet = useCallback(() => {[m
+[32m+[m[32m    setSelectedDelivery(null);[m
+[32m+[m[32m  }, []);[m
+[32m+[m
+[32m+[m[32m  const openDeliveryWorkflowSheet = useCallback((delivery: Delivery) => {[m
+[32m+[m[32m    setWorkflowDelivery(delivery);[m
+[32m+[m[32m  }, []);[m
+[32m+[m
+[32m+[m[32m  const closeDeliveryWorkflowSheet = useCallback(() => {[m
+[32m+[m[32m    setWorkflowDelivery(null);[m
+[32m+[m[32m  }, []);[m
+[32m+[m
+   const renderFeaturedDelivery = useCallback<ListRenderItem<Delivery>>([m
+     ({ item }) => ([m
+       <View style={styles.featuredCardSection}>[m
+[36m@@ -756,14 +781,14 @@[m [mexport default function DeliveriesScreen() {[m
+           colors={colors}[m
+           delivery={item}[m
+           emphasized[m
+[31m-          onAction={openDelivery}[m
+[31m-          onOpen={openDelivery}[m
+[32m+[m[32m          onAction={openDeliveryWorkflowSheet}[m
+[32m+[m[32m          onOpen={openDeliveryDetailsSheet}[m
+           route={routesByDeliveryId[item.delivery_id] ?? null}[m
+           width={width}[m
+         />[m
+       </View>[m
+     ),[m
+[31m-    [colors, openDelivery, routesByDeliveryId, width],[m
+[32m+[m[32m    [colors, openDeliveryDetailsSheet, openDeliveryWorkflowSheet, routesByDeliveryId, width],[m
+   );[m
+ [m
+   const renderSecondaryDelivery = useCallback([m
+[36m@@ -773,12 +798,12 @@[m [mexport default function DeliveriesScreen() {[m
+         delivery={item}[m
+         emphasized={false}[m
+         onAction={openDelivery}[m
+[31m-        onOpen={openDelivery}[m
+[32m+[m[32m        onOpen={openDeliveryDetailsSheet}[m
+         route={routesByDeliveryId[item.delivery_id] ?? null}[m
+         width={width}[m
+       />[m
+     ),[m
+[31m-    [colors, openDelivery, routesByDeliveryId, width],[m
+[32m+[m[32m    [colors, openDelivery, openDeliveryDetailsSheet, routesByDeliveryId, width],[m
+   );[m
+ [m
+   useEffect(() => {[m
+[36m@@ -1001,6 +1026,19 @@[m [mexport default function DeliveriesScreen() {[m
+           </Animated.View>[m
+         </View>[m
+       </Animated.View>[m
+[32m+[m[32m      <DeliveryDetailsSheet[m
+[32m+[m[32m        coordinatesLoading={loading || profileLoading}[m
+[32m+[m[32m        delivery={selectedDelivery}[m
+[32m+[m[32m        onClose={closeDeliveryDetailsSheet}[m
+[32m+[m[32m        route={selectedDelivery ? (routesByDeliveryId[selectedDelivery.delivery_id] ?? null) : null}[m
+[32m+[m[32m        visible={Boolean(selectedDelivery)}[m
+[32m+[m[32m      />[m
+[32m+[m[32m      <DeliveryWorkflowSheet[m
+[32m+[m[32m        delivery={workflowDelivery}[m
+[32m+[m[32m        onClose={closeDeliveryWorkflowSheet}[m
+[32m+[m[32m        route={workflowDelivery ? (routesByDeliveryId[workflowDelivery.delivery_id] ?? null) : null}[m
+[32m+[m[32m        visible={Boolean(workflowDelivery)}[m
+[32m+[m[32m      />[m
+       <DashboardScrollEdge topInset={insets.top} />[m
+     </View>[m
+   );[m
+[1mdiff --git a/mobile/components/shared/LiquidGlassButton.ios.tsx b/mobile/components/shared/LiquidGlassButton.ios.tsx[m
+[1mindex c7bb61c..df9f9cb 100644[m
+[1m--- a/mobile/components/shared/LiquidGlassButton.ios.tsx[m
+[1m+++ b/mobile/components/shared/LiquidGlassButton.ios.tsx[m
+[36m@@ -32,6 +32,9 @@[m [mexport type LiquidGlassButtonProps = {[m
+ [m
+ const ease = Easing.bezier(0.25, 0.1, 0.25, 1).factory();[m
+ const easeOutExpo = Easing.bezier(0.16, 1, 0.3, 1).factory();[m
+[32m+[m[32mconst wideButtonThreshold = 300;[m
+[32m+[m[32mconst compactTouchScale = 1.045;[m
+[32m+[m[32mconst wideTouchScale = 1.012;[m
+ [m
+ function easeOutElastic(bounciness: number) {[m
+   "worklet";[m
+[36m@@ -220,8 +223,9 @@[m [mexport const LiquidGlassButton = forwardRef<View, LiquidGlassButtonProps>([m
+     const variantStyles = getVariantStyles(variant, accentColor, isDisabled, dark);[m
+     const canRenderGlass = reduceTransparencyEnabled === false && isLiquidGlassAvailable() && isGlassEffectAPIAvailable();[m
+     const shouldRenderBlur = reduceTransparencyEnabled === false && !canRenderGlass;[m
+[31m-    const shouldDisableScale = disableScaleAnimation || (buttonSize?.width ?? 0) > 300;[m
+[31m-    const wideButton = (buttonSize?.width ?? 0) > 300;[m
+[32m+[m[32m    const wideButton = (buttonSize?.width ?? 0) > wideButtonThreshold;[m
+[32m+[m[32m    const panDeformationLimit = wideButton ? 0.018 : 0.052;[m
+[32m+[m[32m    const panTranslationLimit = wideButton ? 2.25 : 4;[m
+     const visualRadius = capsule && buttonSize ? getCapsuleRadiusFromHeight(buttonSize.height) : radius;[m
+ [m
+     const { innerStyle, outerStyle } = useMemo(() => splitStyles(style, visualRadius), [style, visualRadius]);[m
+[36m@@ -271,11 +275,18 @@[m [mexport const LiquidGlassButton = forwardRef<View, LiquidGlassButtonProps>([m
+     const panGesture = useMemo([m
+       () =>[m
+         Gesture.Pan()[m
+[31m-          .enabled(!isDisabled && !shouldDisableScale)[m
+[31m-          .activeOffsetY([-5, 5])[m
+[31m-          .activeOffsetX([-5, 5])[m
+[31m-          .minDistance(0)[m
+[32m+[m[32m          .enabled(!isDisabled)[m
+[32m+[m[32m          .activeOffsetY([-6, 6])[m
+[32m+[m[32m          .activeOffsetX([-6, 6])[m
+[32m+[m[32m          .minDistance(3)[m
+           .maxPointers(1)[m
+[32m+[m[32m          .onBegin(() => {[m
+[32m+[m[32m            "worklet";[m
+[32m+[m[32m            zIndex.value = 999;[m
+[32m+[m[32m            if (!disableHighlightEffect) {[m
+[32m+[m[32m              highlightOpacity.value = withTiming(1, BEGIN_ANIMATION_CONFIG);[m
+[32m+[m[32m            }[m
+[32m+[m[32m          })[m
+           .onUpdate((event) => {[m
+             "worklet";[m
+             const dragX = event.translationX;[m
+[36m@@ -284,33 +295,33 @@[m [mexport const LiquidGlassButton = forwardRef<View, LiquidGlassButtonProps>([m
+             const rawFactorX = Math.abs(dragX) / 80;[m
+             const dragFactorY = Math.log(1 + rawFactorY * 2) / Math.log(3);[m
+             const dragFactorX = Math.log(1 + rawFactorX * 2) / Math.log(3);[m
+[31m-            const scaleYFromVertical = dragFactorY * 0.06;[m
+[31m-            const scaleXFromVertical = -dragFactorY * 0.06;[m
+[31m-            const scaleXFromHorizontal = dragFactorX * 0.06;[m
+[31m-            const scaleYFromHorizontal = -dragFactorX * 0.06;[m
+[32m+[m[32m            const scaleYFromVertical = disableScwarning: in the working copy of 'mobile/eas.json', LF will be replaced by CRLF the next time Git touches it
+aleAnimation ? 0 : dragFactorY * panDeformationLimit;[m
+[32m+[m[32m            const scaleXFromVertical = disableScaleAnimation ? 0 : -dragFactorY * panDeformationLimit;[m
+[32m+[m[32m            const scaleXFromHorizontal = disableScaleAnimation ? 0 : dragFactorX * panDeformationLimit;[m
+[32m+[m[32m            const scaleYFromHorizontal = disableScaleAnimation ? 0 : -dragFactorX * panDeformationLimit;[m
+ [m
+             scaleY.value = 1 + scaleYFromVertical + scaleYFromHorizontal;[m
+             scaleX.value = 1 + scaleXFromVertical + scaleXFromHorizontal;[m
+[31m-            translateX.value = Math.sign(dragX) * Math.log(1 + Math.abs(dragX) / 20) * 4;[m
+[31m-            translateY.value = Math.sign(dragY) * Math.log(1 + Math.abs(dragY) / 20) * 4;[m
+[32m+[m[32m            translateX.value = Math.sign(dragX) * Math.log(1 + Math.abs(dragX) / 20) * panTranslationLimit;[m
+[32m+[m[32m            translateY.value = Math.sign(dragY) * Math.log(1 + Math.abs(dragY) / 20) * panTranslationLimit;[m
+           })[m
+           .onEnd(resetPressValues)[m
+           .onFinalize(resetPressValues),[m
+[31m-      [isDisabled, resetPressValues, shouldDisableScale],[m
+[32m+[m[32m      [disableHighlightEffect, disableScaleAnimation, highlightOpacity, isDisabled, panDeformationLimit, panTranslationLimit, resetPressValues, zIndex],[m
+     );[m
+ [m
+     const tapGesture = useMemo([m
+       () =>[m
+         Gesture.Tap()[m
+           .enabled(!isDisabled)[m
+[31m-          .maxDuration(1000 * 300)[m
+[32m+[m[32m          .maxDuration(1000)[m
+[32m+[m[32m          .maxDeltaX(8)[m
+[32m+[m[32m          .maxDeltaY(8)[m
+           .hitSlop(hitSlop ?? 8)[m
+           .onTouchesDown(() => {[m
+             "worklet";[m
+[31m-            if (!shouldDisableScale) {[m
+[31m-              scale.value = withTiming(1.055, BEGIN_ANIMATION_CONFIG);[m
+[31m-            } else if (wideButton) {[m
+[31m-              scale.value = withTiming(1.015, BEGIN_ANIMATION_CONFIG);[m
+[32m+[m[32m            if (!disableScaleAnimation) {[m
+[32m+[m[32m              scale.value = withTiming(wideButton ? wideTouchScale : compactTouchScale, BEGIN_ANIMATION_CONFIG);[m
+             }[m
+ [m
+             if (!disableHighlightEffect) {[m
+[36m@@ -329,10 +340,10 @@[m [mexport const LiquidGlassButton = forwardRef<View, LiquidGlassButtonProps>([m
+               runOnJS(onPress)();[m
+             }[m
+           }),[m
+[31m-      [disableHighlightEffect, hitSlop, isDisabled, onPress, resetPressValues, shouldDisableScale, wideButton],[m
+[32m+[m[32m      [disableHighlightEffect, disableScaleAnimation, hitSlop, isDisabled, onPress, resetPressValues, wideButton],[m
+     );[m
+ [m
+[31m-    const composedGesture = useMemo(() => Gesture.Exclusive(panGesture, tapGesture), [panGesture, tapGesture]);[m
+[32m+[m[32m    const composedGesture = useMemo(() => Gesture.Exclusive(tapGesture, panGesture), [panGesture, tapGesture]);[m
+     const materialStyle = [styles.material, innerStyle, { backgroundColor: variantStyles.fillColor, borderColor: variantStyles.borderColor, borderRadius: visualRadius }];[m
+     const highlightStyle = [styles.highlight, { backgroundColor: variantStyles.highlightColor, borderRadius: visualRadius }, animatedHighlightStyle];[m
+ [m
+[1mdiff --git a/mobile/eas.json b/mobile/eas.json[m
+[1mnew file mode 100644[m
+[1mindex 0000000..17d1462[m
+[1m--- /dev/null[m
+[1m+++ b/mobile/eas.json[m
+[36m@@ -0,0 +1,27 @@[m
+[32m+[m[32m{[m
+[32m+[m[32m  "cli": {[m
+[32m+[m[32m    "version": ">= 20.5.1",[m
+[32m+[m[32m    "appVersionSource": "remote"[m
+[32m+[m[32m  },[m
+[32m+[m[32m  "build": {[m
+[32m+[m[32m    "development": {[m
+[32m+[m[32m      "developmentClient": true,[m
+[32m+[m[32m      "distribution": "internal",[m
+[32m+[m[32m      "channel": "development",[m
+[32m+[m[32m      "environment": "development"[m
+[32m+[m[32m    },[m
+[32m+[m[32m    "preview": {[m
+[32m+[m[32m      "distribution": "internal",[m
+[32m+[m[32m      "channel": "preview",[m
+[32m+[m[32m      "environment": "preview"[m
+[32m+[m[32m    },[m
+[32m+[m[32m    "production": {[m
+[32m+[m[32m      "autoIncrement": true,[m
+[32m+[m[32m      "channel": "production",[m
+[32m+[m[32m      "environment": "production"[m
+[32m+[m[32m    }[m
+[32m+[m[32m  },[m
+[32m+[m[32m  "submit": {[m
+[32m+[m[32m    "production": {}[m
+[32m+[m[32m  }[m
+[32m+[m[32m}[m
+[1mdiff --git a/mobile/services/delivery.service.ts b/mobile/services/delivery.service.ts[m
+[1mindex ca4eb5c..66132b3 100644[m
+[1m--- a/mobile/services/delivery.service.ts[m
+[1m+++ b/mobile/services/delivery.service.ts[m
+[36m@@ -1,10 +1,13 @@[m
+ import { supabase } from "@/lib/supabase";[m
+ import type { Delivery } from "@/types/delivery";[m
+ [m
+[32m+[m[32mconst deliverySelect =[m
+[32m+[m[32m  "delivery_id, delivery_number, customer_name, customer_phone, pickup_address, pickup_latitude, pickup_longitude, delivery_address, delivery_latitude, delivery_longitude, assigned_driver_id, assigned_vehicle_id, status, priority, notes, created_at, updated_at";[m
+[32m+[m
+ export async function getDeliveriesForDriver(driverId: string) {[m
+   return supabase[m
+     .from("deliveries")[m
+[31m-    .select("delivery_id, delivery_number, customer_name, customer_phone, pickup_address, delivery_address, assigned_driver_id, assigned_vehicle_id, status, priority, notes, created_at, updated_at")[m
+[32m+[m[32m    .select(deliverySelect)[m
+     .eq("assigned_driver_id", driverId)[m
+     .order("created_at", { ascending: false })[m
+     .returns<Delivery[]>();[m
+[36m@@ -13,7 +16,7 @@[m [mexport async function getDeliveriesForDriver(driverId: string) {[m
+ export async function getDelivery(deliveryId: string) {[m
+   return supabase[m
+     .from("deliveries")[m
+[31m-    .select("delivery_id, delivery_number, customer_name, customer_phone, pickup_address, delivery_address, assigned_driver_id, assigned_vehicle_id, status, priority, notes, created_at, updated_at")[m
+[32m+[m[32m    .select(deliverySelect)[m
+     .eq("delivery_id", deliveryId)[m
+     .maybeSingle<Delivery>();[m
+ }[m
+[36m@@ -21,7 +24,7 @@[m [mexport async function getDelivery(deliveryId: string) {[m
+ export async function getDeliveryForDriver(deliveryId: string, driverId: string) {[m
+   return supabase[m
+     .from("deliveries")[m
+[31m-    .select("delivery_id, delivery_number, customer_name, customer_phone, pickup_address, delivery_address, assigned_driver_id, assigned_vehicle_id, status, priority, notes, created_at, updated_at")[m
+[32m+[m[32m    .select(deliverySelect)[m
+     .eq("delivery_id", deliveryId)[m
+     .eq("assigned_driver_id", driverId)[m
+     .maybeSingle<Delivery>();[m
+[1mdiff --git a/mobile/services/route.service.ts b/mobile/services/route.service.ts[m
+[1mindex e6d36ba..37b24d2 100644[m
+[1m--- a/mobile/services/route.service.ts[m
+[1m+++ b/mobile/services/route.service.ts[m
+[36m@@ -1,7 +1,8 @@[m
+ import { supabase } from "@/lib/supabase";[m
+ import type { Route } from "@/types/route";[m
+ [m
+[31m-const routeSelect = "route_id, delivery_id, origin_address, origin_latitude, origin_longitude, destination_address, destination_latitude, destination_longitude, estimated_distance_km, estimated_duration_minutes, maps_url";[m
+[32m+[m[32mconst routeSelect =[m
+[32m+[m[32m  "route_id, delivery_id, origin_name, origin_address, origin_latitude, origin_longitude, destination_name, destination_address, destination_latitude, destination_longitude, estimated_distance_km, estimated_duration_minutes, route_polyline, maps_url, route_provider, route_generated_at, sequence_order, created_at, updated_at";[m
+ const routeWithDeliverySelect = `${routeSelect}, deliveries!inner(assigned_driver_id)`;[m
+ [m
+ type RouteWithDelivery = Route & {[m
+[36m@@ -13,6 +14,29 @@[m [mfunction stripDeliveryOwnership(route: RouteWithDelivery): Route {[m
+   return routeData;[m
+ }[m
+ [m
+[32m+[m[32mfunction routeTimestampValue(value: string | null): number {[m
+[32m+[m[32m  if (!value) return 0;[m
+[32m+[m[32m  const timestamp = new Date(value).getTime();[m
+[32m+[m[32m  return Number.isNaN(timestamp) ? 0 : timestamp;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mfunction compareRoutesForDisplay(left: Route, right: Route) {[m
+[32m+[m[32m  const leftHasPolyline = left.route_polyline?.trim() ? 1 : 0;[m
+[32m+[m[32m  const rightHasPolyline = right.route_polyline?.trim() ? 1 : 0;[m
+[32m+[m[32m  if (leftHasPolyline !== rightHasPolyline) return rightHasPolyline - leftHasPolyline;[m
+[32m+[m
+[32m+[m[32m  const generatedDifference = routeTimestampValue(right.route_generated_at) - routeTimestampValue(left.route_generated_at);[m
+[32m+[m[32m  if (generatedDifference !== 0) return generatedDifference;[m
+[32m+[m
+[32m+[m[32m  const updatedDifference = routeTimestampValue(right.updated_at) - routeTimestampValue(left.updated_at);[m
+[32m+[m[32m  if (updatedDifference !== 0) return updatedDifference;[m
+[32m+[m
+[32m+[m[32m  const createdDifference = routeTimestampValue(right.created_at) - routeTimestampValue(left.created_at);[m
+[32m+[m[32m  if (createdDifference !== 0) return createdDifference;[m
+[32m+[m
+[32m+[m[32m  return left.route_id.localeCompare(right.route_id);[m
+[32m+[m[32m}[m
+[32m+[m
+ export async function getRoute(routeId: string) {[m
+   return supabase[m
+     .from("routes")[m
+[36m@@ -59,6 +83,21 @@[m [mexport async function getRouteForDeliveryForDriver(deliveryId: string, driverId:[m
+   return { data: stripDeliveryOwnership(response.data), error: null };[m
+ }[m
+ [m
+[32m+[m[32mexport async function getRoutesForDeliveryForDriver(deliveryId: string, driverId: string) {[m
+[32m+[m[32m  const response = await supabase[m
+[32m+[m[32m    .from("routes")[m
+[32m+[m[32m    .select(routeWithDeliverySelect)[m
+[32m+[m[32m    .eq("delivery_id", deliveryId)[m
+[32m+[m[32m    .eq("deliveries.assigned_driver_id", driverId)[m
+[32m+[m[32m    .returns<RouteWithDelivery[]>();[m
+[32m+[m
+[32m+[m[32m  if (response.error) {[m
+[32m+[m[32m    return { data: [], error: response.error };[m
+[32m+[m[32m  }[m
+[32m+[m
+[32m+[m[32m  return { data: (response.data ?? []).map(stripDeliveryOwnership).sort(compareRoutesForDisplay), error: null };[m
+[32m+[m[32m}[m
+[32m+[m
+ export async function getRoutesForDeliveriesForDriver(deliveryIds: string[], driverId: string) {[m
+   if (deliveryIds.length === 0) {[m
+     return { data: [], error: null };[m
+[36m@@ -75,5 +114,5 @@[m [mexport async function getRoutesForDeliveriesForDriver(deliveryIds: string[], dri[m
+     return { data: [], error: response.error };[m
+   }[m
+ [m
+[31m-  return { data: (response.data ?? []).map(stripDeliveryOwnership), error: null };[m
+[32m+[m[32m  return { data: (response.data ?? []).map(stripDeliveryOwnership).sort(compareRoutesForDisplay), error: null };[m
+ }[m
+[1mdiff --git a/mobile/types/delivery.ts b/mobile/types/delivery.ts[m
+[1mindex d1f6d0b..cb64c3d 100644[m
+[1m--- a/mobile/types/delivery.ts[m
+[1m+++ b/mobile/types/delivery.ts[m
+[36m@@ -4,7 +4,11 @@[m [mexport type Delivery = {[m
+   customer_name: string | null;[m
+   customer_phone: string | null;[m
+   pickup_address: string | null;[m
+[32m+[m[32m  pickup_latitude: number | null;[m
+[32m+[m[32m  pickup_longitude: number | null;[m
+   delivery_address: string | null;[m
+[32m+[m[32m  delivery_latitude: number | null;[m
+[32m+[m[32m  delivery_longitude: number | null;[m
+   assigned_driver_id: string | null;[m
+   assigned_vehicle_id: string | null;[m
+   status: string | null;[m
+[1mdiff --git a/mobile/types/route.ts b/mobile/types/route.ts[m
+[1mindex 3afeab6..754a002 100644[m
+[1m--- a/mobile/types/route.ts[m
+[1m+++ b/mobile/types/route.ts[m
+[36m@@ -1,13 +1,21 @@[m
+ export type Route = {[m
+   route_id: string;[m
+   delivery_id: string | null;[m
+[32m+[m[32m  origin_name: string | null;[m
+   origin_address: string | null;[m
+   origin_latitude: number | null;[m
+   origin_longitude: number | null;[m
+[32m+[m[32m  destination_name: string | null;[m
+   destination_address: string | null;[m
+   destination_latitude: number | null;[m
+   destination_longitude: number | null;[m
+   estimated_distance_km: number | null;[m
+   estimated_duration_minutes: number | null;[m
+[32m+[m[32m  route_polyline: string | null;[m
+   maps_url: string | null;[m
+[32m+[m[32m  route_provider: string | null;[m
+[32m+[m[32m  route_generated_at: string | null;[m
+[32m+[m[32m  sequence_order: number | null;[m
+[32m+[m[32m  created_at: string | null;[m
+[32m+[m[32m  updated_at: string | null;[m
+ };[m

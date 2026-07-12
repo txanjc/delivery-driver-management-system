@@ -1,13 +1,21 @@
 export type Route = {
   route_id: string;
   delivery_id: string | null;
+  origin_name: string | null;
   origin_address: string | null;
   origin_latitude: number | null;
   origin_longitude: number | null;
+  destination_name: string | null;
   destination_address: string | null;
   destination_latitude: number | null;
   destination_longitude: number | null;
   estimated_distance_km: number | null;
   estimated_duration_minutes: number | null;
+  route_polyline: string | null;
   maps_url: string | null;
+  route_provider: string | null;
+  route_generated_at: string | null;
+  sequence_order: number | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
