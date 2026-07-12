@@ -20,6 +20,7 @@ export type GlassActionButtonProps = {
   iconName?: ComponentProps<typeof SymbolView>["name"];
   iconPosition?: "left" | "right";
   iconSize?: number;
+  hitSlop?: number;
   label: string;
   labelStyle?: StyleProp<TextStyle>;
   onPress?: () => void;
@@ -81,7 +82,7 @@ function getVariantStyles(variant: GlassActionButtonVariant, disabled: boolean) 
   };
 }
 
-export function GlassActionButton({ accessibilityLabel, capsule = false, contentStyle, disabled = false, iconName, iconPosition = "right", iconSize = 16, label, labelStyle, onPress, radius, style, trailingIconName, trailingIconSize = 14, variant = "secondaryNeutral" }: GlassActionButtonProps) {
+export function GlassActionButton({ accessibilityLabel, capsule = false, contentStyle, disabled = false, hitSlop, iconName, iconPosition = "right", iconSize = 16, label, labelStyle, onPress, radius, style, trailingIconName, trailingIconSize = 14, variant = "secondaryNeutral" }: GlassActionButtonProps) {
   const isDisabled = Boolean(disabled);
   const variantStyles = getVariantStyles(variant, isDisabled);
   const [height, setHeight] = useState<number | null>(null);
@@ -99,6 +100,7 @@ export function GlassActionButton({ accessibilityLabel, capsule = false, content
       accessibilityRole="button"
       accessibilityState={isDisabled ? { disabled: true } : undefined}
       disabled={isDisabled}
+      hitSlop={hitSlop}
       onLayout={(event) => {
         const nextHeight = event.nativeEvent.layout.height;
         setHeight((current) => (current && Math.abs(current - nextHeight) < 0.5 ? current : nextHeight));

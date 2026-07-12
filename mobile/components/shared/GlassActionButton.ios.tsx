@@ -20,6 +20,7 @@ export type GlassActionButtonProps = {
   iconName?: ComponentProps<typeof SymbolView>["name"];
   iconPosition?: "left" | "right";
   iconSize?: number;
+  hitSlop?: number;
   label: string;
   labelStyle?: StyleProp<TextStyle>;
   onPress?: () => void;
@@ -58,6 +59,7 @@ export function GlassActionButton({
   capsule = false,
   contentStyle,
   disabled = false,
+  hitSlop,
   iconName,
   iconPosition = "right",
   iconSize = 16,
@@ -82,6 +84,7 @@ export function GlassActionButton({
       accentColor={colors.primary}
       capsule={capsule}
       disabled={isDisabled}
+      hitSlop={hitSlop}
       onPress={isDisabled ? undefined : onPress}
       radius={radius}
       style={style}

@@ -58,3 +58,22 @@ export async function getRouteForDeliveryForDriver(deliveryId: string, driverId:
 
   return { data: stripDeliveryOwnership(response.data), error: null };
 }
+
+export async function getRoutesForDeliveriesForDriver(deliveryIds: string[], driverId: string) {
+  if (deliveryIds.length === 0) {
+    return { data: [], error: null };
+  }
+
+  const response = await supabase
+    .from("routes")
+    .select(routeWithDeliverySelect)
+    .in("delivery_id", deliveryIds)
+    .eq("deliveries.assigned_driver_id", driverId)
+    .returns<RouteWithDelivery[]>();
+
+  if (response.error) {
+    return { data: [], error: response.error };
+  }
+
+  return { data: (response.data ?? []).map(stripDeliveryOwnership), error: null };
+}
