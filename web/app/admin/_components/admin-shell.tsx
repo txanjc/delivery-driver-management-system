@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { ReactNode } from "react";
 
 import { AppIcons, type AppIconName } from "@/config/icons";
 import { Skeleton, SkeletonAvatar, SkeletonButton } from "@/components/ui/Skeleton";
+import { useNotify } from "@/components/ui/ToastProvider";
+import { fetchAdministratorJson } from "@/lib/admin-api-client";
 import { supabase } from "@/lib/supabase";
 import { isAdministrator } from "@/lib/roles";
 
@@ -16,6 +18,7 @@ import {
   QuickActionsDropdown,
   type QuickActionsRole,
 } from "./QuickActionsDropdown";
+import { NotificationBell } from "./NotificationBell";
 
 const navigationItems: Array<{
   label: string;
@@ -29,6 +32,7 @@ const navigationItems: Array<{
   { label: "Schedules", href: "/admin/schedules", icon: "schedules" },
   { label: "Deliveries", href: "/admin/deliveries", icon: "deliveries" },
   { label: "Routes", href: "/admin/routes", icon: "routes" },
+  { label: "Alerts", href: "/admin/alerts", icon: "notifications" },
   { label: "Finance", href: "/admin/finance", icon: "finance" },
   { label: "Reports", href: "/admin/reports", icon: "reports" },
   { label: "Settings", href: "/admin/settings", icon: "settings" },
@@ -50,12 +54,78 @@ type OpenTopbarMenu = "quick-actions" | "user-profile" | null;
 type RoutesShellStyle = CSSProperties & {
   "--routes-sidebar-width"?: string;
 };
+type GlobalSearchType = "user" | "driver" | "vehicle" | "schedule" | "delivery" | "route" | "expense" | "revenue";
+type GlobalSearchFilter = "all" | "users" | "drivers" | "vehicles" | "schedules" | "deliveries" | "routes" | "finance";
+type GlobalSearchResult = { id: string; type: GlobalSearchType; title: string; subtitle?: string; metadata?: string; status?: string; href: string; recordId: string; relatedId?: string; routeId?: string; deliveryId?: string; driverId?: string; vehicleId?: string; rank: number };
+type GlobalSearchResponse = { results: GlobalSearchResult[] };
 
 function getInitials(firstName: string, lastName: string) {
   return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || "AU";
 }
 
+function globalSearchGroupLabel(type: GlobalSearchType) {
+  if (type === "user") return "Users";
+  if (type === "driver") return "Drivers";
+  if (type === "vehicle") return "Vehicles";
+  if (type === "schedule") return "Schedules";
+  if (type === "delivery") return "Deliveries";
+  if (type === "route") return "Routes";
+  if (type === "expense") return "Expenses";
+  return "Revenue";
+}
+
+function globalSearchIcon(type: GlobalSearchType) {
+  if (type === "user") return AppIcons.users;
+  if (type === "delivery") return AppIcons.deliveries;
+  if (type === "route") return AppIcons.routes;
+  if (type === "driver") return AppIcons.drivers;
+  if (type === "vehicle") return AppIcons.vehicles;
+  if (type === "schedule") return AppIcons.schedules;
+  return AppIcons.finance;
+}
+
+function filterMatches(type: GlobalSearchType, filter: GlobalSearchFilter) {
+  if (filter === "all") return true;
+  if (filter === "finance") return type === "expense" || type === "revenue";
+  return filter === `${type}s`;
+}
+
+function globalSearchStatusClass(type: GlobalSearchType, status: string) {
+  const normalized = status.toLowerCase().replaceAll(" ", "_");
+
+  if (["inactive", "unavailable", "failed", "cancelled", "out_of_service"].includes(normalized)) {
+    return "bg-red-50 text-red-700 ring-1 ring-red-100";
+  }
+  if (["delayed", "maintenance_due", "maintenance"].includes(normalized)) {
+    return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
+  }
+  if (["active", "available", "delivered", "completed", "paid"].includes(normalized)) {
+    return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100";
+  }
+  if (["on_delivery", "in_transit"].includes(normalized)) {
+    return "bg-blue-50 text-blue-700 ring-1 ring-blue-100";
+  }
+  if (["assigned", "scheduled"].includes(normalized)) {
+    return "bg-purple-50 text-purple-700 ring-1 ring-purple-100";
+  }
+  if (type === "vehicle") return "bg-blue-50 text-blue-700 ring-1 ring-blue-100";
+  if (type === "schedule") return "bg-purple-50 text-purple-700 ring-1 ring-purple-100";
+  if (type === "delivery" || type === "route") return "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100";
+  if (type === "expense") return "bg-rose-50 text-rose-700 ring-1 ring-rose-100";
+  if (type === "revenue") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100";
+  return "bg-slate-100 text-slate-600 ring-1 ring-slate-200";
+}
+
+function HighlightMatch({ text, query }: { text: string; query: string }) {
+  const normalizedQuery = query.trim();
+  if (!normalizedQuery) return <>{text}</>;
+  const index = text.toLowerCase().indexOf(normalizedQuery.toLowerCase());
+  if (index < 0) return <>{text}</>;
+  return <>{text.slice(0, index)}<span className="font-bold text-purple-700">{text.slice(index, index + normalizedQuery.length)}</span>{text.slice(index + normalizedQuery.length)}</>;
+}
+
 export function AdminShell({ children }: { children: ReactNode }) {
+  const notify = useNotify();
   const pathname = usePathname();
   const isRoutesWorkspace = pathname === "/admin/routes";
   const router = useRouter();
@@ -65,6 +135,11 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
   const [routesSearch, setRoutesSearch] = useState("");
+  const [routesSearchResults, setRoutesSearchResults] = useState<GlobalSearchResult[]>([]);
+  const [globalSearchFilter, setGlobalSearchFilter] = useState<GlobalSearchFilter>("all");
+  const [isRoutesSearchLoading, setIsRoutesSearchLoading] = useState(false);
+  const [isRoutesSearchOpen, setIsRoutesSearchOpen] = useState(false);
+  const [activeRouteSearchIndex, setActiveRouteSearchIndex] = useState(-1);
   const [profileName, setProfileName] = useState({
     firstName: "Administrator",
     lastName: "User",
@@ -73,15 +148,21 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const quickActionsRef = useRef<HTMLDivElement>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const profileTriggerRef = useRef<HTMLButtonElement>(null);
+  const routesSearchRef = useRef<HTMLLabelElement>(null);
+  const globalSearchPanelRef = useRef<HTMLDivElement>(null);
+  const routesSearchRequestRef = useRef(0);
   const fullName = `${profileName.firstName} ${profileName.lastName}`.trim();
   const isQuickActionsOpen = openTopbarMenu === "quick-actions";
   const isProfileOpen = openTopbarMenu === "user-profile";
   const initials = getInitials(profileName.firstName, profileName.lastName);
   const BrandIcon = AppIcons.brand;
   const SearchIcon = AppIcons.search;
-  const BellIcon = AppIcons.notifications;
   const CaretDownIcon = AppIcons.dropdown;
   const LogoutIcon = AppIcons.logout;
+  const flatRoutesSearchResults = useMemo(() => {
+    const types: GlobalSearchType[] = ["user", "driver", "vehicle", "schedule", "delivery", "route", "expense", "revenue"];
+    return types.flatMap((type) => routesSearchResults.filter((result) => result.type === type && filterMatches(type, globalSearchFilter)).slice(0, 5));
+  }, [globalSearchFilter, routesSearchResults]);
   const routesShellStyle: RoutesShellStyle | undefined = isRoutesWorkspace
     ? { "--routes-sidebar-width": isSidebarExpanded ? "18rem" : "5rem" }
     : undefined;
@@ -138,11 +219,77 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const closeMenu = window.setTimeout(() => setOpenTopbarMenu(null), 0);
-    if (pathname !== "/admin/routes") {
-      queueMicrotask(() => setRoutesSearch(""));
-    }
+    queueMicrotask(() => {
+      setRoutesSearch("");
+      setRoutesSearchResults([]);
+      setIsRoutesSearchOpen(false);
+      setActiveRouteSearchIndex(-1);
+    });
     return () => window.clearTimeout(closeMenu);
   }, [pathname]);
+
+  useEffect(() => {
+    const requestId = routesSearchRequestRef.current + 1;
+    routesSearchRequestRef.current = requestId;
+    const query = routesSearch.trim();
+    if (query.length < 2) {
+      queueMicrotask(() => {
+        setIsRoutesSearchLoading(false);
+        setRoutesSearchResults([]);
+        setActiveRouteSearchIndex(-1);
+      });
+      return;
+    }
+    queueMicrotask(() => setIsRoutesSearchLoading(true));
+    const timer = window.setTimeout(() => {
+      if (routesSearchRequestRef.current !== requestId) return;
+      void fetchAdministratorJson<GlobalSearchResponse>(`/api/admin/search?q=${encodeURIComponent(query)}`).then((data) => {
+        if (routesSearchRequestRef.current !== requestId) return;
+        setRoutesSearchResults(data.results);
+        setActiveRouteSearchIndex(data.results.length ? 0 : -1);
+        setIsRoutesSearchLoading(false);
+        setIsRoutesSearchOpen(true);
+      }).catch(() => {
+        if (routesSearchRequestRef.current !== requestId) return;
+        setRoutesSearchResults([]);
+        setIsRoutesSearchLoading(false);
+        notify.error("Global search could not be loaded.");
+      });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [notify, routesSearch]);
+
+  useEffect(() => {
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target as Node;
+      if (!routesSearchRef.current?.contains(target) && !globalSearchPanelRef.current?.contains(target)) setIsRoutesSearchOpen(false);
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const isTyping =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.isContentEditable;
+      const isSearchShortcut =
+        (event.key === "/" && !isTyping) ||
+        ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k");
+
+      if (isSearchShortcut) {
+        event.preventDefault();
+        routesSearchRef.current?.querySelector("input")?.focus();
+        setIsRoutesSearchOpen(true);
+        return;
+      }
+
+      if (event.key === "Escape") setIsRoutesSearchOpen(false);
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
 
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
@@ -202,8 +349,150 @@ export function AdminShell({ children }: { children: ReactNode }) {
     window.location.replace("/login");
   }
 
+  function selectRouteSearchResult(result: GlobalSearchResult) {
+    const canUseRoutesMap = isRoutesWorkspace && ["delivery", "route", "driver", "vehicle"].includes(result.type);
+    if (canUseRoutesMap) {
+      window.dispatchEvent(new CustomEvent("deliver-eaze:routes-search-select", { detail: result }));
+    } else {
+      router.push(result.href);
+    }
+    setIsRoutesSearchOpen(false);
+    setActiveRouteSearchIndex(-1);
+  }
+
   return (
     <div className={`${isRoutesWorkspace ? "h-dvh overflow-hidden bg-[#edf4f3]" : "min-h-screen bg-slate-100"} text-slate-950`}>
+      {isRoutesSearchOpen ? (
+        <button
+          aria-label="Close global search"
+          className="fixed inset-0 z-[50] cursor-default bg-slate-950/55 backdrop-blur-[9px] transition-opacity"
+          onMouseDown={() => setIsRoutesSearchOpen(false)}
+          type="button"
+        />
+      ) : null}
+      {isRoutesSearchOpen ? (
+        <div
+          className="fixed left-1/2 top-[18vh] z-[80] w-[min(640px,calc(100vw-32px))] -translate-x-1/2 overflow-hidden rounded-[22px] border border-white/85 bg-white/98 text-slate-900 shadow-[0_34px_110px_-34px_rgba(15,23,42,.75),0_0_0_1px_rgba(139,92,246,.10)] ring-1 ring-purple-100/70 backdrop-blur-xl"
+          ref={globalSearchPanelRef}
+        >
+          <div className="relative border-b border-slate-100">
+            <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+              <SearchIcon aria-hidden size={18} weight="bold" />
+            </span>
+            <input
+              aria-activedescendant={activeRouteSearchIndex >= 0 && flatRoutesSearchResults[activeRouteSearchIndex] ? `global-search-option-${flatRoutesSearchResults[activeRouteSearchIndex].id}` : undefined}
+              aria-controls="global-search-results"
+              aria-expanded={isRoutesSearchOpen}
+              autoFocus
+              className="h-14 w-full bg-white pl-11 pr-11 text-sm font-medium text-slate-800 outline-none placeholder:text-slate-400"
+              onChange={(event) => { setRoutesSearch(event.target.value); setIsRoutesSearchOpen(true); if (isRoutesWorkspace) window.dispatchEvent(new CustomEvent("deliver-eaze:routes-search", { detail: event.target.value })); }}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setActiveRouteSearchIndex((current) => Math.min(flatRoutesSearchResults.length - 1, current + 1));
+                } else if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setActiveRouteSearchIndex((current) => Math.max(0, current - 1));
+                } else if (event.key === "Enter") {
+                  const result = flatRoutesSearchResults[activeRouteSearchIndex];
+                  if (result) {
+                    event.preventDefault();
+                    selectRouteSearchResult(result);
+                  }
+                } else if (event.key === "Escape") {
+                  setIsRoutesSearchOpen(false);
+                }
+              }}
+              placeholder="Search across DeliverEaze"
+              role="combobox"
+              type="text"
+              value={routesSearch}
+            />
+            {routesSearch ? (
+              <button
+                aria-label="Clear global search"
+                className="absolute right-4 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full text-slate-400 transition hover:bg-purple-50 hover:text-purple-700"
+                onClick={() => {
+                  setRoutesSearch("");
+                  setRoutesSearchResults([]);
+                  if (isRoutesWorkspace) window.dispatchEvent(new CustomEvent("deliver-eaze:routes-search", { detail: "" }));
+                }}
+                type="button"
+              >
+                <AppIcons.close aria-hidden size={14} weight="bold" />
+              </button>
+            ) : null}
+          </div>
+          <div className="p-2" id="global-search-results" role="listbox">
+            <div className="user-modal-scrollbar mb-2 flex gap-1 overflow-x-auto px-1 pb-1 text-xs font-semibold">
+              {(["all", "users", "drivers", "vehicles", "schedules", "deliveries", "routes", "finance"] as GlobalSearchFilter[]).map((filter) => (
+                <button
+                  className={`shrink-0 rounded-full px-3 py-1.5 transition ${globalSearchFilter === filter ? "bg-purple-600 text-white shadow-sm shadow-purple-200" : "bg-slate-100 text-slate-600 hover:bg-purple-50 hover:text-purple-700"}`}
+                  key={filter}
+                  onClick={() => setGlobalSearchFilter(filter)}
+                  type="button"
+                >
+                  {filter.charAt(0).toUpperCase() + filter.slice(1)}
+                </button>
+              ))}
+            </div>
+            {!routesSearch.trim() ? (
+              <div className="px-5 py-6 text-sm leading-6 text-slate-500">Search by name, record number, vehicle, address, or invoice.</div>
+            ) : isRoutesSearchLoading ? (
+              <div className="px-5 py-6 text-sm font-medium text-slate-500">Searching DeliverEaze...</div>
+            ) : flatRoutesSearchResults.length ? (
+              <div className="user-modal-scrollbar max-h-[min(28rem,calc(100vh-13rem))] overflow-y-auto pr-1">
+                {(["user", "driver", "vehicle", "schedule", "delivery", "route", "expense", "revenue"] as GlobalSearchType[]).map((type) => {
+                  const groupResults = routesSearchResults.filter((result) => result.type === type && filterMatches(result.type, globalSearchFilter)).slice(0, 5);
+                  if (!groupResults.length) return null;
+                  return (
+                    <div className="py-1" key={type}>
+                      <p className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-400">{globalSearchGroupLabel(type)}</p>
+                      <div className="space-y-1">
+                        {groupResults.map((result) => {
+                          const flatIndex = flatRoutesSearchResults.findIndex((item) => item.id === result.id);
+                          const Icon = globalSearchIcon(result.type);
+                          const active = flatIndex === activeRouteSearchIndex;
+                          return (
+                            <button
+                              aria-selected={active}
+                              className={`flex w-full items-start gap-3 rounded-2xl px-3 py-2.5 text-left transition ${active ? "bg-purple-50 text-purple-950 ring-1 ring-purple-100" : "hover:bg-slate-50"}`}
+                              id={`global-search-option-${result.id}`}
+                              key={result.id}
+                              onClick={() => selectRouteSearchResult(result)}
+                              onMouseDown={(event) => event.preventDefault()}
+                              onMouseEnter={() => setActiveRouteSearchIndex(flatIndex)}
+                              role="option"
+                              type="button"
+                            >
+                              <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-purple-50 text-purple-600 ring-1 ring-purple-100">
+                                <Icon aria-hidden size={17} weight="bold" />
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="flex items-start justify-between gap-3">
+                                  <span className="truncate text-sm font-bold text-slate-900"><HighlightMatch query={routesSearch} text={result.title} /></span>
+                                  {result.status ? <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${globalSearchStatusClass(result.type, result.status)}`}>{result.status.replaceAll("_", " ")}</span> : null}
+                                </span>
+                                {result.subtitle ? <span className="mt-0.5 block truncate text-xs text-slate-500"><HighlightMatch query={routesSearch} text={result.subtitle} /></span> : null}
+                                {result.metadata ? <span className="mt-1 block text-[11px] font-medium text-slate-400">{result.metadata}</span> : null}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="px-5 py-6">
+                <p className="text-sm font-bold text-slate-800">No matching records found.</p>
+                <p className="mt-1 text-xs text-slate-500">Try another name, number, vehicle, or location.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
       <aside
         className={`fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden border-r border-slate-200 bg-white px-3 py-5 shadow-xl shadow-slate-900/5 transition-[width] duration-300 ease-out lg:flex ${
           isSidebarExpanded ? "w-72" : "w-20"
@@ -302,7 +591,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         style={routesShellStyle}
       >
         <header className={`z-40 border-b px-5 py-4 lg:px-8 ${isRoutesWorkspace ? "routes-glass-header absolute inset-x-0 top-0 border-transparent bg-transparent" : "sticky top-0 border-slate-100 bg-white/95 backdrop-blur-xl"}`}>
-          <div className="flex items-center justify-between gap-4 lg:grid lg:grid-cols-[1fr_minmax(18rem,24rem)_1fr]">
+          <div className="flex flex-wrap items-center justify-between gap-4 lg:grid lg:grid-cols-[1fr_minmax(18rem,24rem)_1fr]">
             <div className="lg:hidden">
               <Link className="flex items-center gap-3" href="/admin">
                 <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white">
@@ -319,43 +608,69 @@ export function AdminShell({ children }: { children: ReactNode }) {
               {isProfileLoading ? <SkeletonButton className={isRoutesWorkspace ? "w-10 shrink-0" : "w-36"} /> : userRole ? <div className="shrink-0" ref={quickActionsRef}><QuickActionsDropdown isOpen={isQuickActionsOpen} onOpenChange={(nextIsOpen) => setOpenTopbarMenu(nextIsOpen ? "quick-actions" : null)} role={userRole} /></div> : null}
             </div>
 
-            <label className="relative hidden w-full justify-self-center lg:block">
+            <label className="relative order-3 w-full justify-self-center lg:order-none lg:block" ref={routesSearchRef}>
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
                 <SearchIcon aria-hidden size={18} weight="bold" />
               </span>
               <input
-                className={`h-10 w-full rounded-full border border-slate-200 bg-slate-50 pl-10 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100 ${isRoutesWorkspace ? "pr-10" : "pr-4"}`}
-                onChange={isRoutesWorkspace ? (event) => { setRoutesSearch(event.target.value); window.dispatchEvent(new CustomEvent("deliver-eaze:routes-search", { detail: event.target.value })); } : undefined}
-                placeholder="Search deliveries, routes, drivers"
-                type="search"
-                value={isRoutesWorkspace ? routesSearch : undefined}
+                aria-activedescendant={activeRouteSearchIndex >= 0 && flatRoutesSearchResults[activeRouteSearchIndex] ? `global-search-option-${flatRoutesSearchResults[activeRouteSearchIndex].id}` : undefined}
+                aria-controls="global-search-results"
+                aria-expanded={isRoutesSearchOpen}
+                role="combobox"
+                className="h-10 w-full rounded-full border border-slate-200 bg-slate-50 pl-10 pr-10 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
+                onChange={(event) => { setRoutesSearch(event.target.value); setIsRoutesSearchOpen(true); if (isRoutesWorkspace) window.dispatchEvent(new CustomEvent("deliver-eaze:routes-search", { detail: event.target.value })); }}
+                onFocus={() => setIsRoutesSearchOpen(true)}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    setIsRoutesSearchOpen(true);
+                    setActiveRouteSearchIndex((current) => Math.min(flatRoutesSearchResults.length - 1, current + 1));
+                  } else if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    setActiveRouteSearchIndex((current) => Math.max(0, current - 1));
+                  } else if (event.key === "Enter") {
+                    const result = flatRoutesSearchResults[activeRouteSearchIndex];
+                    if (result) {
+                      event.preventDefault();
+                      selectRouteSearchResult(result);
+                    }
+                  } else if (event.key === "Escape") {
+                    setIsRoutesSearchOpen(false);
+                  }
+                }}
+                placeholder="Search across DeliverEaze"
+                type="text"
+                value={routesSearch}
               />
-              {isRoutesWorkspace && routesSearch ? (
+              {routesSearch ? (
                 <button
                   aria-label="Clear route search"
                   className="absolute right-3 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-slate-400 transition hover:bg-white/70 hover:text-purple-700"
                   onClick={() => {
                     setRoutesSearch("");
-                    window.dispatchEvent(new CustomEvent("deliver-eaze:routes-search", { detail: "" }));
+                    setRoutesSearchResults([]);
+                    setIsRoutesSearchOpen(false);
+                    if (isRoutesWorkspace) window.dispatchEvent(new CustomEvent("deliver-eaze:routes-search", { detail: "" }));
                   }}
                   type="button"
                 >
                   <AppIcons.close aria-hidden size={14} weight="bold" />
                 </button>
               ) : null}
+              {false ? (
+                <div className={`absolute left-0 right-0 z-50 max-h-[min(32rem,calc(100vh-7rem))] overflow-hidden border p-2 shadow-[0_36px_110px_-34px_rgba(0,0,0,.88)] backdrop-blur-xl ${isRoutesSearchOpen ? "top-10 rounded-b-2xl border-white/10 border-t-0 bg-[#202322] text-slate-100 ring-1 ring-white/10" : "top-12 rounded-2xl border-white/90 bg-white/98 ring-1 ring-slate-900/5"}`} id="global-search-results" role="listbox">
+                  <div className="user-modal-scrollbar mb-2 flex gap-1 overflow-x-auto px-1 pb-1 text-xs font-semibold">{(["all", "users", "drivers", "vehicles", "schedules", "deliveries", "routes", "finance"] as GlobalSearchFilter[]).map((filter) => <button className={`shrink-0 rounded-full px-3 py-1.5 transition ${globalSearchFilter === filter ? "bg-purple-600 text-white" : "bg-white/[0.07] text-slate-300 ring-1 ring-white/10 hover:bg-white/[0.12] hover:text-white"}`} key={filter} onClick={() => setGlobalSearchFilter(filter)} type="button">{filter.charAt(0).toUpperCase() + filter.slice(1)}</button>)}</div>
+                  {!routesSearch.trim() ? <div className="px-4 py-5 text-sm text-slate-300">Search by name, record number, vehicle, address, or invoice.</div> : isRoutesSearchLoading ? <div className="px-4 py-5 text-sm font-medium text-slate-300">Searching DeliverEaze...</div> : flatRoutesSearchResults.length ? <div className="user-modal-scrollbar max-h-[28rem] overflow-y-auto pr-1">{(["user", "driver", "vehicle", "schedule", "delivery", "route", "expense", "revenue"] as GlobalSearchType[]).map((type) => {
+                    const groupResults = routesSearchResults.filter((result) => result.type === type && filterMatches(result.type, globalSearchFilter)).slice(0, 5);
+                    if (!groupResults.length) return null;
+                    return <div className="py-1" key={type}><p className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">{globalSearchGroupLabel(type)}</p><div className="space-y-1">{groupResults.map((result) => { const flatIndex = flatRoutesSearchResults.findIndex((item) => item.id === result.id); const Icon = globalSearchIcon(result.type); const active = flatIndex === activeRouteSearchIndex; return <button aria-selected={active} className={`flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition ${active ? "bg-white/[0.08] text-white ring-1 ring-white/10" : "hover:bg-white/[0.06]"}`} id={`global-search-option-${result.id}`} key={result.id} onMouseEnter={() => setActiveRouteSearchIndex(flatIndex)} onMouseDown={(event) => event.preventDefault()} onClick={() => selectRouteSearchResult(result)} role="option" type="button"><span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-purple-500/15 text-purple-300 ring-1 ring-purple-400/20"><Icon aria-hidden size={17} weight="bold" /></span><span className="min-w-0 flex-1"><span className="flex items-start justify-between gap-3"><span className="truncate text-sm font-bold text-slate-100"><HighlightMatch query={routesSearch} text={result.title} /></span>{result.status ? <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${globalSearchStatusClass(result.type, result.status)}`}>{result.status.replaceAll("_", " ")}</span> : null}</span>{result.subtitle ? <span className="mt-0.5 block truncate text-xs text-slate-400"><HighlightMatch query={routesSearch} text={result.subtitle} /></span> : null}{result.metadata ? <span className="mt-1 block text-[11px] font-medium text-slate-500">{result.metadata}</span> : null}</span></button>; })}</div></div>;
+                  })}</div> : <div className="px-4 py-5"><p className="text-sm font-bold text-slate-100">No matching records found.</p><p className="mt-1 text-xs text-slate-400">Try another name, number, vehicle, or location.</p></div>}
+                </div>
+              ) : null}
             </label>
 
             <div className="flex items-center gap-3 lg:justify-self-end">
-              <button
-                aria-label="Notifications"
-                className="relative flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-slate-200 hover:text-slate-900"
-                type="button"
-              >
-                <BellIcon aria-hidden size={19} weight="bold" />
-                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none text-white">
-                  3
-                </span>
-              </button>
+              <NotificationBell />
 
               <div className="relative" ref={profileMenuRef}>
                 <button

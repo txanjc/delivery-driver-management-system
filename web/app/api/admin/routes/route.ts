@@ -136,9 +136,9 @@ export async function GET(request: Request) {
   if (!authorization.client) return authorization.response;
   const [routesResponse, deliveriesResponse, driversResponse, vehiclesResponse, schedulesResponse] = await Promise.all([
     authorization.client.from("routes").select("route_id, delivery_id, origin, destination, origin_name, origin_address, origin_latitude, origin_longitude, destination_name, destination_address, destination_latitude, destination_longitude, estimated_distance_km, estimated_duration_minutes, actual_distance_km, actual_duration_minutes, route_polyline, maps_url, route_provider, route_generated_at, sequence_order, created_at").order("created_at", { ascending: false }),
-    authorization.client.from("deliveries").select("delivery_id, delivery_number, customer_name, pickup_address, pickup_place_id, pickup_latitude, pickup_longitude, delivery_address, delivery_place_id, delivery_latitude, delivery_longitude, assigned_driver_id, assigned_vehicle_id, status, priority, updated_at").order("delivery_number", { ascending: true }),
+    authorization.client.from("deliveries").select("delivery_id, delivery_number, customer_name, customer_phone, pickup_address, pickup_place_id, pickup_latitude, pickup_longitude, delivery_address, delivery_place_id, delivery_latitude, delivery_longitude, assigned_driver_id, assigned_vehicle_id, status, priority, updated_at").order("delivery_number", { ascending: true }),
     authorization.client.from("drivers").select("driver_id, user_id, availability"),
-    authorization.client.from("vehicles").select("vehicle_id, vehicle_number, license_plate, make, model, status"),
+    authorization.client.from("vehicles").select("vehicle_id, vehicle_number, license_plate, make, model, vehicle_type, status"),
     authorization.client.from("schedules").select("schedule_id, driver_id, vehicle_id, shift_name, start_time, end_time, status").neq("status", "cancelled"),
   ]);
   const error = routesResponse.error ?? deliveriesResponse.error ?? driversResponse.error ?? vehiclesResponse.error ?? schedulesResponse.error;

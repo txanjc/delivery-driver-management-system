@@ -1,19 +1,22 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { fetchAdministratorJson } from "@/lib/admin-api-client";
+import { useNotify } from "@/components/ui/ToastProvider";
 import {
   AdminCard,
   AdminPageIntro,
   PrimaryActionButton,
+  SecondaryButton,
 } from "../_components/admin-design-system";
 import { DEFAULT_PAGE_SIZE, Pagination } from "../_components/Pagination";
 import {
   normalizeVehicleStatus,
   VehicleStatusBadge,
 } from "../_components/admin-ui";
+import { AppIcons } from "@/config/icons";
 import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
 
 type VehicleStatus = "Available" | "Assigned" | "Maintenance" | "Out of Service";
@@ -39,6 +42,8 @@ type VehicleRow = {
 type AssignmentSchedule = { schedule_id: string; shift_date: string | null; shift_type: string | null; shift_name: string | null; start_time: string | null; end_time: string | null; status: string | null };
 type VehicleAssignmentRow = { vehicle_id: string | null; driver_name: string | null; driver_email: string | null; schedule: AssignmentSchedule };
 type VehicleAssignment = { driverName: string; driverEmail: string; schedule: AssignmentSchedule | null };
+type VehicleMaintenanceRow = { maintenance_id: string; maintenance_type: string | null; cost: number | string | null; maintenance_date: string | null; created_at: string | null };
+type VehicleMaintenance = { type: string; cost: number; date: string | null; createdAt: string | null };
 
 type VehicleRecord = {
   vehicleId: string;
@@ -222,6 +227,10 @@ function formatMileage(mileage: string) {
   return `${numericMileage.toLocaleString()} mi`;
 }
 
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+}
+
 function formatDate(value: string) {
   const dateOnlyValue = value.trim().slice(0, 10);
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOnlyValue);
@@ -245,11 +254,26 @@ function getVehicleName(vehicle: VehicleRecord) {
   return vehicleName || "Unnamed vehicle";
 }
 
+function titleCase(value: string) {
+  return value.trim().replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function toVehicleAssignment(row: VehicleAssignmentRow): VehicleAssignment {
   return {
     driverName: row.driver_name || "Unnamed driver",
     driverEmail: row.driver_email ?? "",
     schedule: row.schedule.status === "cancelled" ? null : row.schedule,
+  };
+}
+
+function toVehicleMaintenance(row: VehicleMaintenanceRow | null): VehicleMaintenance | null {
+  if (!row) return null;
+  const cost = typeof row.cost === "number" ? row.cost : Number(row.cost);
+  return {
+    type: row.maintenance_type ? titleCase(row.maintenance_type) : "Maintenance",
+    cost: Number.isFinite(cost) ? cost : 0,
+    date: row.maintenance_date,
+    createdAt: row.created_at,
   };
 }
 
@@ -265,8 +289,22 @@ function formatTime(value: string | null) {
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(date);
 }
 
-function DetailField({ label, value }: { label: string; value: string }) {
-  return <div><p className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</p><p className="mt-1 text-sm font-medium text-slate-700">{value}</p></div>;
+function VehicleDetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-start justify-between gap-4 border-b border-slate-100 py-2.5 last:border-b-0">
+      <dt className="text-sm text-slate-500">{label}</dt>
+      <dd className="max-w-[60%] text-right text-sm font-semibold text-slate-800">{value || "Not recorded"}</dd>
+    </div>
+  );
+}
+
+function VehicleSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="rounded-[20px] border border-purple-100/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_30px_rgba(139,92,246,0.07)]">
+      <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+      <div className="mt-3">{children}</div>
+    </section>
+  );
 }
 
 function VehicleKpiCard({
@@ -306,6 +344,7 @@ function VehicleModal({
   mode,
   vehicle,
   assignment,
+  maintenance,
   formState,
   isEditing,
   isDirty,
@@ -319,6 +358,7 @@ function VehicleModal({
   mode: "create" | "view";
   vehicle: VehicleRecord | null;
   assignment: VehicleAssignment | null;
+  maintenance: VehicleMaintenance | null;
   formState: VehicleFormState;
   isEditing: boolean;
   isDirty: boolean;
@@ -330,7 +370,6 @@ function VehicleModal({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const isCreateMode = mode === "create";
-  const fieldsEnabled = isCreateMode || isEditing;
   const previewVehicle: VehicleRecord = vehicle ?? {
     vehicleId: "", vehicleNumber: formState.vehicleNumber, plateNumber: formState.plateNumber,
     make: formState.make, model: formState.model, year: formState.year,
@@ -346,214 +385,295 @@ function VehicleModal({
     return () => { document.body.style.overflow = overflow; };
   }, []);
 
-  const inputClass = "mt-2 h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-60";
+  const CloseIcon = AppIcons.close;
+  const EditIcon = AppIcons.edit;
+  const MoreIcon = AppIcons.more;
+  const MileageIcon = AppIcons.mileage;
+  const PlateIcon = AppIcons.identification;
+  const InfoIcon = AppIcons.activity;
+  const WarningIcon = AppIcons.warning;
+  const CalendarIcon = AppIcons.calendar;
+  const MaintenanceIcon = AppIcons.maintenance;
+  const vehicleName = getVehicleName(previewVehicle);
+  const vehicleNumber = previewVehicle.vehicleNumber || "Vehicle";
+  const blocksAssignment = previewVehicle.status === "Maintenance" || previewVehicle.status === "Out of Service";
+  const assignmentSchedule = assignment?.schedule;
+  const scheduledWindow = assignmentSchedule
+    ? `${formatDate(assignmentSchedule.shift_date ?? assignmentSchedule.start_time ?? "")} · ${formatTime(assignmentSchedule.start_time)}-${formatTime(assignmentSchedule.end_time)}`
+    : "";
+
+  if (!isCreateMode && !isEditing) {
+    return (
+      <div aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-md" role="dialog">
+        <div className="max-h-[calc(100vh-48px)] w-[min(1180px,calc(100vw-48px))] overflow-hidden rounded-[24px] border border-white bg-white/95 p-1.5 text-[#17232b] shadow-2xl shadow-purple-950/15 ring-1 ring-purple-100/70">
+          <div className="flex max-h-[calc(100vh-60px)] flex-col overflow-hidden rounded-[19px] bg-white">
+            <div className="sticky top-0 z-20 border-b border-purple-50 bg-white/95 px-5 py-4 backdrop-blur sm:px-6">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-xl font-semibold text-slate-950">{vehicleNumber} · {vehicleName}</h2>
+                    <VehicleStatusBadge status={previewVehicle.status} />
+                  </div>
+                  <p className="mt-1 text-sm text-slate-500">Vehicle details, status, maintenance, and assignment information.</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <PrimaryActionButton disabled={isSaving} onClick={onEdit} type="button">
+                    <EditIcon aria-hidden className="mr-2" size={15} weight="bold" />
+                    Edit Vehicle
+                  </PrimaryActionButton>
+                  <details className="relative">
+                    <summary aria-label="More vehicle actions" className="grid h-9 w-9 cursor-pointer list-none place-items-center rounded-full border border-slate-200 text-slate-500 transition hover:bg-purple-50 hover:text-purple-700 [&::-webkit-details-marker]:hidden">
+                      <MoreIcon aria-hidden size={17} weight="bold" />
+                    </summary>
+                    <div className="absolute right-0 top-11 z-30 w-48 rounded-2xl border border-slate-100 bg-white p-2 text-sm shadow-xl">
+                      <p className="px-3 py-2 text-slate-400">No additional actions</p>
+                    </div>
+                  </details>
+                  <button aria-label="Close vehicle details" className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-500 transition hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700" disabled={isSaving} onClick={onClose} type="button">
+                    <CloseIcon aria-hidden size={16} weight="bold" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="user-modal-scrollbar overflow-y-auto px-5 py-4 sm:px-6">
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(300px,0.75fr)]">
+                <div className="space-y-3">
+                  <section className="rounded-[22px] border border-purple-100/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_rgba(139,92,246,0.08)]">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-purple-700">Vehicle {previewVehicle.vehicleNumber || "record"}</p>
+                        <h3 className="mt-1 text-2xl font-bold tracking-[-0.03em] text-slate-950">{vehicleName}</h3>
+                        <p className="mt-1 text-sm text-slate-500">{[previewVehicle.vehicleType, previewVehicle.year].filter(Boolean).join(" · ") || "Vehicle specifications not recorded"}</p>
+                      </div>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      {[
+                        { label: "License plate", value: previewVehicle.plateNumber || "Not recorded", icon: PlateIcon },
+                        { label: "Mileage", value: formatMileage(previewVehicle.mileage), icon: MileageIcon },
+                      ].map(({ label, value, icon: Icon }) => (
+                        <div className="rounded-2xl border border-purple-100 bg-purple-50/30 p-3" key={label}>
+                          <div className="flex items-center gap-2 text-[11px] font-medium text-slate-500">
+                            <span className="grid h-6 w-6 place-items-center rounded-full bg-white text-purple-700 ring-1 ring-purple-100"><Icon aria-hidden size={13} weight="bold" /></span>
+                            {label}
+                          </div>
+                          <p className="mt-2 text-sm font-semibold text-slate-800">{value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  <VehicleSection title="Vehicle specifications">
+                    <dl>
+                      <VehicleDetailRow label="Make" value={previewVehicle.make ? titleCase(previewVehicle.make) : "Not recorded"} />
+                      <VehicleDetailRow label="Model" value={previewVehicle.model ? titleCase(previewVehicle.model) : "Not recorded"} />
+                      <VehicleDetailRow label="Year" value={previewVehicle.year || "Not recorded"} />
+                      <VehicleDetailRow label="Vehicle type" value={previewVehicle.vehicleType ? titleCase(previewVehicle.vehicleType) : "Not recorded"} />
+                      <VehicleDetailRow label="Mileage" value={formatMileage(previewVehicle.mileage)} />
+                    </dl>
+                  </VehicleSection>
+
+                  <VehicleSection title="Registration and insurance">
+                    <dl>
+                      <VehicleDetailRow label="License plate" value={previewVehicle.plateNumber || "Not recorded"} />
+                      <VehicleDetailRow label="Registration number" value={previewVehicle.registrationNumber || "Not recorded"} />
+                      <VehicleDetailRow label="Registration expiry" value={formatDate(previewVehicle.registrationExpiry)} />
+                      <VehicleDetailRow label="Insurance policy" value={previewVehicle.insurancePolicyNumber || "Not recorded"} />
+                      <VehicleDetailRow label="Insurance expiry" value={formatDate(previewVehicle.insuranceExpiry)} />
+                    </dl>
+                  </VehicleSection>
+                </div>
+
+                <div className="space-y-3">
+                  <section className={`rounded-[20px] border p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_24px_rgba(139,92,246,0.06)] ${blocksAssignment ? "border-amber-100 bg-amber-50/70" : "border-blue-100 bg-blue-50/70"}`}>
+                    <div className="flex items-start gap-3">
+                      <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white ring-1 ${blocksAssignment ? "text-amber-700 ring-amber-100" : "text-blue-700 ring-blue-100"}`}>
+                        {blocksAssignment ? <WarningIcon aria-hidden size={15} weight="bold" /> : <InfoIcon aria-hidden size={15} weight="bold" />}
+                      </span>
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-950">{blocksAssignment ? "Vehicle unavailable" : assignment ? "Current assignment" : "Assignment readiness"}</h3>
+                        <p className="mt-1 text-sm leading-6 text-slate-600">
+                          {blocksAssignment ? `This vehicle cannot be assigned to schedules or deliveries while its status is ${previewVehicle.status}.` : assignment ? "This vehicle is assigned to an active or upcoming shift. Review the schedule details below." : "This vehicle does not have an active or upcoming assignment."}
+                        </p>
+                      </div>
+                    </div>
+                  </section>
+
+                  <VehicleSection title="Schedule / assignment">
+                    {assignment ? (
+                      <dl>
+                        <VehicleDetailRow label="Assigned driver" value={assignment.driverName} />
+                        {assignment.driverEmail ? <VehicleDetailRow label="Driver email" value={assignment.driverEmail} /> : null}
+                        <VehicleDetailRow label="Shift" value={assignmentSchedule?.shift_name || "Scheduled shift"} />
+                        <VehicleDetailRow label="Scheduled" value={scheduledWindow || "Not recorded"} />
+                      </dl>
+                    ) : (
+                      <div className="flex items-start gap-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-4">
+                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white text-purple-700 ring-1 ring-purple-100">
+                          <CalendarIcon aria-hidden size={16} weight="bold" />
+                        </span>
+                        <div>
+                          <h4 className="text-sm font-semibold text-slate-900">No active assignment</h4>
+                          <p className="mt-1 text-sm leading-6 text-slate-500">This vehicle is not assigned to a current or upcoming shift.</p>
+                        </div>
+                      </div>
+                    )}
+                  </VehicleSection>
+
+                  <VehicleSection title="Maintenance">
+                    {maintenance ? (
+                      <dl>
+                        <VehicleDetailRow label="Last maintenance" value={formatDate(maintenance.date ?? maintenance.createdAt ?? "")} />
+                        <VehicleDetailRow label="Next service due" value="Not scheduled" />
+                        <VehicleDetailRow label="Latest maintenance cost" value={formatMoney(maintenance.cost)} />
+                      </dl>
+                    ) : (
+                      <div className="flex items-start gap-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-4">
+                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white text-purple-700 ring-1 ring-purple-100">
+                          <MaintenanceIcon aria-hidden size={16} weight="bold" />
+                        </span>
+                        <div>
+                          <h4 className="text-sm font-semibold text-slate-900">No maintenance history</h4>
+                          <p className="mt-1 text-sm leading-6 text-slate-500">No maintenance history is available.</p>
+                        </div>
+                      </div>
+                    )}
+                  </VehicleSection>
+
+                  <VehicleSection title="Record information">
+                    <dl>
+                      <VehicleDetailRow label="Created" value={formatDateTime(previewVehicle.createdAt)} />
+                      <VehicleDetailRow label="Updated" value={formatDateTime(previewVehicle.updatedAt)} />
+                    </dl>
+                  </VehicleSection>
+                </div>
+              </div>
+            </div>
+
+            <div className="sticky bottom-0 z-20 flex justify-end gap-2 border-t border-purple-50 bg-white/95 px-5 py-3 backdrop-blur sm:px-6">
+              <SecondaryButton disabled={isSaving} onClick={onClose} type="button">Close</SecondaryButton>
+              <PrimaryActionButton disabled={isSaving} onClick={onEdit} type="button">
+                <EditIcon aria-hidden className="mr-2" size={15} weight="bold" />
+                Edit Vehicle
+              </PrimaryActionButton>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const inputClass = "mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-60";
+  const modalTitle = isCreateMode ? "Create Vehicle" : "Edit Vehicle";
+  const modalDescription = isCreateMode
+    ? "Add a vehicle to the operational fleet."
+    : "Update vehicle specifications, registration, insurance, and operational status.";
 
   return (
-    <div
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-md"
-      role="dialog"
-    >
-      <div className={`max-h-[94vh] w-full overflow-hidden rounded-[24px] border border-white bg-white/95 p-1.5 text-[#17232b] shadow-2xl shadow-slate-900/20 ring-1 ring-purple-100/50 ${isCreateMode ? "max-w-4xl" : "max-w-[1500px]"}`}>
-       <div className="user-modal-scrollbar max-h-[calc(94vh-0.75rem)] overflow-y-auto rounded-[19px] p-5 sm:p-6">
-        <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
-          <div>
-            <h2 className="text-xl font-semibold">{isCreateMode ? "Create Vehicle" : "Vehicle Details"}</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              {isCreateMode ? "Add a vehicle to the operational fleet." : "Review vehicle details, maintenance data, and schedule context."}
-            </p>
-          </div>
-          <button
-            aria-label="Close vehicle details"
-            className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-500 transition hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700"
-            disabled={isSaving}
-            onClick={onClose}
-            type="button"
-          >
-            <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeLinecap="round" strokeWidth="2" /></svg>
-          </button>
-        </div>
-
-        <form className="mt-5 space-y-5" onSubmit={onSubmit}>
-          <div className={isCreateMode ? "" : "grid gap-5 lg:grid-cols-[250px_minmax(480px,1fr)_290px]"}>
-          {!isCreateMode ? <aside className="border-b border-dashed border-slate-200 pb-5 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-purple-600">Vehicle Overview</p>
-            <div className="mt-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-purple-100 px-2 text-center text-lg font-bold text-purple-700">{previewVehicle.vehicleNumber || "VE"}</div>
-            <h3 className="mt-4 text-lg font-semibold">{getVehicleName(previewVehicle)}</h3>
-            <p className="mt-1 text-sm font-medium text-slate-400">{previewVehicle.vehicleNumber || "No vehicle number"}</p>
-            <div className="mt-2"><VehicleStatusBadge status={previewVehicle.status} /></div>
-            <div className="mt-5 grid gap-4 border-t border-slate-100 pt-4">
-              <DetailField label="License plate" value={previewVehicle.plateNumber || "Not recorded"} />
-              <DetailField label="Year" value={previewVehicle.year || "Not recorded"} />
-              <DetailField label="Created at" value={formatDateTime(previewVehicle.createdAt)} />
-              <DetailField label="Updated at" value={formatDateTime(previewVehicle.updatedAt)} />
-            </div>
-          </aside> : null}
-          <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-purple-600">Vehicle Fields</p><fieldset className="mt-4 grid gap-3 md:grid-cols-2" disabled={!fieldsEnabled}>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-600">
-                Vehicle Number
-              </span>
-              <input
-                className={inputClass}
-                onChange={(event) =>
-                  onChange("vehicleNumber", event.target.value)
-                }
-                value={formState.vehicleNumber}
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-600">
-                License Plate
-              </span>
-              <input
-                className={inputClass}
-                onChange={(event) => onChange("plateNumber", event.target.value)}
-                required
-                value={formState.plateNumber}
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-600">Make</span>
-              <input
-                className={inputClass}
-                onChange={(event) => onChange("make", event.target.value)}
-                value={formState.make}
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-600">Model</span>
-              <input
-                className={inputClass}
-                onChange={(event) => onChange("model", event.target.value)}
-                value={formState.model}
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-600">Year</span>
-              <input
-                className={inputClass}
-                min="1900"
-                onChange={(event) => onChange("year", event.target.value)}
-                type="number"
-                value={formState.year}
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-600">
-                Vehicle Type
-              </span>
-              <input
-                className={inputClass}
-                onChange={(event) => onChange("vehicleType", event.target.value)}
-                value={formState.vehicleType}
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-600">Mileage</span>
-              <input
-                className={inputClass}
-                min="0"
-                onChange={(event) => onChange("mileage", event.target.value)}
-                type="number"
-                value={formState.mileage}
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-600">
-                Insurance Policy Number
-              </span>
-              <input
-                className={inputClass}
-                onChange={(event) =>
-                  onChange("insurancePolicyNumber", event.target.value)
-                }
-                value={formState.insurancePolicyNumber}
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-600">
-                Insurance Expiry
-              </span>
-              <input
-                className={inputClass}
-                onChange={(event) =>
-                  onChange("insuranceExpiry", event.target.value)
-                }
-                type="date"
-                value={formState.insuranceExpiry}
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-600">
-                Registration Number
-              </span>
-              <input
-                className={inputClass}
-                onChange={(event) =>
-                  onChange("registrationNumber", event.target.value)
-                }
-                value={formState.registrationNumber}
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-600">
-                Registration Expiry
-              </span>
-              <input
-                className={inputClass}
-                onChange={(event) =>
-                  onChange("registrationExpiry", event.target.value)
-                }
-                type="date"
-                value={formState.registrationExpiry}
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-600">Status</span>
-              <select
-                className={`${inputClass} appearance-none pr-9`}
-                onChange={(event) => onChange("status", event.target.value)}
-                value={formState.status}
+    <div aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-md" role="dialog">
+      <div className="max-h-[calc(100vh-48px)] w-[min(980px,calc(100vw-48px))] overflow-hidden rounded-[24px] border border-white bg-white/95 p-1.5 text-[#17232b] shadow-2xl shadow-slate-900/20 ring-1 ring-purple-100/50">
+        <form className="flex max-h-[calc(100vh-60px)] flex-col overflow-hidden rounded-[19px] bg-white" onSubmit={onSubmit}>
+          <div className="sticky top-0 z-20 border-b border-slate-100 bg-white/95 px-5 py-4 backdrop-blur sm:px-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold">{modalTitle}</h2>
+                <p className="mt-1 text-sm text-slate-500">{modalDescription}</p>
+              </div>
+              <button
+                aria-label={`Close ${modalTitle.toLowerCase()} modal`}
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-slate-200 text-slate-500 transition hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700"
+                disabled={isSaving}
+                onClick={onClose}
+                type="button"
               >
-                {vehicleStatuses.map((status) => (
-                  <option key={status}>{status}</option>
-                ))}
-              </select>
-            </label>
-          </fieldset></div>
-          {!isCreateMode ? <aside className="border-t border-dashed border-slate-200 pt-5 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-purple-600">Schedule / Assignment</p>
-            {assignment ? <div className="mt-4">
-              <div className="rounded-2xl bg-purple-50 p-4"><p className="text-xs text-purple-500">Next assigned driver</p><p className="mt-1 font-semibold text-purple-900">{assignment.driverName}</p>{assignment.driverEmail ? <p className="mt-1 break-all text-xs text-purple-600">{assignment.driverEmail}</p> : null}</div>
-              {assignment.schedule ? <div className="mt-4 grid gap-4 rounded-2xl border border-slate-100 p-4">
-                <DetailField label="Related schedule" value={assignment.schedule.shift_name || "Scheduled shift"} />
-                <DetailField label="Shift date" value={formatDate(assignment.schedule.shift_date ?? "")} />
-                <div className="grid grid-cols-2 gap-3"><DetailField label="Start time" value={formatTime(assignment.schedule.start_time)} /><DetailField label="End time" value={formatTime(assignment.schedule.end_time)} /></div>
-              </div> : <p className="mt-4 rounded-2xl border border-dashed border-slate-200 p-4 text-sm leading-6 text-slate-500">No active schedule assignment found for this vehicle.</p>}
-            </div> : <p className="mt-4 rounded-2xl border border-dashed border-slate-200 p-4 text-sm leading-6 text-slate-500">No active schedule assignment found for this vehicle.</p>}
-          </aside> : null}
+                <CloseIcon aria-hidden size={16} weight="bold" />
+              </button>
+            </div>
           </div>
 
-          <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
-            {!isCreateMode && !isEditing ? <PrimaryActionButton disabled={isSaving} onClick={onEdit} type="button">Edit</PrimaryActionButton> : <>
-            <button
-              className="rounded-full border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
-              disabled={isSaving}
-              onClick={isCreateMode ? onClose : onCancel}
-              type="button"
-            >
+          <div className="user-modal-scrollbar overflow-y-auto px-5 py-5 sm:px-6">
+            <div className="mx-auto max-w-[900px] space-y-5">
+              <section className="rounded-[20px] border border-purple-100/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_30px_rgba(139,92,246,0.06)] sm:p-5">
+                <div className="border-b border-slate-100 pb-3">
+                  <h3 className="font-semibold text-slate-950">Vehicle identity</h3>
+                  <p className="mt-1 text-sm text-slate-500">Core fleet details and operational status.</p>
+                </div>
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <label className="block">
+                    <span className="text-sm font-medium text-slate-600">Vehicle Number</span>
+                    <input className={inputClass} onChange={(event) => onChange("vehicleNumber", event.target.value)} value={formState.vehicleNumber} />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-medium text-slate-600">License Plate <span className="text-red-500">*</span></span>
+                    <input className={inputClass} onChange={(event) => onChange("plateNumber", event.target.value)} required value={formState.plateNumber} />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-medium text-slate-600">Make</span>
+                    <input className={inputClass} onChange={(event) => onChange("make", event.target.value)} value={formState.make} />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-medium text-slate-600">Model</span>
+                    <input className={inputClass} onChange={(event) => onChange("model", event.target.value)} value={formState.model} />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-medium text-slate-600">Year</span>
+                    <input className={inputClass} min="1900" onChange={(event) => onChange("year", event.target.value)} type="number" value={formState.year} />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-medium text-slate-600">Vehicle Type</span>
+                    <input className={inputClass} onChange={(event) => onChange("vehicleType", event.target.value)} value={formState.vehicleType} />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-medium text-slate-600">Mileage</span>
+                    <input className={inputClass} min="0" onChange={(event) => onChange("mileage", event.target.value)} type="number" value={formState.mileage} />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-medium text-slate-600">Status</span>
+                    <select className={`${inputClass} appearance-none pr-9`} onChange={(event) => onChange("status", event.target.value)} value={formState.status}>
+                      {vehicleStatuses.map((status) => (
+                        <option key={status}>{status}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </section>
+
+              <section className="rounded-[20px] border border-purple-100/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_30px_rgba(139,92,246,0.06)] sm:p-5">
+                <div className="border-b border-slate-100 pb-3">
+                  <h3 className="font-semibold text-slate-950">Registration and insurance</h3>
+                  <p className="mt-1 text-sm text-slate-500">Compliance identifiers and expiry dates.</p>
+                </div>
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <label className="block">
+                    <span className="text-sm font-medium text-slate-600">Insurance Policy Number</span>
+                    <input className={inputClass} onChange={(event) => onChange("insurancePolicyNumber", event.target.value)} value={formState.insurancePolicyNumber} />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-medium text-slate-600">Insurance Expiry</span>
+                    <input className={inputClass} onChange={(event) => onChange("insuranceExpiry", event.target.value)} type="date" value={formState.insuranceExpiry} />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-medium text-slate-600">Registration Number</span>
+                    <input className={inputClass} onChange={(event) => onChange("registrationNumber", event.target.value)} value={formState.registrationNumber} />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-medium text-slate-600">Registration Expiry</span>
+                    <input className={inputClass} onChange={(event) => onChange("registrationExpiry", event.target.value)} type="date" value={formState.registrationExpiry} />
+                  </label>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <div className="sticky bottom-0 z-20 flex flex-col-reverse gap-3 border-t border-slate-100 bg-white/95 px-5 py-3 backdrop-blur sm:flex-row sm:justify-end sm:px-6">
+            <SecondaryButton disabled={isSaving} onClick={isCreateMode ? onClose : onCancel} type="button">
               Cancel
-            </button>
-            <PrimaryActionButton
-              disabled={isSaving || (!isCreateMode && !isDirty)}
-              type="submit"
-            >
+            </SecondaryButton>
+            <PrimaryActionButton disabled={isSaving || (!isCreateMode && !isDirty)} type="submit">
               {isSaving ? "Saving..." : isCreateMode ? "Create Vehicle" : "Save Changes"}
-            </PrimaryActionButton></>}
+            </PrimaryActionButton>
           </div>
         </form>
-       </div>
       </div>
     </div>
   );
@@ -561,12 +681,13 @@ function VehicleModal({
 
 export default function AdminVehiclesPage() {
   const searchParams = useSearchParams();
+  const notify = useNotify();
   const [vehicles, setVehicles] = useState<VehicleRecord[]>([]);
   const [assignments, setAssignments] = useState<Record<string, VehicleAssignment | null>>({});
+  const [maintenanceRecords, setMaintenanceRecords] = useState<Record<string, VehicleMaintenance | null>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<VehicleRecord | null>(
     null,
@@ -615,6 +736,7 @@ export default function AdminVehiclesPage() {
       setErrorMessage(error instanceof Error ? error.message : "Unable to load vehicles.");
       setVehicles([]);
       setAssignments({});
+      setMaintenanceRecords({});
       return false;
     } finally {
       setIsLoading(false);
@@ -646,7 +768,6 @@ export default function AdminVehiclesPage() {
     setInitialFormState(emptyVehicleForm);
     setIsEditing(false);
     setErrorMessage("");
-    setSuccessMessage("");
     setIsModalOpen(true);
   }
 
@@ -657,15 +778,22 @@ export default function AdminVehiclesPage() {
     setInitialFormState(nextForm);
     setIsEditing(false);
     setErrorMessage("");
-    setSuccessMessage("");
     setIsModalOpen(true);
     try {
-      const data = await fetchAdministratorJson<{ assignment: VehicleAssignmentRow | null }>(`/api/admin/vehicles?vehicleId=${encodeURIComponent(vehicle.vehicleId)}`);
+      const data = await fetchAdministratorJson<{ assignment: VehicleAssignmentRow | null; maintenance: VehicleMaintenanceRow | null }>(`/api/admin/vehicles?vehicleId=${encodeURIComponent(vehicle.vehicleId)}`);
       setAssignments((current) => ({ ...current, [vehicle.vehicleId]: data.assignment ? toVehicleAssignment(data.assignment) : null }));
+      setMaintenanceRecords((current) => ({ ...current, [vehicle.vehicleId]: toVehicleMaintenance(data.maintenance) }));
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unable to load schedule assignment.");
     }
   }
+
+  useEffect(() => {
+    const vehicleId = searchParams.get("vehicle");
+    if (!vehicleId || isLoading) return;
+    const match = vehicles.find((vehicle) => vehicle.vehicleId === vehicleId);
+    if (match) queueMicrotask(() => void openViewModal(match));
+  }, [isLoading, searchParams, vehicles]);
 
   function closeModal() {
     if (isSaving) {
@@ -695,7 +823,6 @@ export default function AdminVehiclesPage() {
     event.preventDefault();
     setIsSaving(true);
     setErrorMessage("");
-    setSuccessMessage("");
 
     const payload = toVehiclePayload(formState);
 
@@ -718,7 +845,7 @@ export default function AdminVehiclesPage() {
       setIsSaving(false);
       return;
     }
-    setSuccessMessage(
+    notify.success(
       editingVehicle
         ? "Vehicle updated successfully."
         : "Vehicle created successfully.",
@@ -805,14 +932,8 @@ export default function AdminVehiclesPage() {
         </div>
       </AdminCard>
 
-      {successMessage ? (
-        <p className="fixed right-6 top-6 z-[60] rounded-2xl border border-emerald-200 bg-white px-5 py-4 text-sm font-medium text-emerald-700 shadow-xl">
-          {successMessage}
-        </p>
-      ) : null}
-
-      {errorMessage ? (
-        <p className="fixed right-6 top-6 z-[60] max-w-sm rounded-2xl border border-red-200 bg-white px-5 py-4 text-sm font-medium text-red-700 shadow-xl">
+      {errorMessage && !isModalOpen ? (
+        <p className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
           {errorMessage}
         </p>
       ) : null}
@@ -931,6 +1052,7 @@ export default function AdminVehiclesPage() {
           isDirty={JSON.stringify(formState) !== JSON.stringify(initialFormState)}
           isEditing={isEditing}
           isSaving={isSaving}
+          maintenance={editingVehicle ? maintenanceRecords[editingVehicle.vehicleId] ?? null : null}
           mode={editingVehicle ? "view" : "create"}
           onCancel={cancelEditing}
           onChange={updateFormState}

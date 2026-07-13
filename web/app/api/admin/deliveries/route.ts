@@ -161,7 +161,8 @@ export async function GET(request: Request) {
   const error = deliveriesResponse.error ?? driversResponse.error ?? vehiclesResponse.error ?? schedulesResponse.error ?? routesResponse.error;
   if (error) return apiError(error.message, 400);
   const drivers = driversResponse.data ?? [];
-  const userIds = Array.from(new Set(drivers.map((driver) => driver.user_id).filter((id): id is string => Boolean(id))));
+  const creatorIds = (deliveriesResponse.data ?? []).map((delivery) => delivery.created_by).filter((id): id is string => Boolean(id));
+  const userIds = Array.from(new Set([...drivers.map((driver) => driver.user_id).filter((id): id is string => Boolean(id)), ...creatorIds]));
   const profilesResponse = userIds.length ? await authorization.client.from("profiles").select("profile_id, first_name, last_name, email, phone, role, is_active").in("profile_id", userIds) : { data: [], error: null };
   if (profilesResponse.error) return apiError(profilesResponse.error.message, 400);
   return Response.json({ deliveries: deliveriesResponse.data ?? [], drivers, profiles: profilesResponse.data ?? [], vehicles: vehiclesResponse.data ?? [], schedules: schedulesResponse.data ?? [], routes: routesResponse.data ?? [], history: historyResponse.error ? [] : historyResponse.data ?? [] });

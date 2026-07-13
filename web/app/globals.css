@@ -21,6 +21,36 @@ body {
   font-family: var(--font-plus-jakarta-sans), Arial, Helvetica, sans-serif;
 }
 
+html {
+  scrollbar-color: rgb(109 74 255 / 0.78) #ffffff;
+  scrollbar-width: thin;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 10px;
+}
+
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track {
+  border-left: 1px solid rgb(226 232 240 / 0.8);
+  background: #ffffff;
+}
+
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb {
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  background: rgb(109 74 255 / 0.82);
+  background-clip: padding-box;
+}
+
+html::-webkit-scrollbar-thumb:hover,
+body::-webkit-scrollbar-thumb:hover {
+  background: rgb(93 62 232 / 0.9);
+  background-clip: padding-box;
+}
+
 .user-modal-scrollbar {
   scrollbar-color: rgb(109 74 255 / 0.72) transparent;
   scrollbar-width: thin;
@@ -29,6 +59,7 @@ body {
 
 .user-modal-scrollbar::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 
 .user-modal-scrollbar::-webkit-scrollbar-track {

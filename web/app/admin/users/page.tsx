@@ -8,6 +8,8 @@ import {
   AdminPageIntro,
   PrimaryActionButton,
 } from "../_components/admin-design-system";
+import { AppIcons } from "@/config/icons";
+import { useNotify } from "@/components/ui/ToastProvider";
 import { supabase } from "@/lib/supabase";
 import {
   getUserRoleLabel,
@@ -20,6 +22,7 @@ import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
 
 type StatusFilter = "active" | "inactive" | "all";
 type RoleFilter = UserRole | "all";
+type SortKey = "newest" | "oldest" | "name_asc" | "name_desc";
 
 type ProfileRow = {
   profile_id: string;
@@ -185,6 +188,27 @@ function formatDateTime(value: string | null) {
   }).format(new Date(value));
 }
 
+function formatDate(value: string | null) {
+  if (!value) return "Not recorded";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "Not recorded"
+    : new Intl.DateTimeFormat("en", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }).format(date);
+}
+
+function formatPhone(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "No phone";
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  return trimmed;
+}
+
 function readApiError(responseBody: unknown) {
   if (
     typeof responseBody === "object" &&
@@ -212,13 +236,7 @@ function UserKpiCard({
   isLoading?: boolean;
 }) {
   return (
-    <div
-      className={`rounded-[20px] border p-5 shadow-sm ${
-        accent
-          ? "border-[#172f3a] bg-[#172f3a] text-white"
-          : "border-slate-100 bg-white text-[#17232b]"
-      }`}
-    >
+    <div className={`rounded-[20px] border p-5 shadow-sm ${accent ? "border-[#172f3a] bg-[#172f3a] text-white" : "border-slate-100 bg-white text-[#17232b]"}`}>
       <p className={accent ? "text-xs text-slate-300" : "text-xs text-slate-500"}>{label}</p>
       {isLoading ? (
         <>
@@ -228,7 +246,7 @@ function UserKpiCard({
       ) : (
         <>
           <p className="mt-4 text-3xl font-semibold tracking-[-0.03em]">{value}</p>
-          <p className={accent ? "mt-1 text-xs text-slate-400" : "mt-1 text-xs text-slate-400"}>{detail}</p>
+          <p className="mt-1 text-xs text-slate-400">{detail}</p>
         </>
       )}
     </div>
@@ -244,7 +262,7 @@ function RoleBadge({ role }: { role: UserRole }) {
         : "bg-amber-50 text-amber-700";
 
   return (
-    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${tone}`}>
+    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-current/10 ${tone}`}>
       {formatRole(role)}
     </span>
   );
@@ -255,8 +273,8 @@ function UserStatusBadge({ isActive }: { isActive: boolean }) {
     <span
       className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
         isActive
-          ? "bg-emerald-50 text-emerald-700"
-          : "bg-slate-100 text-slate-500"
+          ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"
+          : "bg-slate-100 text-slate-500 ring-1 ring-slate-200"
       }`}
     >
       {isActive ? "Active" : "Inactive"}
@@ -353,7 +371,6 @@ function UserModal({
               <div className="flex flex-col items-center text-center">
                 <div className="flex h-20 w-20 items-center justify-center rounded-full bg-purple-100 text-2xl font-semibold text-purple-700">{initials}</div>
                 <p className="mt-3 text-lg font-semibold">{[formState.firstName, formState.lastName].filter(Boolean).join(" ") || "Unnamed user"}</p>
-                <p className="mt-1 max-w-full break-all text-[10px] leading-4 tracking-[-0.01em] text-slate-400">{user?.profileId ?? "Not recorded"}</p>
                 <div className="mt-2 flex flex-wrap justify-center gap-2">
                   <RoleBadge role={formState.role} />
                   <UserStatusBadge isActive={formState.isActive} />
@@ -365,9 +382,22 @@ function UserModal({
                 </div>
               </div>
               <div className="mt-5 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2 lg:grid-cols-1">
-                <DetailField label="Created at" value={formatDateTime(user?.createdAt ?? null)} />
-                <DetailField label="Last updated at" value={isLoadingDetails ? <Skeleton className="h-3 w-28" rounded="rounded-full" /> : formatDateTime(user?.updatedAt ?? null)} />
+                <DetailField label="Created" value={formatDateTime(user?.createdAt ?? null)} />
+                <DetailField label="Updated" value={isLoadingDetails ? <Skeleton className="h-3 w-28" rounded="rounded-full" /> : formatDateTime(user?.updatedAt ?? null)} />
               </div>
+              <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left">
+                <summary className="cursor-pointer text-sm font-semibold text-slate-600">Technical details</summary>
+                <div className="mt-3 space-y-2 text-xs text-slate-500">
+                  <p>
+                    <span className="block font-medium text-slate-400">Profile ID</span>
+                    <span className="break-all">{user?.profileId ?? "Not recorded"}</span>
+                  </p>
+                  <p>
+                    <span className="block font-medium text-slate-400">Authentication user ID</span>
+                    <span className="break-all">{user?.profileId ?? "Not recorded"}</span>
+                  </p>
+                </div>
+              </details>
             </aside>
           ) : null}
           <div className={`grid content-start md:grid-cols-2 ${isCreateMode ? "gap-x-4 gap-y-3" : "gap-4"}`}>
@@ -461,7 +491,7 @@ function UserModal({
             </label>
             <label className="block">
               <span className="text-sm font-medium text-slate-600">
-                Active Status
+                Status
               </span>
               <select
                 className="user-details-select mt-2 h-11 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 px-4 pr-10 text-sm text-slate-900 outline-none transition focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100"
@@ -522,11 +552,11 @@ function DetailField({ label, value }: { label: string; value: ReactNode }) {
 
 export default function AdminUsersPage() {
   const searchParams = useSearchParams();
+  const notify = useNotify();
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserRecord | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -538,6 +568,8 @@ export default function AdminUsersPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
+  const [sortKey, setSortKey] = useState<SortKey>("newest");
+  const [showAuthNotice, setShowAuthNotice] = useState(true);
 
   useEffect(() => {
     if (searchParams.get("action") !== "create") return;
@@ -633,8 +665,15 @@ export default function AdminUsersPage() {
       const matchesRole = roleFilter === "all" || user.role === roleFilter;
 
       return matchesStatus && matchesRole && matchesUserSearch(user, debouncedSearch);
+    }).sort((left, right) => {
+      if (sortKey === "oldest") return (left.createdAt ?? "").localeCompare(right.createdAt ?? "");
+      if (sortKey === "name_asc") return getUserName(left).localeCompare(getUserName(right));
+      if (sortKey === "name_desc") return getUserName(right).localeCompare(getUserName(left));
+      return (right.createdAt ?? "").localeCompare(left.createdAt ?? "");
     });
-  }, [debouncedSearch, roleFilter, statusFilter, users]);
+  }, [debouncedSearch, roleFilter, sortKey, statusFilter, users]);
+
+  const hasActiveFilters = Boolean(searchInput || roleFilter !== "all" || statusFilter !== "all" || sortKey !== "newest");
 
   const totalPages = Math.max(1, Math.ceil(filteredUsers.length / DEFAULT_PAGE_SIZE));
   const activePage = Math.min(currentPage, totalPages);
@@ -649,7 +688,6 @@ export default function AdminUsersPage() {
     setInitialFormState(emptyUserForm);
     setIsEditing(false);
     setErrorMessage("");
-    setSuccessMessage("");
     setIsModalOpen(true);
   }
 
@@ -661,7 +699,6 @@ export default function AdminUsersPage() {
     setIsEditing(false);
     setIsLoadingDetails(true);
     setErrorMessage("");
-    setSuccessMessage("");
     setIsModalOpen(true);
 
     const { data } = await supabase.auth.getSession();
@@ -692,6 +729,13 @@ export default function AdminUsersPage() {
     setIsLoadingDetails(false);
   }
 
+  useEffect(() => {
+    const userId = searchParams.get("user");
+    if (!userId || isLoading) return;
+    const match = users.find((user) => user.profileId === userId);
+    if (match) queueMicrotask(() => void openViewModal(match));
+  }, [isLoading, searchParams, users]);
+
   function closeModal() {
     if (isSaving) {
       return;
@@ -720,7 +764,6 @@ export default function AdminUsersPage() {
     event.preventDefault();
     setIsSaving(true);
     setErrorMessage("");
-    setSuccessMessage("");
 
     const payload = toUserPayload(formState);
 
@@ -823,7 +866,7 @@ export default function AdminUsersPage() {
       return;
     }
 
-    setSuccessMessage(
+    notify.success(
       editingUser
         ? "User profile updated successfully."
         : "User profile created successfully.",
@@ -839,67 +882,46 @@ export default function AdminUsersPage() {
       <AdminPageIntro
         actions={
           <PrimaryActionButton className="gap-2 px-6 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:ring-offset-2" onClick={openCreateModal} type="button">
-            <svg
-              aria-hidden="true"
-              className="h-5 w-5 shrink-0"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <path
-                d="M14.5 19.25H4.75v-.75a4.75 4.75 0 0 1 9.5 0v.75ZM9.5 11.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
-                fill="currentColor"
-              />
-              <circle cx="17.5" cy="7" fill="currentColor" r="4.25" />
-              <path
-                d="M17.5 4.75v4.5M15.25 7h4.5"
-                stroke="white"
-                strokeLinecap="round"
-                strokeWidth="1.5"
-              />
-              <path
-                d="M15.2 3.25A8.25 8.25 0 1 0 17.75 10"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeWidth="1.5"
-              />
-            </svg>
+            <AppIcons.addCircle aria-hidden className="h-5 w-5 shrink-0" weight="bold" />
             <span>Create User</span>
           </PrimaryActionButton>
         }
         description={
-          "Manage operational profile records, user roles, contact details, and active status for Administrator and dispatch workflows."
+          "Manage user accounts, roles, contact information, and access status."
         }
         eyebrow="Access operations"
         title="Users"
       />
 
-      <div className="rounded-2xl border border-purple-100 bg-purple-50 px-5 py-4 text-sm text-purple-700">
-        Authentication account creation is handled by a secure server-side
-        flow.
-      </div>
+      {showAuthNotice ? (
+        <div className="flex items-start justify-between gap-3 rounded-2xl border border-purple-100 bg-purple-50/70 px-4 py-3 text-sm text-purple-700">
+          <p>User accounts are created securely through the authentication service.</p>
+          <button className="shrink-0 rounded-full px-2 text-xs font-semibold text-purple-500 transition hover:bg-white/70 hover:text-purple-700" onClick={() => setShowAuthNotice(false)} type="button">Dismiss</button>
+        </div>
+      ) : null}
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <UserKpiCard
           accent
-          detail="Profiles allowed to operate"
+          detail="Accounts currently enabled"
           isLoading={isLoading}
           label="Active Users"
           value={String(userStats.active)}
         />
         <UserKpiCard
-          detail="Administrator portal operators"
+          detail="Full-access accounts"
           isLoading={isLoading}
           label="Administrators"
           value={String(userStats.administrators)}
         />
         <UserKpiCard
-          detail="Dispatch workflow users"
+          detail="Operational-access accounts"
           isLoading={isLoading}
           label="Dispatchers"
           value={String(userStats.dispatchers)}
         />
         <UserKpiCard
-          detail="Driver profiles available"
+          detail="Driver-role accounts"
           isLoading={isLoading}
           label="Drivers"
           value={String(userStats.drivers)}
@@ -907,7 +929,7 @@ export default function AdminUsersPage() {
       </div>
 
       <AdminCard className="p-4">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_220px]">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_180px_170px_auto]">
           <label className="block">
             <span className="sr-only">Search users</span>
             <input
@@ -944,22 +966,48 @@ export default function AdminUsersPage() {
               }}
               value={statusFilter}
             >
-              <option value="all">All Users</option>
+              <option value="all">All Statuses</option>
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
             </select>
           </label>
+          <label className="block">
+            <span className="sr-only">Sort users</span>
+            <select
+              className="users-filter-select h-11 w-full appearance-none rounded-full border border-slate-200 bg-slate-50 px-4 pr-10 text-sm text-slate-600 outline-none transition hover:border-blue-200 focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+              onChange={(event) => {
+                setSortKey(event.target.value as SortKey);
+                setCurrentPage(1);
+              }}
+              value={sortKey}
+            >
+              <option value="newest">Newest</option>
+              <option value="oldest">Oldest</option>
+              <option value="name_asc">Name A-Z</option>
+              <option value="name_desc">Name Z-A</option>
+            </select>
+          </label>
+          {hasActiveFilters ? (
+            <button
+              className="h-11 rounded-full border border-slate-200 px-4 text-sm font-semibold text-slate-500 transition hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700"
+              onClick={() => {
+                setSearchInput("");
+                setDebouncedSearch("");
+                setRoleFilter("all");
+                setStatusFilter("all");
+                setSortKey("newest");
+                setCurrentPage(1);
+              }}
+              type="button"
+            >
+              Clear
+            </button>
+          ) : null}
         </div>
       </AdminCard>
 
-      {successMessage ? (
-        <p aria-live="polite" className="fixed right-6 top-6 z-[60] rounded-2xl border border-emerald-200 bg-white px-5 py-4 text-sm font-medium text-emerald-700 shadow-xl">
-          {successMessage}
-        </p>
-      ) : null}
-
-      {errorMessage ? (
-        <p aria-live="assertive" className="fixed right-6 top-6 z-[60] max-w-sm rounded-2xl border border-red-200 bg-white px-5 py-4 text-sm font-medium text-red-700 shadow-xl">
+      {errorMessage && !isModalOpen ? (
+        <p aria-live="assertive" className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
           {errorMessage}
         </p>
       ) : null}
@@ -972,6 +1020,7 @@ export default function AdminUsersPage() {
               Profile records loaded from the profiles table.
             </p>
           </div>
+          <p className="text-sm font-semibold text-slate-400">{filteredUsers.length} result{filteredUsers.length === 1 ? "" : "s"}</p>
         </div>
 
         {isLoading ? (
@@ -983,7 +1032,7 @@ export default function AdminUsersPage() {
             </div>
             <h3 className="mt-4 text-lg font-semibold">No users found.</h3>
             <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">
-              Try adjusting your search or filters.
+              {users.length ? "No users match these filters. Try changing the role, status, or search term." : "No users have been created yet. Create the first user account to begin."}
             </p>
           </div>
         ) : (
@@ -992,18 +1041,18 @@ export default function AdminUsersPage() {
               <table className="min-w-full text-sm [&_td]:py-2.5 [&_th]:py-2.5">
               <thead className="border-b border-slate-100 bg-slate-50/70 text-left text-xs text-slate-400">
                 <tr>
-                  <th className="px-5 py-4 font-medium">Name</th>
+                  <th className="px-5 py-4 font-medium">User</th>
                   <th className="px-5 py-4 font-medium">Email</th>
                   <th className="px-5 py-4 font-medium">Phone</th>
                   <th className="px-5 py-4 font-medium">Role</th>
-                  <th className="px-5 py-4 font-medium">Active Status</th>
-                  <th className="px-5 py-4 font-medium">Created Date</th>
+                  <th className="px-5 py-4 font-medium">Status</th>
+                  <th className="px-5 py-4 font-medium">Created</th>
                   <th className="px-5 py-4 text-right font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-500">
                 {paginatedUsers.map((user) => (
-                  <tr className="transition hover:bg-slate-50/70" key={user.profileId}>
+                  <tr className={`transition hover:bg-purple-50/30 ${user.isActive ? "" : "bg-slate-50/40 text-slate-400"}`} key={user.profileId}>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
                         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-purple-50 text-xs font-semibold text-purple-700">
@@ -1013,14 +1062,13 @@ export default function AdminUsersPage() {
                           <p className="font-semibold text-[#17232b]">
                             {getUserName(user)}
                           </p>
-                          <p className="max-w-32 truncate text-xs text-slate-400">
-                            {user.profileId}
-                          </p>
                         </div>
                       </div>
                     </td>
-                    <td className="px-5 py-4">{user.email || "No email"}</td>
-                    <td className="px-5 py-4">{user.phone || "No phone"}</td>
+                    <td className="px-5 py-4">
+                      <span className="break-all text-slate-600" title={user.email || "No email"}>{user.email || "No email"}</span>
+                    </td>
+                    <td className="px-5 py-4">{formatPhone(user.phone)}</td>
                     <td className="px-5 py-4">
                       <RoleBadge role={user.role} />
                     </td>
@@ -1028,7 +1076,7 @@ export default function AdminUsersPage() {
                       <UserStatusBadge isActive={user.isActive} />
                     </td>
                     <td className="px-5 py-4">
-                      {formatDateTime(user.createdAt)}
+                      {formatDate(user.createdAt)}
                     </td>
                     <td className="px-5 py-4 text-right">
                       <button

@@ -38,7 +38,15 @@ export async function GET(request: Request) {
     .limit(1);
   if (scheduleError) return apiError(scheduleError.message, 400);
   const schedule = findRelevantAssignment(schedules ?? []);
-  if (!schedule?.driver_id) return Response.json({ assignment: null });
+  const maintenanceResponse = await authorization.client
+    .from("vehicle_maintenance")
+    .select("maintenance_id, maintenance_type, cost, maintenance_date, created_at")
+    .eq("vehicle_id", vehicleId)
+    .order("maintenance_date", { ascending: false })
+    .limit(1);
+  if (maintenanceResponse.error) return apiError(maintenanceResponse.error.message, 400);
+  const maintenance = maintenanceResponse.data?.[0] ?? null;
+  if (!schedule?.driver_id) return Response.json({ assignment: null, maintenance });
 
   const { data: driver, error: driverError } = await authorization.client
     .from("drivers")
@@ -60,7 +68,7 @@ export async function GET(request: Request) {
     driver_name: [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || null,
     driver_email: profile?.email ?? null,
     schedule,
-  } });
+  }, maintenance });
 }
 
 export async function POST(request: Request) {

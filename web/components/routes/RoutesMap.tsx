@@ -21,6 +21,10 @@ type RoutesMapState =
 export type RoutesMapRoute = {
   id: string;
   label: string;
+  deliveryNumber?: string;
+  driverName?: string;
+  vehicleName?: string;
+  status?: string;
   origin: string;
   destination: string;
   originLat: number | null;
@@ -33,6 +37,7 @@ export type RoutesMapRoute = {
 type RoutesMapProps = {
   routes: RoutesMapRoute[];
   selectedId: string;
+  panelOpen?: boolean;
   layer: RoutesMapLayer;
   loading: boolean;
   onReadyChange?: (ready: boolean) => void;
@@ -43,6 +48,7 @@ export type RoutesMapLayer = "roadmap" | "satellite" | "terrain";
 
 export type RoutesMapHandle = {
   centerOnPosition: (position: { latitude: number; longitude: number }) => void;
+  fitAllRoutes: () => void;
   isReady: () => boolean;
   resize: () => void;
   zoomIn: () => void;
@@ -59,22 +65,54 @@ export const WESTCHESTER_DEFAULT_ZOOM = 11;
 const USER_LOCATION_ZOOM = 14;
 const MIN_ZOOM = 3;
 const MAX_ZOOM = 20;
-const routeColors = ["#6d4aff", "#20b970", "#f97316", "#2563eb", "#0891b2"];
+const CLUSTER_ZOOM = 11;
 
-function routeColor(id: string) {
-  return routeColors[
-    Array.from(id).reduce((sum, character) => sum + character.charCodeAt(0), 0) %
-      routeColors.length
-  ];
+function routeColor(status?: string, selected = false) {
+  if (selected) return "#7c3aed";
+  if (status === "completed") return "#16a34a";
+  if (status === "delayed") return "#f97316";
+  if (status === "exception") return "#dc2626";
+  if (status === "planned") return "#8b7bb8";
+  return "#6d4aff";
 }
 
-function makeMarkerNode(color: string, selected: boolean, label: string) {
+function markerTooltip(route: RoutesMapRoute, role: "Origin" | "Destination") {
+  const location = role === "Origin" ? route.origin : route.destination;
+  return `${role}\n${route.deliveryNumber || route.label}\n${location}\n${route.driverName || "Unassigned driver"}`;
+}
+
+function makeOriginMarkerNode(color: string, selected: boolean) {
   const node = document.createElement("div");
-  node.className = selected
-    ? "grid h-8 w-8 place-items-center rounded-full border-2 border-white text-[10px] font-bold text-white shadow-lg"
-    : "grid h-6 w-6 place-items-center rounded-full border-2 border-white text-[9px] font-bold text-white shadow-md";
+  node.className = `grid place-items-center rounded-full border-2 bg-white shadow-lg ${selected ? "h-9 w-9 border-purple-700 ring-4 ring-purple-200/70" : "h-7 w-7 border-purple-600"}`;
+  node.setAttribute("aria-label", "Origin marker");
+  node.innerHTML = `<span class="block rounded-full bg-purple-600 ${selected ? "h-3 w-3" : "h-2.5 w-2.5"}"></span>`;
+  node.style.color = color;
+  return node;
+}
+
+function makeDestinationMarkerNode(color: string, selected: boolean) {
+  const node = document.createElement("div");
+  node.className = `relative grid place-items-center rounded-full text-white shadow-lg ${selected ? "h-10 w-10 bg-purple-700 ring-4 ring-purple-200/70" : "h-8 w-8 bg-purple-600"}`;
+  node.setAttribute("aria-label", "Destination marker");
+  node.innerHTML = `<span class="text-[13px] font-black leading-none">⚑</span><span class="absolute -bottom-1 h-2 w-2 rotate-45 bg-current"></span>`;
   node.style.background = color;
-  node.textContent = label;
+  node.style.color = color;
+  const flag = node.querySelector("span");
+  if (flag) (flag as HTMLElement).style.color = "#fff";
+  return node;
+}
+
+function makeClusterNode(count: number) {
+  const node = document.createElement("div");
+  node.className = "grid h-10 w-10 place-items-center rounded-full border-2 border-white bg-purple-600 text-xs font-bold text-white shadow-xl ring-4 ring-purple-200/70";
+  node.textContent = String(count);
+  return node;
+}
+
+function makeUserMarkerNode() {
+  const node = document.createElement("div");
+  node.className = "grid h-8 w-8 place-items-center rounded-full border-2 border-white bg-blue-600 text-[9px] font-bold text-white shadow-lg";
+  node.textContent = "ME";
   return node;
 }
 
@@ -87,9 +125,30 @@ function routeHasCoordinates(route: RoutesMapRoute) {
   );
 }
 
+function routeBounds(routes: RoutesMapRoute[]) {
+  const bounds = new google.maps.LatLngBounds();
+  for (const route of routes) {
+    if (route.originLat !== null && route.originLng !== null) bounds.extend({ lat: route.originLat, lng: route.originLng });
+    if (route.destinationLat !== null && route.destinationLng !== null) bounds.extend({ lat: route.destinationLat, lng: route.destinationLng });
+  }
+  return bounds;
+}
+
+function fitRoutes(map: google.maps.Map, routes: RoutesMapRoute[], panelOpen: boolean) {
+  const bounds = routeBounds(routes);
+  if (bounds.isEmpty()) return;
+  map.fitBounds(bounds, {
+    bottom: 96,
+    left: panelOpen ? 420 : 80,
+    right: 116,
+    top: 108,
+  });
+}
+
 export const RoutesMap = forwardRef<RoutesMapHandle, RoutesMapProps>(function RoutesMap({
   routes,
   selectedId,
+  panelOpen = true,
   layer,
   loading,
   onReadyChange,
@@ -99,6 +158,7 @@ export const RoutesMap = forwardRef<RoutesMapHandle, RoutesMapProps>(function Ro
   const mapRef = useRef<google.maps.Map | null>(null);
   const librariesRef = useRef<GoogleMapsLibraries | null>(null);
   const decodedPathCacheRef = useRef<Map<string, google.maps.LatLng[]>>(new Map());
+  const lastFitKeyRef = useRef("");
   const overlaysRef = useRef<{
     polylines: google.maps.Polyline[];
     markers: google.maps.marker.AdvancedMarkerElement[];
@@ -107,6 +167,7 @@ export const RoutesMap = forwardRef<RoutesMapHandle, RoutesMapProps>(function Ro
   const [state, setState] = useState<RoutesMapState>("initializing");
   const [message, setMessage] = useState("");
   const [currentPosition, setCurrentPosition] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [zoomLevel, setZoomLevel] = useState(WESTCHESTER_DEFAULT_ZOOM);
   const mapId = getGoogleMapsConfig().mapId;
   const configurationError = getGoogleMapsConfigurationError();
 
@@ -127,6 +188,11 @@ export const RoutesMap = forwardRef<RoutesMapHandle, RoutesMapProps>(function Ro
       setCurrentPosition(position);
       map.setCenter(center);
       map.setZoom(USER_LOCATION_ZOOM);
+    },
+    fitAllRoutes() {
+      const map = mapRef.current;
+      if (!map) return;
+      fitRoutes(map, positionedRoutes, panelOpen);
     },
     isReady() {
       return Boolean(mapRef.current) && state === "ready";
@@ -150,7 +216,7 @@ export const RoutesMap = forwardRef<RoutesMapHandle, RoutesMapProps>(function Ro
       const currentZoom = map.getZoom() ?? WESTCHESTER_DEFAULT_ZOOM;
       map.setZoom(Math.max(MIN_ZOOM, currentZoom - 1));
     },
-  }), [state]);
+  }), [panelOpen, positionedRoutes, state]);
 
   useEffect(() => {
     if (configurationError) {
@@ -185,6 +251,7 @@ export const RoutesMap = forwardRef<RoutesMapHandle, RoutesMapProps>(function Ro
           zoom: WESTCHESTER_DEFAULT_ZOOM,
           zoomControl: false,
         });
+        mapRef.current.addListener("zoom_changed", () => setZoomLevel(mapRef.current?.getZoom() ?? WESTCHESTER_DEFAULT_ZOOM));
         onReadyChange?.(true);
         setState("ready");
       } catch {
@@ -267,12 +334,14 @@ export const RoutesMap = forwardRef<RoutesMapHandle, RoutesMapProps>(function Ro
       setMessage("");
     });
 
-    const bounds = new google.maps.LatLngBounds();
     const routesToFit = selectedRoute ? [selectedRoute] : positionedRoutes;
+    const clusterable = !selectedRoute && zoomLevel <= CLUSTER_ZOOM && positionedRoutes.length > 5;
+    const clusters = new Map<string, { position: google.maps.LatLngLiteral; bounds: google.maps.LatLngBounds; count: number }>();
 
     for (const route of positionedRoutes) {
-      const color = routeColor(route.id);
       const selected = route.id === selectedId;
+      const color = routeColor(route.status, selected);
+      const dimmed = Boolean(selectedRoute && !selected);
       const origin = { lat: route.originLat as number, lng: route.originLng as number };
       const destination = {
         lat: route.destinationLat as number,
@@ -285,41 +354,88 @@ export const RoutesMap = forwardRef<RoutesMapHandle, RoutesMapProps>(function Ro
           path = libraries.geometry.encoding.decodePath(route.polyline);
           decodedPathCacheRef.current.set(route.polyline, path);
         }
-        const polyline = new google.maps.Polyline({
+        const casing = new google.maps.Polyline({
           clickable: true,
           map,
           path,
-          strokeColor: color,
-          strokeOpacity: selected ? 1 : 0.72,
-          strokeWeight: selected ? 6 : 4,
-          zIndex: selected ? 20 : 10,
+          strokeColor: layer === "satellite" || layer === "terrain" ? "rgba(15,23,42,.76)" : "#ffffff",
+          strokeOpacity: dimmed ? 0.28 : 0.88,
+          strokeWeight: selected ? 10 : 8,
+          zIndex: selected ? 40 : 10,
         });
-        overlaysRef.current.polylines.push(polyline);
+        const inner = new google.maps.Polyline({
+          clickable: true,
+          icons: selected || !dimmed ? [{
+            icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: selected ? 2.8 : 2.2, strokeColor: color, strokeOpacity: dimmed ? 0.32 : 0.86, strokeWeight: 1.5, fillColor: color, fillOpacity: dimmed ? 0.2 : 0.72 },
+            offset: "24%",
+            repeat: selected ? "110px" : "150px",
+          }] : [],
+          map,
+          path,
+          strokeColor: color,
+          strokeOpacity: dimmed ? 0.26 : selected ? 1 : 0.78,
+          strokeWeight: selected ? 6 : 4,
+          zIndex: selected ? 50 : 20,
+        });
+        overlaysRef.current.polylines.push(casing, inner);
         overlaysRef.current.listeners.push(
-          polyline.addListener("click", () => onSelect(route)),
+          casing.addListener("click", () => onSelect(route)),
+          inner.addListener("click", () => onSelect(route)),
+          inner.addListener("mouseover", () => {
+            inner.setOptions({ strokeOpacity: 1, strokeWeight: selected ? 7 : 5, zIndex: 60 });
+            casing.setOptions({ strokeOpacity: 0.95, strokeWeight: selected ? 11 : 9, zIndex: 55 });
+          }),
+          inner.addListener("mouseout", () => {
+            inner.setOptions({ strokeOpacity: dimmed ? 0.26 : selected ? 1 : 0.78, strokeWeight: selected ? 6 : 4, zIndex: selected ? 50 : 20 });
+            casing.setOptions({ strokeOpacity: dimmed ? 0.28 : 0.88, strokeWeight: selected ? 10 : 8, zIndex: selected ? 40 : 10 });
+          }),
         );
-        if (routesToFit.some((item) => item.id === route.id)) {
-          path.forEach((point) => bounds.extend(point));
+      }
+
+      if (clusterable) {
+        for (const position of [origin, destination]) {
+          const key = `${Math.round(position.lat * 45)}:${Math.round(position.lng * 45)}`;
+          const cluster = clusters.get(key) ?? { position, bounds: new google.maps.LatLngBounds(), count: 0 };
+          cluster.bounds.extend(position);
+          cluster.count += 1;
+          clusters.set(key, cluster);
         }
+        continue;
       }
 
       const originMarker = new libraries.marker.AdvancedMarkerElement({
-        content: makeMarkerNode(color, selected, "O"),
+        content: makeOriginMarkerNode(color, selected),
         map,
         position: origin,
-        title: `${route.label} origin: ${route.origin}`,
+        title: markerTooltip(route, "Origin"),
+        zIndex: selected ? 80 : dimmed ? 4 : 20,
       });
       const destinationMarker = new libraries.marker.AdvancedMarkerElement({
-        content: makeMarkerNode(color, selected, "D"),
+        content: makeDestinationMarkerNode(color, selected),
         map,
         position: destination,
-        title: `${route.label} destination: ${route.destination}`,
+        title: markerTooltip(route, "Destination"),
+        zIndex: selected ? 81 : dimmed ? 5 : 21,
       });
       overlaysRef.current.markers.push(originMarker, destinationMarker);
       overlaysRef.current.listeners.push(
         originMarker.addListener("click", () => onSelect(route)),
         destinationMarker.addListener("click", () => onSelect(route)),
       );
+    }
+
+    if (clusterable) {
+      clusters.forEach((cluster) => {
+        const marker = new libraries.marker.AdvancedMarkerElement({
+          content: makeClusterNode(cluster.count),
+          map,
+          position: cluster.bounds.getCenter(),
+          title: `${cluster.count} route markers`,
+          zIndex: 30,
+        });
+        overlaysRef.current.markers.push(marker);
+        overlaysRef.current.listeners.push(marker.addListener("click", () => map.fitBounds(cluster.bounds, 80)));
+      });
     }
 
     if (currentPosition && !selectedRoute) {
@@ -329,7 +445,7 @@ export const RoutesMap = forwardRef<RoutesMapHandle, RoutesMapProps>(function Ro
       };
       overlaysRef.current.markers.push(
         new libraries.marker.AdvancedMarkerElement({
-          content: makeMarkerNode("#2563eb", true, "ME"),
+          content: makeUserMarkerNode(),
           map,
           position,
           title: "Current location",
@@ -341,7 +457,7 @@ export const RoutesMap = forwardRef<RoutesMapHandle, RoutesMapProps>(function Ro
     } else if (currentPosition) {
       overlaysRef.current.markers.push(
         new libraries.marker.AdvancedMarkerElement({
-          content: makeMarkerNode("#2563eb", true, "ME"),
+          content: makeUserMarkerNode(),
           map,
           position: { lat: currentPosition.latitude, lng: currentPosition.longitude },
           title: "Current location",
@@ -349,15 +465,12 @@ export const RoutesMap = forwardRef<RoutesMapHandle, RoutesMapProps>(function Ro
       );
     }
 
-    for (const route of routesToFit) {
-      if (route.originLat !== null && route.originLng !== null) bounds.extend({ lat: route.originLat, lng: route.originLng });
-      if (route.destinationLat !== null && route.destinationLng !== null) bounds.extend({ lat: route.destinationLat, lng: route.destinationLng });
+    const fitKey = `${panelOpen}:${selectedId || "all"}:${routesToFit.map((route) => route.id).join(",")}`;
+    if (fitKey !== lastFitKeyRef.current) {
+      fitRoutes(map, routesToFit, panelOpen);
+      lastFitKeyRef.current = fitKey;
     }
-
-    if (!bounds.isEmpty()) {
-      map.fitBounds(bounds, 72);
-    }
-  }, [currentPosition, loading, onSelect, positionedRoutes, selectedId, selectedRoute]);
+  }, [currentPosition, layer, loading, onSelect, panelOpen, positionedRoutes, selectedId, selectedRoute, zoomLevel]);
 
   const showSkeleton = state === "initializing";
   const showMessage =

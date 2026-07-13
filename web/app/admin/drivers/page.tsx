@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { supabase } from "@/lib/supabase";
+import { useNotify } from "@/components/ui/ToastProvider";
 import { fetchAdministratorJson } from "@/lib/admin-api-client";
 import {
   AdminCard,
@@ -11,7 +12,7 @@ import {
   PrimaryActionButton,
 } from "../_components/admin-design-system";
 import { DEFAULT_PAGE_SIZE, Pagination } from "../_components/Pagination";
-import { Skeleton, SkeletonTable } from "@/components/ui/Skeleton";
+import { Skeleton } from "@/components/ui/Skeleton";
 
 type AvailabilityFilter = "all" | "available" | "on_delivery" | "unavailable";
 type StatusFilter = "all" | "active" | "inactive";
@@ -225,7 +226,46 @@ function AvailabilityBadge({ availability }: { availability: string }) {
 }
 
 function PerformanceScore({ score }: { score: string }) {
-  return <span className="font-semibold text-[#17232b]">{score ? `${score}%` : "Not scored"}</span>;
+  const parsed = Number(score);
+  const value = Number.isFinite(parsed) ? Math.min(100, Math.max(0, parsed)) : 0;
+  return (
+    <div className="flex min-w-[130px] items-center gap-3">
+      <style>{`@keyframes driver-score-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }`}</style>
+      <div className="h-2 w-24 overflow-hidden rounded-full bg-purple-50 ring-1 ring-purple-100">
+        <div
+          className="h-full origin-left rounded-full bg-purple-500"
+          style={{ animation: "driver-score-fill 700ms ease-out both", width: `${value}%` }}
+        />
+      </div>
+      <span className="w-10 text-right text-xs font-semibold text-slate-700">{value}%</span>
+    </div>
+  );
+}
+
+function DriverTableSkeleton() {
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm [&_td]:py-2.5 [&_th]:py-2.5">
+        <thead className="border-b border-slate-100 bg-slate-50/70 text-left text-xs text-slate-400">
+          <tr>{["Driver Name", "Phone", "License Number", "License Expiry", "Availability", "Assigned Vehicle", "Performance Score", "Actions"].map((head) => <th className="px-5 py-4 font-medium" key={head}>{head}</th>)}</tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {Array.from({ length: 7 }).map((_, row) => (
+            <tr key={row}>
+              <td className="px-5 py-4"><div className="flex items-center gap-3"><Skeleton className="h-9 w-9" rounded="rounded-full" /><div className="min-w-[220px]"><Skeleton className="h-4 w-32" rounded="rounded-full" /><Skeleton className="mt-2 h-3 w-52" rounded="rounded-full" /></div></div></td>
+              <td className="px-5 py-4"><Skeleton className="h-4 w-24" rounded="rounded-full" /></td>
+              <td className="px-5 py-4"><Skeleton className="h-4 w-28" rounded="rounded-full" /></td>
+              <td className="px-5 py-4"><Skeleton className="h-4 w-24" rounded="rounded-full" /></td>
+              <td className="px-5 py-4"><Skeleton className="h-6 w-20" rounded="rounded-full" /></td>
+              <td className="px-5 py-4"><Skeleton className="h-4 w-32" rounded="rounded-full" /></td>
+              <td className="px-5 py-4"><div className="flex items-center gap-3"><Skeleton className="h-2 w-24" rounded="rounded-full" /><Skeleton className="h-3 w-8" rounded="rounded-full" /></div></td>
+              <td className="px-5 py-4 text-right"><Skeleton className="ml-auto h-7 w-14" rounded="rounded-full" /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function ProfileStatusBadge({ isActive }: { isActive: boolean }) {
@@ -334,12 +374,12 @@ function DriverModal({ availableProfiles, driver, errorMessage, formState, isDir
 
 export default function AdminDriversPage() {
   const searchParams = useSearchParams();
+  const notify = useNotify();
   const [drivers, setDrivers] = useState<DriverRecord[]>([]);
   const [driverProfiles, setDriverProfiles] = useState<DriverProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingDriver, setEditingDriver] = useState<DriverRecord | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -432,20 +472,22 @@ export default function AdminDriversPage() {
 
   function openCreateModal() {
     const next = { ...emptyDriverForm, selectedProfileId: availableProfiles[0]?.profile_id ?? "" };
-    setEditingDriver(null); setFormState(next); setInitialFormState(next); setIsEditing(false); setErrorMessage(""); setSuccessMessage(""); setIsModalOpen(true);
+    setEditingDriver(null); setFormState(next); setInitialFormState(next); setIsEditing(false); setErrorMessage(""); setIsModalOpen(true);
   }
 
   function openViewModal(driver: DriverRecord) {
     const next = toDriverForm(driver);
-    setEditingDriver(driver); setFormState(next); setInitialFormState(next); setIsEditing(false); setErrorMessage(""); setSuccessMessage(""); setIsModalOpen(true);
+    setEditingDriver(driver); setFormState(next); setInitialFormState(next); setIsEditing(false); setErrorMessage(""); setIsModalOpen(true);
   }
+
+  useEffect(() => { const driverId = searchParams.get("driver"); if (!driverId || isLoading) return; const match = drivers.find((driver) => driver.driverId === driverId); if (match) queueMicrotask(() => void openViewModal(match)); }, [drivers, isLoading, searchParams]);
 
   function closeModal() { if (!isSaving) { setIsModalOpen(false); setEditingDriver(null); setIsEditing(false); setFormState(emptyDriverForm); setErrorMessage(""); } }
   function cancelEditing() { setFormState(initialFormState); setIsEditing(false); setErrorMessage(""); }
   function updateFormState(field: keyof DriverFormState, value: string) { setFormState((current) => ({ ...current, [field]: value })); }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setIsSaving(true); setErrorMessage(""); setSuccessMessage("");
+    event.preventDefault(); setIsSaving(true); setErrorMessage("");
     if (editingDriver) {
       let linkedProfileIsActive = false;
       try {
@@ -513,13 +555,13 @@ export default function AdminDriversPage() {
         setErrorMessage(message); setIsSaving(false); return;
       }
       if (!(await loadDriverData())) { setIsSaving(false); return; }
-      setSuccessMessage("Driver record created successfully.");
+      notify.success("Driver record created successfully.");
       setIsSaving(false); setIsModalOpen(false); setEditingDriver(null); setIsEditing(false); setFormState(emptyDriverForm);
       return;
     }
     try { await fetchAdministratorJson("/api/admin/drivers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ driver_id: editingDriver.driverId, driver: payload }) }); } catch (error) { setErrorMessage(error instanceof Error ? error.message : "Unable to update driver."); setIsSaving(false); return; }
     if (!(await loadDriverData())) { setIsSaving(false); return; }
-    setSuccessMessage("Driver updated successfully.");
+    notify.success("Driver updated successfully.");
     setIsSaving(false); setIsModalOpen(false); setEditingDriver(null); setIsEditing(false); setFormState(emptyDriverForm);
   }
 
@@ -543,16 +585,15 @@ export default function AdminDriversPage() {
         <label><span className="sr-only">Sort drivers</span><select className={filterClass} onChange={(event) => { setSortKey(event.target.value as SortKey); setCurrentPage(1); }} value={sortKey}><option value="name">Sort: Name</option><option value="licenseExpiry">Sort: License Expiry</option><option value="performanceScore">Sort: Performance</option></select></label>
       </div></AdminCard>
 
-      {successMessage ? <p aria-live="polite" className="fixed right-6 top-6 z-[60] rounded-2xl border border-emerald-200 bg-white px-5 py-4 text-sm font-medium text-emerald-700 shadow-xl">{successMessage}</p> : null}
-      {errorMessage && !isModalOpen ? <p aria-live="assertive" className="fixed right-6 top-6 z-[60] max-w-sm rounded-2xl border border-red-200 bg-white px-5 py-4 text-sm font-medium text-red-700 shadow-xl">{errorMessage}</p> : null}
+      {errorMessage && !isModalOpen ? <p aria-live="assertive" className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</p> : null}
 
       <AdminCard className="overflow-hidden">
         <div className="border-b border-slate-100 px-5 py-4"><h2 className="text-xl font-medium">Driver Records</h2><p className="mt-1 text-sm text-slate-400">Driver records joined to profiles and assigned vehicles.</p></div>
-        {isLoading ? <SkeletonTable columns={8} rows={7} /> : filteredDrivers.length === 0 ? <div className="px-5 py-16 text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-purple-50 text-sm font-semibold text-purple-700">DR</div><h3 className="mt-4 text-lg font-semibold">No drivers found.</h3><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">{drivers.length === 0 ? "Create a driver record to begin managing fleet availability." : "Try adjusting your search or filters."}</p></div> : <div className="overflow-x-auto"><table className="min-w-full text-sm [&_td]:py-2.5 [&_th]:py-2.5">
+        {isLoading ? <DriverTableSkeleton /> : filteredDrivers.length === 0 ? <div className="px-5 py-16 text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-purple-50 text-sm font-semibold text-purple-700">DR</div><h3 className="mt-4 text-lg font-semibold">No drivers found.</h3><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">{drivers.length === 0 ? "Create a driver record to begin managing fleet availability." : "Try adjusting your search or filters."}</p></div> : <div className="overflow-x-auto"><table className="min-w-full text-sm [&_td]:py-2.5 [&_th]:py-2.5">
           <thead className="border-b border-slate-100 bg-slate-50/70 text-left text-xs text-slate-400"><tr><th className="px-5 py-4 font-medium">Driver Name</th><th className="px-5 py-4 font-medium">Phone</th><th className="px-5 py-4 font-medium">License Number</th><th className="px-5 py-4 font-medium">License Expiry</th><th className="px-5 py-4 font-medium">Availability</th><th className="px-5 py-4 font-medium">Assigned Vehicle</th><th className="px-5 py-4 font-medium">Performance Score</th><th className="px-5 py-4 text-right font-medium">Actions</th></tr></thead>
           <tbody className="divide-y divide-slate-100 text-slate-500">{paginatedDrivers.map((driver) => <tr className="transition hover:bg-slate-50/70" key={driver.driverId}>
-            <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-purple-50 text-xs font-semibold text-purple-700">{(driver.firstName[0] || "D").toUpperCase()}</div><div><p className="font-semibold text-[#17232b]">{getDriverName(driver)}</p><p className="max-w-32 truncate text-xs text-slate-400">{driver.email || driver.userId}</p></div></div></td>
-            <td className="px-5 py-4">{driver.phone || "No phone"}</td><td className="px-5 py-4">{driver.licenseNumber || "No license"}</td><td className="px-5 py-4">{formatDate(driver.licenseExpiry)}</td><td className="px-5 py-4"><AvailabilityBadge availability={driver.availability} /></td><td className="px-5 py-4"><p className="font-medium text-slate-600">{driver.assignedVehicle}</p>{driver.assignedVehicleId ? <p className="max-w-28 truncate text-xs text-slate-400">{driver.assignedVehicleId}</p> : null}</td><td className="px-5 py-4"><PerformanceScore score={driver.performanceScore} /></td>
+            <td className="min-w-[260px] px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-purple-50 text-xs font-semibold text-purple-700">{(driver.firstName[0] || "D").toUpperCase()}</div><div className="min-w-0"><p className="font-semibold text-[#17232b]">{getDriverName(driver)}</p><p className="whitespace-nowrap text-xs text-slate-400">{driver.email || driver.userId}</p></div></div></td>
+            <td className="px-5 py-4">{driver.phone || "No phone"}</td><td className="px-5 py-4">{driver.licenseNumber || "No license"}</td><td className="px-5 py-4">{formatDate(driver.licenseExpiry)}</td><td className="px-5 py-4"><AvailabilityBadge availability={driver.availability} /></td><td className="px-5 py-4"><p className="font-medium text-slate-600">{driver.assignedVehicle}</p></td><td className="px-5 py-4"><PerformanceScore score={driver.performanceScore} /></td>
             <td className="px-5 py-4 text-right"><button className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700" onClick={() => openViewModal(driver)} type="button">View</button></td>
           </tr>)}</tbody>
         </table></div>}
