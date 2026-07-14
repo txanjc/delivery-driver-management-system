@@ -31,7 +31,8 @@ type DriverRow = { driver_id: string; user_id: string | null; availability: stri
 type ProfileRow = { profile_id: string; first_name: string | null; last_name: string | null; email: string | null; phone: string | null; is_active: boolean | null };
 type VehicleRow = { vehicle_id: string; vehicle_number: string | null; license_plate: string | null; make: string | null; model: string | null; vehicle_type: string | null; status: string | null };
 type ScheduleRow = { schedule_id: string; driver_id: string | null; vehicle_id: string | null; shift_name: string | null; start_time: string | null; end_time: string | null; status: string | null };
-type RoutesApiData = { routes: RouteRow[]; deliveries: DeliveryRow[]; drivers: DriverRow[]; profiles: ProfileRow[]; vehicles: VehicleRow[]; schedules: ScheduleRow[] };
+type DeliveryHistoryRow = { delivery_id: string; status: string | null; created_at: string | null };
+type RoutesApiData = { routes: RouteRow[]; deliveries: DeliveryRow[]; deliveryHistory: DeliveryHistoryRow[]; drivers: DriverRow[]; profiles: ProfileRow[]; vehicles: VehicleRow[]; schedules: ScheduleRow[] };
 type DeliveryRecord = DeliveryRow & { statusValue: DeliveryStatus; driverName: string; vehicleName: string; route: RouteRow | null };
 type MapPoint = { x: number; y: number };
 type DashboardIssue = { label: string; message: string; severity: "critical" | "warning" | "info"; href: string; createdAt: string | null; deliveryId?: string };
@@ -766,7 +767,7 @@ export default function AdminPage() {
   }, []);
 
   const dashboard = useMemo(() => {
-    const data = routesData ?? { routes: [], deliveries: [], drivers: [], profiles: [], vehicles: [], schedules: [] };
+    const data = routesData ?? { routes: [], deliveries: [], deliveryHistory: [], drivers: [], profiles: [], vehicles: [], schedules: [] };
     const driverMap = new Map(data.drivers.map((driver) => [driver.driver_id, driver]));
     const profileMap = new Map(data.profiles.map((profile) => [profile.profile_id, profile]));
     const vehicleMap = new Map(data.vehicles.map((vehicle) => [vehicle.vehicle_id, vehicle]));
@@ -787,7 +788,14 @@ export default function AdminPage() {
     const activeDeliveries = scopedDeliveries.filter((delivery) => isActiveStatus(delivery.statusValue));
     const activeShiftDriverIds = new Set(activeSchedules.map((schedule) => schedule.driver_id).filter((id): id is string => Boolean(id)));
     const assignedDriverIds = new Set(activeDeliveries.map((delivery) => delivery.assigned_driver_id).filter((id): id is string => Boolean(id)));
-    const performanceDeliveries = data.deliveries.filter((delivery) => delivery.assigned_driver_id && inRange(delivery.updated_at, scope) && ["delivered", "failed", "returned"].includes(normalizeStatus(delivery.status)));
+    const terminalTimestampByDelivery = new Map<string, string>();
+    data.deliveryHistory.forEach((event) => {
+      if (event.created_at && !terminalTimestampByDelivery.has(event.delivery_id)) terminalTimestampByDelivery.set(event.delivery_id, event.created_at);
+    });
+    const performanceDeliveries = data.deliveries.filter((delivery) => {
+      if (!delivery.assigned_driver_id || !["delivered", "failed", "returned"].includes(normalizeStatus(delivery.status))) return false;
+      return inRange(terminalTimestampByDelivery.get(delivery.delivery_id) ?? delivery.updated_at, scope);
+    });
     const driverPerformance = data.drivers.flatMap((driver): DriverPerformanceRow[] => {
       const activity = performanceDeliveries.filter((delivery) => delivery.assigned_driver_id === driver.driver_id);
       if (!activity.length) return [];
