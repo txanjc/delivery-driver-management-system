@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
@@ -18,6 +19,7 @@ import {
   QuickActionsDropdown,
   type QuickActionsRole,
 } from "./QuickActionsDropdown";
+import { AppModalShell } from "./AppModalShell";
 import { NotificationBell } from "./NotificationBell";
 
 const navigationItems: Array<{
@@ -32,7 +34,6 @@ const navigationItems: Array<{
   { label: "Schedules", href: "/admin/schedules", icon: "schedules" },
   { label: "Deliveries", href: "/admin/deliveries", icon: "deliveries" },
   { label: "Routes", href: "/admin/routes", icon: "routes" },
-  { label: "Alerts", href: "/admin/alerts", icon: "notifications" },
   { label: "Finance", href: "/admin/finance", icon: "finance" },
   { label: "Reports", href: "/admin/reports", icon: "reports" },
   { label: "Settings", href: "/admin/settings", icon: "settings" },
@@ -136,6 +137,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const [logoutError, setLogoutError] = useState("");
   const [routesSearch, setRoutesSearch] = useState("");
   const [routesSearchResults, setRoutesSearchResults] = useState<GlobalSearchResult[]>([]);
+  const [, setUnreadAlertsCount] = useState(0);
   const [globalSearchFilter, setGlobalSearchFilter] = useState<GlobalSearchFilter>("all");
   const [isRoutesSearchLoading, setIsRoutesSearchLoading] = useState(false);
   const [isRoutesSearchOpen, setIsRoutesSearchOpen] = useState(false);
@@ -149,6 +151,8 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const profileTriggerRef = useRef<HTMLButtonElement>(null);
   const routesSearchRef = useRef<HTMLLabelElement>(null);
+  const routesSearchTriggerRef = useRef<HTMLInputElement>(null);
+  const globalSearchInputRef = useRef<HTMLInputElement>(null);
   const globalSearchPanelRef = useRef<HTMLDivElement>(null);
   const routesSearchRequestRef = useRef(0);
   const fullName = `${profileName.firstName} ${profileName.lastName}`.trim();
@@ -276,7 +280,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
       if (isSearchShortcut) {
         event.preventDefault();
-        routesSearchRef.current?.querySelector("input")?.focus();
+        routesSearchTriggerRef.current?.focus();
         setIsRoutesSearchOpen(true);
         return;
       }
@@ -362,19 +366,16 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
   return (
     <div className={`${isRoutesWorkspace ? "h-dvh overflow-hidden bg-[#edf4f3]" : "min-h-screen bg-slate-100"} text-slate-950`}>
-      {isRoutesSearchOpen ? (
-        <button
-          aria-label="Close global search"
-          className="fixed inset-0 z-[50] cursor-default bg-slate-950/55 backdrop-blur-[9px] transition-opacity"
-          onMouseDown={() => setIsRoutesSearchOpen(false)}
-          type="button"
-        />
-      ) : null}
-      {isRoutesSearchOpen ? (
-        <div
-          className="fixed left-1/2 top-[18vh] z-[80] w-[min(640px,calc(100vw-32px))] -translate-x-1/2 overflow-hidden rounded-[22px] border border-white/85 bg-white/98 text-slate-900 shadow-[0_34px_110px_-34px_rgba(15,23,42,.75),0_0_0_1px_rgba(139,92,246,.10)] ring-1 ring-purple-100/70 backdrop-blur-xl"
-          ref={globalSearchPanelRef}
-        >
+      <AppModalShell
+        dialogClassName="w-[min(640px,calc(100vw-32px))] overflow-hidden rounded-[22px] border border-white/85 bg-white/98 text-slate-900 shadow-[0_34px_110px_-34px_rgba(15,23,42,.75),0_0_0_1px_rgba(139,92,246,.10)] ring-1 ring-purple-100/70 backdrop-blur-xl"
+        dialogRef={globalSearchPanelRef}
+        initialFocusRef={globalSearchInputRef}
+        label="Global search"
+        onClose={() => setIsRoutesSearchOpen(false)}
+        open={isRoutesSearchOpen}
+        placement="search"
+        returnFocusRef={routesSearchTriggerRef}
+      >
           <div className="relative border-b border-slate-100">
             <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
               <SearchIcon aria-hidden size={18} weight="bold" />
@@ -404,6 +405,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                 }
               }}
               placeholder="Search across DeliverEaze"
+              ref={globalSearchInputRef}
               role="combobox"
               type="text"
               value={routesSearch}
@@ -491,8 +493,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
               </div>
             )}
           </div>
-        </div>
-      ) : null}
+      </AppModalShell>
       <aside
         className={`fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden border-r border-slate-200 bg-white px-3 py-5 shadow-xl shadow-slate-900/5 transition-[width] duration-300 ease-out lg:flex ${
           isSidebarExpanded ? "w-72" : "w-20"
@@ -508,31 +509,45 @@ export function AdminShell({ children }: { children: ReactNode }) {
       >
         <Link
           aria-label="DeliverEaze Logistics dashboard"
-          className="flex h-11 min-w-0 items-center gap-3 px-2"
+          className="relative block min-h-[88px] w-full min-w-0"
           href="/admin"
         >
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-blue-500 text-white shadow-sm shadow-indigo-500/20">
-            <BrandIcon aria-hidden size={21} weight="fill" />
-          </span>
           <span
-            className={`min-w-44 whitespace-nowrap transition-opacity duration-200 ${
-              isSidebarExpanded ? "opacity-100" : "opacity-0"
+            aria-hidden={!isSidebarExpanded}
+            className={`absolute inset-y-0 left-0 flex w-[200px] origin-left items-center transition-[opacity,transform] duration-200 ease-out will-change-[opacity,transform] motion-reduce:transition-none ${
+              isSidebarExpanded ? "scale-100 opacity-100" : "pointer-events-none scale-[0.97] opacity-0"
             }`}
           >
-            <span className="block text-sm font-semibold tracking-tight text-slate-950">
-              DeliverEaze Logistics
-            </span>
-            <span className="text-xs text-slate-500">Operations Portal</span>
+            <Image
+              alt="DeliverEaze Logistics"
+              className="h-auto w-full max-w-[200px] -translate-y-4 object-contain object-left"
+              height={466}
+              src="/images/brand/deliver-eaze-full.png"
+              width={1430}
+            />
+          </span>
+          <span
+            aria-hidden={isSidebarExpanded}
+            className={`absolute inset-y-0 left-[7px] flex w-[42px] origin-left items-center transition-[opacity,transform] duration-200 ease-out will-change-[opacity,transform] motion-reduce:transition-none ${
+              isSidebarExpanded ? "pointer-events-none scale-[0.97] opacity-0" : "scale-100 opacity-100"
+            }`}
+          >
+            <Image
+              alt=""
+              className="h-[52px] w-[42px] -translate-y-4 object-contain"
+              height={466}
+              src="/images/brand/deliver-eaze-mark.png"
+              width={382}
+            />
           </span>
         </Link>
 
-        <nav aria-label="Administrator navigation" className="mt-8 flex-1 space-y-1">
+        <nav aria-label="Administrator navigation" className="flex-1 space-y-1">
           {navigationItems.map((item) => {
             const isActive =
               pathname === item.href ||
               (item.href !== "/admin" && pathname.startsWith(item.href));
             const SidebarIcon = AppIcons[item.icon];
-
             return (
               <Link
                 aria-current={isActive ? "page" : undefined}
@@ -550,7 +565,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                 key={item.href}
                 title={!isSidebarExpanded ? item.label : undefined}
               >
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+                <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
                   <SidebarIcon
                     aria-hidden
                     size={21}
@@ -639,6 +654,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                   }
                 }}
                 placeholder="Search across DeliverEaze"
+                ref={routesSearchTriggerRef}
                 type="text"
                 value={routesSearch}
               />
@@ -670,7 +686,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
             </label>
 
             <div className="flex items-center gap-3 lg:justify-self-end">
-              <NotificationBell />
+              <NotificationBell onUnreadCountChange={setUnreadAlertsCount} />
 
               <div className="relative" ref={profileMenuRef}>
                 <button
@@ -770,7 +786,6 @@ export function AdminShell({ children }: { children: ReactNode }) {
                 pathname === item.href ||
                 (item.href !== "/admin" && pathname.startsWith(item.href));
               const MobileIcon = AppIcons[item.icon];
-
               return (
                 <Link
                   aria-current={isActive ? "page" : undefined}
@@ -782,7 +797,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
                   href={item.href}
                   key={item.href}
                 >
-                  <MobileIcon aria-hidden size={18} weight={isActive ? "fill" : "bold"} />
+                  <span className="relative">
+                    <MobileIcon aria-hidden size={18} weight={isActive ? "fill" : "bold"} />
+                  </span>
                   {item.label}
                 </Link>
               );
