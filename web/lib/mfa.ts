@@ -4,7 +4,11 @@ export type VerifiedTotpFactor = { id: string; friendly_name?: string };
 
 export function sanitizeInternalReturnPath(value: string | null, fallback: string) {
   if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\") || /[\r\n]/.test(value)) return fallback;
-  try { const url = new URL(value, "https://delivereaze.invalid"); return url.origin === "https://delivereaze.invalid" ? `${url.pathname}${url.search}${url.hash}` : fallback; } catch { return fallback; }
+  try {
+    const url = new URL(value, "https://delivereaze.invalid");
+    if (url.origin !== "https://delivereaze.invalid" || url.pathname === "/verify-mfa" || url.searchParams.has("returnTo")) return fallback;
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch { return fallback; }
 }
 
 export function getRoleDashboardPath(role: WebUserRole) { return getRoleRedirectPath(role); }

@@ -1,4 +1,4 @@
-import { apiError, requireAdministratorAal2 } from "@/lib/server/administrator-api";
+import { apiError, authorizeAdministratorRequest } from "@/lib/server/administrator-api";
 import { inspectNotificationEmailFields, runSmtpDiagnostic } from "@/lib/server/notification-service";
 
 export const runtime = "nodejs";
@@ -24,7 +24,7 @@ function canRunDiagnostic(userId: string) {
 }
 
 export async function POST(request: Request) {
-  const authorization = await requireAdministratorAal2(request);
+  const authorization = await authorizeAdministratorRequest(request);
   if (!authorization.client) return authorization.response ?? apiError("Administrator authorization failed.", 403);
   if (!authorization.userId) return apiError("Administrator authorization failed.", 403);
   const rateLimit = canRunDiagnostic(authorization.userId);

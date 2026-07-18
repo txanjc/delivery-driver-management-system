@@ -1,4 +1,4 @@
-import { apiError, requireAdministratorAal2 } from "@/lib/server/administrator-api";
+import { apiError, authorizeAdministratorRequest } from "@/lib/server/administrator-api";
 
 type RevenueInput = {
   delivery_id: string;
@@ -43,7 +43,7 @@ function parseRevenue(value: unknown): RevenueInput | null {
 }
 
 export async function POST(request: Request) {
-  const authorization = await requireAdministratorAal2(request, "financial_revenue_create");
+  const authorization = await authorizeAdministratorRequest(request);
   if (!authorization.client) return authorization.response;
   let body: unknown;
   try { body = await request.json(); } catch { return apiError("Request body must be valid JSON.", 400); }
@@ -62,12 +62,11 @@ export async function POST(request: Request) {
 
   const { error } = await authorization.client.from("delivery_revenue").insert(revenue);
   if (error) return apiError(error.message, 400);
-  console.info("[DeliverEaze security]", JSON.stringify({ event: "financial_revenue_created_at_aal2", userId: authorization.userId }));
   return Response.json({ message: "Revenue recorded successfully." }, { status: 201 });
 }
 
 export async function PATCH(request: Request) {
-  const authorization = await requireAdministratorAal2(request, "financial_revenue_update");
+  const authorization = await authorizeAdministratorRequest(request);
   if (!authorization.client) return authorization.response;
   let body: unknown;
   try { body = await request.json(); } catch { return apiError("Request body must be valid JSON.", 400); }
@@ -91,6 +90,5 @@ export async function PATCH(request: Request) {
 
   const { error } = await authorization.client.from("delivery_revenue").update(revenue).eq("revenue_id", revenueId);
   if (error) return apiError(error.message, 400);
-  console.info("[DeliverEaze security]", JSON.stringify({ event: "financial_revenue_updated_at_aal2", userId: authorization.userId, revenueId }));
   return Response.json({ message: "Revenue updated successfully." });
 }

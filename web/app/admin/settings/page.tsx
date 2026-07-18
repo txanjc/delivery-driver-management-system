@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import {
   AdminCard,
   AdminPageIntro,
@@ -466,8 +465,7 @@ function MfaSettingsRow() {
 }
 
 export default function SettingsPage() {
-  const searchParams = useSearchParams();
-  const [section, setSection] = useState<Section>(() => searchParams.get("mfa") === "setup" ? "security" : "general");
+  const [section, setSection] = useState<Section>("general");
   const [data, setData] = useState<SettingsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -497,10 +495,6 @@ export default function SettingsPage() {
       .then(({ preferences }) => setEmailPreferences(preferences))
       .catch(() => notify.error("Email preferences could not be loaded."));
   }, [notify]);
-  useEffect(() => {
-    if (searchParams.get("mfa") !== "setup") return;
-    notify.error(searchParams.get("reason") === "financial" ? "Set up an authenticator before performing this financial action." : "Set up an authenticator before performing this action.");
-  }, [notify, searchParams]);
   async function updateEmailPreference(key: EmailPreferenceKey) {
     if (!emailPreferences || key === "security_alerts" || savingPreference) return;
     const previous = emailPreferences[key];

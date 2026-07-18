@@ -1,8 +1,4 @@
-import {
-  apiError,
-  authorizeAdministratorRequest,
-  requireAdministratorAal2,
-} from "@/lib/server/administrator-api";
+import { apiError, authorizeAdministratorRequest } from "@/lib/server/administrator-api";
 
 export async function GET(request: Request) {
   const authorization = await authorizeAdministratorRequest(request);
@@ -33,12 +29,8 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const authorization = await requireAdministratorAal2(request);
+  const authorization = await authorizeAdministratorRequest(request);
   if (!authorization.client) return authorization.response;
   try { await request.json(); } catch { return apiError("Request body must be valid JSON.", 400); }
-  console.info("[DeliverEaze security]", JSON.stringify({
-    event: "settings_mutation_rejected_as_unsupported_at_aal2",
-    userId: authorization.userId,
-  }));
   return apiError("This setting is not available because persistent settings storage is not configured.", 409);
 }

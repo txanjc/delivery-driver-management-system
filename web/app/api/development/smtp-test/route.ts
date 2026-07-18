@@ -1,4 +1,4 @@
-import { apiError, requireAdministratorAal2 } from "@/lib/server/administrator-api";
+import { apiError, authorizeAdministratorRequest } from "@/lib/server/administrator-api";
 import { sendDevelopmentSmtpTest } from "@/lib/server/notification-service";
 
 export const runtime = "nodejs";
@@ -9,7 +9,7 @@ function isValidEmail(value: unknown): value is string {
 
 export async function POST(request: Request) {
   if (process.env.NODE_ENV === "production") return new Response("Not found", { status: 404 });
-  const authorization = await requireAdministratorAal2(request);
+  const authorization = await authorizeAdministratorRequest(request);
   if (!authorization.client) return authorization.response;
   const body: unknown = await request.json().catch(() => null);
   const recipient = typeof body === "object" && body !== null && "recipient" in body ? body.recipient : null;
