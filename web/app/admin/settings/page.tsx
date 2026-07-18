@@ -9,6 +9,7 @@ import {
 import { AppIcons, type AppIconName } from "@/config/icons";
 import { fetchAdministratorJson } from "@/lib/admin-api-client";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { useNotify } from "@/components/ui/ToastProvider";
 import { supabase } from "@/lib/supabase";
 
 type Section =
@@ -450,6 +451,19 @@ function EmailDiagnosticsPanel() {
   );
 }
 
+type MfaFactor = { id: string; status: string; factor_type: string; friendly_name?: string };
+function MfaSettingsRow() {
+  const [factors, setFactors] = useState<MfaFactor[]>([]); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [setup, setSetup] = useState<{ id: string; qr: string; secret: string } | null>(null); const [code, setCode] = useState(""); const [message, setMessage] = useState<{ error: boolean; text: string } | null>(null); const [removing, setRemoving] = useState<string | null>(null);
+  const refresh = useCallback(async () => { setLoading(true); const { data, error } = await supabase.auth.mfa.listFactors(); if (error) setMessage({ error: true, text: "Authenticator status could not be loaded." }); else setFactors(((data?.totp ?? []) as MfaFactor[])); const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel(); if (aal?.nextLevel === "aal2" && !setup) setMessage({ error: false, text: "Verification required for this session." }); setLoading(false); }, [setup]);
+  useEffect(() => { queueMicrotask(() => void refresh()); }, [refresh]);
+  async function begin() { setBusy(true); setMessage(null); const { data, error } = await supabase.auth.mfa.enroll({ factorType: "totp", friendlyName: factors.length ? "Backup authenticator" : "Authenticator" }); if (error || !data) setMessage({ error: true, text: "Authenticator setup could not be started." }); else setSetup({ id: data.id, qr: data.totp.qr_code, secret: data.totp.secret }); setBusy(false); }
+  async function verify() { if (!setup || !/^\d{6}$/.test(code)) { setMessage({ error: true, text: "Enter a six-digit authenticator code." }); return; } setBusy(true); const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({ factorId: setup.id }); if (challengeError || !challenge) { setMessage({ error: true, text: "Authenticator verification could not be started." }); setBusy(false); return; } const { error } = await supabase.auth.mfa.verify({ factorId: setup.id, challengeId: challenge.id, code }); if (error) setMessage({ error: true, text: "The authenticator code could not be verified. Try again." }); else { setSetup(null); setCode(""); setMessage({ error: false, text: "Authenticator factor verified successfully." }); await refresh(); } setBusy(false); }
+  async function cancel() { if (!setup) return; setBusy(true); await supabase.auth.mfa.unenroll({ factorId: setup.id }); setSetup(null); setCode(""); setMessage({ error: false, text: "Incomplete authenticator setup cancelled." }); setBusy(false); }
+  async function remove(id: string) { if (!window.confirm("Remove this authenticator factor?")) return; setRemoving(id); const { error } = await supabase.auth.mfa.unenroll({ factorId: id }); if (error) setMessage({ error: true, text: "Authenticator factor could not be removed." }); else { setMessage({ error: false, text: "Authenticator factor removed." }); await refresh(); } setRemoving(null); }
+  const verified = factors.filter((factor) => factor.status === "verified");
+  return <div className="py-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-800">Two-factor authentication</p><p className="mt-1 text-xs leading-5 text-slate-500">{loading ? "Checking authenticator status..." : setup ? "Setup incomplete. Scan the code and verify it to finish." : verified.length ? "Two-factor authentication is active for this account." : "Add an authenticator app for additional sign-in protection."}</p></div><SecondaryButton disabled={busy || loading || Boolean(setup)} onClick={() => void begin()} type="button">{verified.length ? "Add backup authenticator" : "Add authenticator"}</SecondaryButton></div><p className="mt-3 text-xs leading-5 text-amber-700">Authenticator setup is available. Sign-in enforcement will be enabled in the next phase.</p>{setup ? <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-sm font-semibold">Set up authenticator</p><img alt="Authenticator setup QR code" className="mt-3 h-40 w-40 rounded-lg bg-white p-2" src={setup.qr} /><p className="mt-3 text-xs text-slate-500">Manual setup key: <span className="font-mono text-slate-700">{setup.secret}</span></p><label className="mt-3 block text-sm font-medium">Six-digit code<input className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3" inputMode="numeric" maxLength={6} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} value={code} /></label><div className="mt-3 flex gap-2"><button className="h-10 rounded-full bg-purple-600 px-4 text-sm font-semibold text-white disabled:bg-purple-300" disabled={busy} onClick={() => void verify()} type="button">Verify authenticator</button><SecondaryButton disabled={busy} onClick={() => void cancel()} type="button">Cancel setup</SecondaryButton></div></div> : null}{verified.length ? <div className="mt-4 space-y-2">{verified.map((factor, index) => <div className="flex items-center justify-between rounded-xl border border-slate-100 px-3 py-2" key={factor.id}><span className="text-sm">{factor.friendly_name || `Authenticator ${index + 1}`}</span><button className="text-sm font-semibold text-red-600 disabled:text-slate-300" disabled={removing === factor.id} onClick={() => void remove(factor.id)} type="button">Remove factor</button></div>)}<p className="text-xs leading-5 text-slate-500">Add a backup authenticator factor to reduce the risk of losing access.</p></div> : null}{message ? <p className={`mt-3 rounded-xl px-3 py-2 text-sm ${message.error ? "border border-red-100 bg-red-50 text-red-700" : "border border-emerald-100 bg-emerald-50 text-emerald-700"}`}>{message.text}</p> : null}</div>;
+}
+
 export default function SettingsPage() {
   const [section, setSection] = useState<Section>("general");
   const [data, setData] = useState<SettingsData | null>(null);
@@ -458,7 +472,7 @@ export default function SettingsPage() {
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [emailPreferences, setEmailPreferences] = useState<EmailPreferences | null>(null);
   const [savingPreference, setSavingPreference] = useState<EmailPreferenceKey | null>(null);
-  const [preferenceToast, setPreferenceToast] = useState<{ tone: "success" | "error"; message: string } | null>(null);
+  const notify = useNotify();
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -479,8 +493,8 @@ export default function SettingsPage() {
   useEffect(() => {
     void fetchAdministratorJson<{ preferences: EmailPreferences }>("/api/notification-preferences")
       .then(({ preferences }) => setEmailPreferences(preferences))
-      .catch(() => setPreferenceToast({ tone: "error", message: "Email preferences could not be loaded." }));
-  }, []);
+      .catch(() => notify.error("Email preferences could not be loaded."));
+  }, [notify]);
   async function updateEmailPreference(key: EmailPreferenceKey) {
     if (!emailPreferences || key === "security_alerts" || savingPreference) return;
     const previous = emailPreferences[key];
@@ -489,10 +503,10 @@ export default function SettingsPage() {
     setEmailPreferences({ ...emailPreferences, [key]: enabled });
     try {
       await fetchAdministratorJson("/api/notification-preferences", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, enabled }) });
-      setPreferenceToast({ tone: "success", message: "Email preference saved." });
+      notify.success("Email preference saved.");
     } catch {
       setEmailPreferences((current) => current ? { ...current, [key]: previous } : current);
-      setPreferenceToast({ tone: "error", message: "Email preference could not be saved." });
+      notify.error("Email preference could not be saved.");
     } finally {
       setSavingPreference(null);
     }
@@ -533,20 +547,6 @@ export default function SettingsPage() {
   return (
     <section className="space-y-5 text-[#17232b]">
       <AdminPageIntro
-        actions={
-          <div className="flex gap-2">
-            <SecondaryButton disabled type="button">
-              Discard Changes
-            </SecondaryButton>
-            <button
-              className="h-10 cursor-not-allowed rounded-full bg-purple-300 px-5 text-sm font-semibold text-white"
-              disabled
-              type="button"
-            >
-              Save Changes
-            </button>
-          </div>
-        }
         description="Manage system configuration, security, notifications, and access controls."
         eyebrow="Administration"
         title="Settings"
@@ -649,14 +649,7 @@ export default function SettingsPage() {
                 title="Authentication"
               >
                 <div className="divide-y divide-slate-100">
-                  <SettingRow
-                    control={
-                      <DisabledToggle label="Mandatory two-factor authentication unavailable" />
-                    }
-                    description="Require two-factor authentication for all administrator sign-ins."
-                    note="Mandatory two-factor authentication is not available until enrollment and recovery are configured."
-                    title="Require two-factor authentication"
-                  />
+                  <MfaSettingsRow />
                   <SettingRow
                     control={
                       <select
@@ -781,7 +774,6 @@ export default function SettingsPage() {
                 are sent based on your selected preferences. SMS delivery is
                 unavailable until a messaging provider is configured.
               </div>
-              {preferenceToast ? <div className={`mb-4 rounded-xl px-4 py-3 text-xs font-medium ${preferenceToast.tone === "success" ? "border border-emerald-100 bg-emerald-50 text-emerald-700" : "border border-red-100 bg-red-50 text-red-700"}`} role="status">{preferenceToast.message}</div> : null}
             </Panel>
           ) : null}
           {section === "permissions" ? (
