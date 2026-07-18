@@ -57,6 +57,8 @@ type EmailDiagnosticsResult = {
   };
   notificationEmailFields: { present: boolean; errorCode: string | null };
 };
+type EmailPreferenceKey = "new_delivery_assigned" | "delivery_status_updates" | "schedule_changes" | "system_alerts" | "maintenance_reminders" | "security_alerts";
+type EmailPreferences = Record<EmailPreferenceKey, boolean>;
 
 const sections: Array<{ value: Section; label: string; icon: AppIconName }> = [
   { value: "general", label: "General", icon: "settings" },
@@ -65,13 +67,13 @@ const sections: Array<{ value: Section; label: string; icon: AppIconName }> = [
   { value: "permissions", label: "Roles & Permissions", icon: "users" },
   { value: "system", label: "System Information", icon: "identification" },
 ];
-const notificationRows = [
-  "New Delivery Assigned",
-  "Delivery Status Updates",
-  "Schedule Changes",
-  "System Alerts",
-  "Maintenance Reminders",
-  "Security Alerts",
+const notificationRows: Array<{ label: string; key: EmailPreferenceKey; mandatory?: boolean }> = [
+  { label: "New Delivery Assigned", key: "new_delivery_assigned" },
+  { label: "Delivery Status Updates", key: "delivery_status_updates" },
+  { label: "Schedule Changes", key: "schedule_changes" },
+  { label: "System Alerts", key: "system_alerts" },
+  { label: "Maintenance Reminders", key: "maintenance_reminders" },
+  { label: "Security Alerts", key: "security_alerts", mandatory: true },
 ];
 const modules = [
   "Users",
@@ -172,6 +174,9 @@ function DisabledToggle({
       />
     </button>
   );
+}
+function EmailToggle({ checked, disabled, label, loading, onClick }: { checked: boolean; disabled?: boolean; label: string; loading?: boolean; onClick: () => void }) {
+  return <button aria-checked={checked} aria-label={label} className={`relative h-6 w-11 rounded-full transition ${checked ? "bg-purple-600" : "bg-slate-200"} ${disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`} disabled={disabled} onClick={onClick} role="switch" type="button"><span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition ${checked ? "left-5.5" : "left-0.5"}`}>{loading ? <span className="absolute inset-1 rounded-full border-2 border-slate-300 border-t-purple-600" /> : null}</span></button>;
 }
 function SettingRow({
   title,
@@ -451,6 +456,9 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [emailPreferences, setEmailPreferences] = useState<EmailPreferences | null>(null);
+  const [savingPreference, setSavingPreference] = useState<EmailPreferenceKey | null>(null);
+  const [preferenceToast, setPreferenceToast] = useState<{ tone: "success" | "error"; message: string } | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -468,6 +476,27 @@ export default function SettingsPage() {
   useEffect(() => {
     queueMicrotask(() => void load());
   }, [load]);
+  useEffect(() => {
+    void fetchAdministratorJson<{ preferences: EmailPreferences }>("/api/notification-preferences")
+      .then(({ preferences }) => setEmailPreferences(preferences))
+      .catch(() => setPreferenceToast({ tone: "error", message: "Email preferences could not be loaded." }));
+  }, []);
+  async function updateEmailPreference(key: EmailPreferenceKey) {
+    if (!emailPreferences || key === "security_alerts" || savingPreference) return;
+    const previous = emailPreferences[key];
+    const enabled = !previous;
+    setSavingPreference(key);
+    setEmailPreferences({ ...emailPreferences, [key]: enabled });
+    try {
+      await fetchAdministratorJson("/api/notification-preferences", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, enabled }) });
+      setPreferenceToast({ tone: "success", message: "Email preference saved." });
+    } catch {
+      setEmailPreferences((current) => current ? { ...current, [key]: previous } : current);
+      setPreferenceToast({ tone: "error", message: "Email preference could not be saved." });
+    } finally {
+      setSavingPreference(null);
+    }
+  }
   const roleCounts = useMemo(
     () => ({
       Administrator: data?.roles.administrator ?? 0,
@@ -708,10 +737,7 @@ export default function SettingsPage() {
             </>
           ) : null}
           {section === "notifications" ? (
-            <Panel
-              description="The system stores notification records, but it does not currently store per-user channel preferences."
-              title="Notification Preferences"
-            >
+            <Panel title="Notification Preferences">
               <div className="my-4 overflow-x-auto rounded-2xl border border-slate-100">
                 <table className="w-full min-w-[640px] text-left text-sm">
                   <thead className="bg-slate-50 text-xs text-slate-500">
@@ -724,10 +750,10 @@ export default function SettingsPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {notificationRows.map((row) => (
-                      <tr key={row}>
+                      <tr key={row.key}>
                         <td className="px-4 py-4">
-                          <p className="font-semibold">{row}</p>
-                          {row === "Security Alerts" ? (
+                          <p className="font-semibold">{row.label}</p>
+                          {row.mandatory ? (
                             <p className="mt-1 text-xs text-slate-500">
                               Critical administrator alerts cannot be disabled.
                             </p>
@@ -736,14 +762,14 @@ export default function SettingsPage() {
                         <td className="px-4 py-4 text-center">
                           <DisabledToggle
                             checked
-                            label={`${row} in-app is system managed`}
+                            label={`${row.label} in-app is system managed`}
                           />
                         </td>
                         <td className="px-4 py-4 text-center">
-                          <DisabledToggle label={`${row} email unavailable`} />
+                          {emailPreferences ? <EmailToggle checked={row.mandatory ? true : emailPreferences[row.key]} disabled={row.mandatory || savingPreference !== null} label={row.mandatory ? `${row.label} email is required` : `${row.label} email`} loading={savingPreference === row.key} onClick={() => void updateEmailPreference(row.key)} /> : <DisabledToggle label={`${row.label} email loading`} />}
                         </td>
                         <td className="px-4 py-4 text-center">
-                          <DisabledToggle label={`${row} SMS unavailable`} />
+                          <DisabledToggle label={`${row.label} SMS unavailable`} />
                         </td>
                       </tr>
                     ))}
@@ -751,10 +777,11 @@ export default function SettingsPage() {
                 </table>
               </div>
               <div className="mb-4 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800">
-                In-app operational alerts are system managed. Email preferences
-                require a preference store and delivery service. SMS delivery is
+                In-app operational alerts are system managed. Email notifications
+                are sent based on your selected preferences. SMS delivery is
                 unavailable until a messaging provider is configured.
               </div>
+              {preferenceToast ? <div className={`mb-4 rounded-xl px-4 py-3 text-xs font-medium ${preferenceToast.tone === "success" ? "border border-emerald-100 bg-emerald-50 text-emerald-700" : "border border-red-100 bg-red-50 text-red-700"}`} role="status">{preferenceToast.message}</div> : null}
             </Panel>
           ) : null}
           {section === "permissions" ? (

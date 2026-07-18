@@ -11,7 +11,8 @@ type EventType = "delivery_assignment" | "schedule_created" | "schedule_updated"
 export type NotificationEvent = { type: EventType; key: string; title: string; message: string; tone: EmailTone; badge: string; module: string; relatedId: string; actionPath: string; driverActionPath?: string; actionLabel: string; details: Array<{ label: string; value: string | null | undefined }>; recipientIds?: string[]; driverIds?: string[]; recipientRoles?: RecipientRole[]; priority?: string | null; critical?: boolean };
 
 type ProfileRow = { profile_id: string; first_name: string | null; last_name: string | null; email: string | null; role: string | null; is_active: boolean | null };
-type NotificationDeliveryRow = { notification_id: string; email_status: "pending" | "sent" | "failed" | null; email_attempts: number | null };
+type NotificationDeliveryRow = { notification_id: string; email_status: "pending" | "sent" | "failed" | "skipped" | null; email_attempts: number | null };
+type EmailPreferenceKey = "new_delivery_assigned" | "delivery_status_updates" | "schedule_changes" | "system_alerts" | "maintenance_reminders" | "security_alerts";
 type SafeError = { code: string };
 
 function diagnostic(stage: string, details: Record<string, boolean | number | string | null | undefined> = {}) {
@@ -127,6 +128,26 @@ function roleReason(event: NotificationEvent, recipient: Recipient) {
 
 function emailFor(event: NotificationEvent, recipient: Recipient, actionUrl: string): DeliverEazeEmail {
   return { recipientName: recipient.name, recipientRole: recipient.role[0].toUpperCase() + recipient.role.slice(1), title: event.title, message: event.message, tone: event.tone, badge: event.badge, reason: roleReason(event, recipient), details: event.details, actionLabel: event.actionLabel, actionUrl };
+}
+
+function preferenceKeyFor(event: NotificationEvent): EmailPreferenceKey {
+  if (event.type === "delivery_assignment") return "new_delivery_assigned";
+  if (["delivery_delayed", "delivery_failed", "delivery_returned", "delivery_completed"].includes(event.type)) return "delivery_status_updates";
+  if (["schedule_created", "schedule_updated", "schedule_cancelled"].includes(event.type)) return "schedule_changes";
+  if (event.type === "vehicle_unavailable") return "maintenance_reminders";
+  return "system_alerts";
+}
+
+function mandatorySecurityEmail(event: NotificationEvent, recipient: Recipient) {
+  return event.module === "security" || (event.module === "system" && event.critical === true && recipient.role === "administrator");
+}
+
+async function emailAllowedByPreference(client: SupabaseClient, event: NotificationEvent, recipient: Recipient) {
+  if (mandatorySecurityEmail(event, recipient)) return { allowed: true, key: "security_alerts" as const };
+  const key = preferenceKeyFor(event);
+  const { data, error } = await client.from("notification_email_preferences").select("enabled").eq("profile_id", recipient.profileId).eq("preference_key", key).maybeSingle<{ enabled: boolean }>();
+  if (error) { diagnostic("email_preference_lookup_failed", { eventType: event.type, relatedRecordId: event.relatedId, recipientProfileId: recipient.profileId, errorCode: safeError(error).code }); return { allowed: true, key }; }
+  return { allowed: data?.enabled !== false, key };
 }
 
 function smtpConfiguration() {
@@ -245,8 +266,15 @@ export async function notifyOperationalEvent(client: SupabaseClient, event: Noti
         }
         diagnostic("notification_row_created", { eventType: event.type, relatedRecordId: event.relatedId, recipientProfileId: recipient.profileId });
       }
-      if (existing?.email_status === "sent") {
+      if (existing?.email_status === "sent" || existing?.email_status === "skipped") {
         diagnostic("duplicate_notification_skipped", { eventType: event.type, relatedRecordId: event.relatedId, recipientProfileId: recipient.profileId });
+        return;
+      }
+      const preference = await emailAllowedByPreference(client, event, recipient);
+      if (!preference.allowed) {
+        const { error } = await client.from("notifications").update({ email_status: "skipped", email_sent_at: null, email_error: null, email_attempts: existing?.email_attempts ?? 0 }).eq("notification_id", notificationId);
+        if (error) throw error;
+        diagnostic("email_skipped_by_user_preference", { eventType: event.type, relatedRecordId: event.relatedId, recipientProfileId: recipient.profileId, preferenceKey: preference.key });
         return;
       }
       const outcome = actionUrl ? await sendEmail(emailFor(event, recipient, actionUrl), recipient) : { status: "failed" as const, error: "Missing configuration: Application URL is not configured." };
