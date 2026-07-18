@@ -136,7 +136,7 @@ function smtpConfiguration() {
   return { host: process.env.SMTP_HOST, port, user: process.env.SMTP_USER, password: process.env.SMTP_PASSWORD };
 }
 
-/** Creates the server-only Yahoo Mail SMTP SSL transport. */
+/** Creates the server-only SMTP SSL transport from environment configuration. */
 export function createEmailTransport() {
   const configuration = smtpConfiguration();
   if (!configuration) return null;
@@ -145,10 +145,10 @@ export function createEmailTransport() {
 
 function smtpFailureMessage(error: unknown) {
   const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "";
-  if (code === "EAUTH") return "Yahoo rejected the SMTP login or app password. Confirm that SMTP_PASSWORD contains the Yahoo-generated app password, not the normal Yahoo account password.";
-  if (code === "ESOCKET") return "Yahoo SMTP TLS connection failed.";
-  if (["ECONNECTION", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN"].includes(code)) return "Yahoo SMTP connection failed.";
-  return "Yahoo SMTP email send failed.";
+  if (code === "EAUTH") return "Gmail rejected the SMTP login or app password. Confirm that SMTP_PASSWORD contains the Google-generated app password, not the normal Gmail password.";
+  if (code === "ESOCKET") return "TLS failure: Gmail SMTP TLS connection failed.";
+  if (["ECONNECTION", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN"].includes(code)) return "Connection failure: Gmail SMTP connection failed.";
+  return "Email send failure: Gmail SMTP email send failed.";
 }
 
 function isTemporarySmtpFailure(error: unknown) {
@@ -159,9 +159,9 @@ function isTemporarySmtpFailure(error: unknown) {
 
 async function sendEmail(email: DeliverEazeEmail, recipient: Recipient) {
   const transport = createEmailTransport();
-  if (!transport) return { status: "failed" as const, error: "Yahoo SMTP is not configured." };
+  if (!transport) return { status: "failed" as const, error: "Missing configuration: Gmail SMTP is not configured." };
   const logoUrl = appUrl("/images/brand/deliver-eaze-full.png");
-  if (!logoUrl) return { status: "failed" as const, error: "Application URL is not configured." };
+  if (!logoUrl) return { status: "failed" as const, error: "Missing configuration: Application URL is not configured." };
   const content = renderDeliverEazeEmail(email, logoUrl);
   const message = { to: recipient.email, from: { address: process.env.SMTP_FROM_EMAIL as string, name: process.env.SMTP_FROM_NAME as string }, subject: email.title, html: content.html, text: content.text };
   try {
@@ -196,17 +196,17 @@ export async function inspectNotificationEmailFields(client: SupabaseClient) {
 export async function runSmtpDiagnostic(recipient: string, sendEmailMessage: boolean) {
   const configuration = logSmtpConfiguration();
   const transport = createEmailTransport();
-  if (!transport) return { configuration, verified: false, sent: false, error: "Yahoo SMTP is not configured." };
+  if (!transport) return { configuration, verified: false, sent: false, error: "Missing configuration: Gmail SMTP is not configured." };
   const actionUrl = appUrl("/admin");
   const logoUrl = appUrl("/images/brand/deliver-eaze-full.png");
-  if (!actionUrl || !logoUrl) return { configuration, verified: false, sent: false, error: "Application URL is not configured." };
+  if (!actionUrl || !logoUrl) return { configuration, verified: false, sent: false, error: "Missing configuration: Application URL is not configured." };
   try {
     await transport.verify();
     diagnostic("smtp_transport_verified");
     if (!sendEmailMessage) return { configuration, verified: true, sent: false, error: null };
-    const content = renderDeliverEazeEmail({ recipientName: "DeliverEaze team", recipientRole: "Administrator", title: "DeliverEaze Yahoo SMTP diagnostic", message: "This is a clearly labelled administrator-requested Yahoo SMTP diagnostic email.", tone: "purple", badge: "SMTP diagnostic", reason: "an Administrator requested an SMTP diagnostic", details: [{ label: "From", value: process.env.SMTP_FROM_EMAIL }, { label: "Web application", value: actionUrl }], actionLabel: "Open DeliverEaze", actionUrl }, logoUrl);
+    const content = renderDeliverEazeEmail({ recipientName: "DeliverEaze team", recipientRole: "Administrator", title: "DeliverEaze Gmail SMTP diagnostic", message: "This is a clearly labelled administrator-requested Gmail SMTP diagnostic email.", tone: "purple", badge: "SMTP diagnostic", reason: "an Administrator requested an SMTP diagnostic", details: [{ label: "From", value: process.env.SMTP_FROM_EMAIL }, { label: "Web application", value: actionUrl }], actionLabel: "Open DeliverEaze", actionUrl }, logoUrl);
     diagnostic("smtp_send_started", { diagnostic: true });
-    await transport.sendMail({ to: recipient, from: { address: process.env.SMTP_FROM_EMAIL as string, name: process.env.SMTP_FROM_NAME as string }, subject: "DeliverEaze Yahoo SMTP diagnostic", html: content.html, text: content.text });
+    await transport.sendMail({ to: recipient, from: { address: process.env.SMTP_FROM_EMAIL as string, name: process.env.SMTP_FROM_NAME as string }, subject: "DeliverEaze Gmail SMTP diagnostic", html: content.html, text: content.text });
     diagnostic("smtp_send_succeeded", { diagnostic: true });
     return { configuration, verified: true, sent: true, error: null };
   } catch (error) {
@@ -249,7 +249,7 @@ export async function notifyOperationalEvent(client: SupabaseClient, event: Noti
         diagnostic("duplicate_notification_skipped", { eventType: event.type, relatedRecordId: event.relatedId, recipientProfileId: recipient.profileId });
         return;
       }
-      const outcome = actionUrl ? await sendEmail(emailFor(event, recipient, actionUrl), recipient) : { status: "failed" as const, error: "Application URL is not configured." };
+      const outcome = actionUrl ? await sendEmail(emailFor(event, recipient, actionUrl), recipient) : { status: "failed" as const, error: "Missing configuration: Application URL is not configured." };
       const { error } = await client.from("notifications").update({ email_status: outcome.status, email_sent_at: outcome.status === "sent" ? new Date().toISOString() : null, email_error: outcome.error, email_attempts: (existing?.email_attempts ?? 0) + 1 }).eq("notification_id", notificationId);
       if (error) {
         diagnostic("email_status_write_failed", { eventType: event.type, relatedRecordId: event.relatedId, errorCode: safeError(error).code });

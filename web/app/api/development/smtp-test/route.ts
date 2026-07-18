@@ -16,5 +16,5 @@ export async function POST(request: Request) {
   if (!isValidEmail(recipient)) return apiError("A valid test recipient email address is required.", 400);
   const result = await sendDevelopmentSmtpTest(recipient.trim());
   if (!result.ok) return apiError(result.error ?? "SMTP test failed.", 502);
-  return Response.json({ message: "Yahoo SMTP test email sent." });
+  return Response.json({ message: "Gmail SMTP test email sent." });
 }

@@ -1,23 +1,23 @@
 This is the DeliverEaze Logistics Next.js web application.
 
-## Yahoo Mail SMTP email notifications
+## Gmail SMTP email notifications
 
-Operational emails are sent only from server-side route handlers through Yahoo Mail SMTP SSL. Generate a Yahoo app password for the configured Yahoo account, then add these values to `web/.env.local` for local development and to Vercel Environment Variables for Preview and Production. Do not commit `.env.local` or the app password.
+Operational emails are sent only from server-side route handlers through Gmail SMTP SSL. Generate a Google app password for the configured Gmail account, then add these values to `web/.env.local` for local development and to Vercel Environment Variables for Preview and Production. Do not commit `.env.local` or the app password.
 
 ```dotenv
-SMTP_HOST=smtp.mail.yahoo.com
+SMTP_HOST=smtp.gmail.com
 SMTP_PORT=465
 SMTP_SECURE=true
-SMTP_USER=
+SMTP_USER=delivereazelogistics@gmail.com
 SMTP_PASSWORD=
-SMTP_FROM_EMAIL=
+SMTP_FROM_EMAIL=delivereazelogistics@gmail.com
 SMTP_FROM_NAME=DeliverEaze Logistics
 APP_URL=https://delivery-driver-management-system.vercel.app
 NEXT_PUBLIC_APP_URL=https://delivery-driver-management-system.vercel.app
 DRIVER_APP_URL=delivereaze://
 ```
 
-`SMTP_USER` and `SMTP_FROM_EMAIL` must be the same Yahoo address. `SMTP_PASSWORD` must be the Yahoo-generated app password, not the normal Yahoo account password. The application reads all three only in server-side code.
+`SMTP_USER` and `SMTP_FROM_EMAIL` must be the same Gmail address. `SMTP_PASSWORD` must be the Google-generated app password, not the normal Gmail account password. The application reads all three only in server-side code.
 
 In development, an authenticated Administrator can send a single transport-validated test message with `POST /api/development/smtp-test` and `{ "recipient": "recipient@example.com" }`. This route is unavailable in production. Template-only previews remain available at `/api/development/email-preview`.
 

@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   if (!authorization.client) return authorization.response ?? apiError("Administrator authorization failed.", 403);
   if (!authorization.userId) return apiError("Administrator authorization failed.", 403);
   const rateLimit = canRunDiagnostic(authorization.userId);
-  if (!rateLimit.allowed) return Response.json({ error: "Too many diagnostic requests. Try again later." }, { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } });
+  if (!rateLimit.allowed) return Response.json({ error: "Rate limit reached. Try again later." }, { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } });
 
   const body: unknown = await request.json().catch(() => null);
   const recipient = typeof body === "object" && body !== null && "recipient" in body ? body.recipient : null;

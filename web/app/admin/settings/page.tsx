@@ -296,7 +296,7 @@ function EmailDiagnosticsPanel() {
       <div className="py-4">
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-purple-50 px-2.5 py-1 text-[11px] font-bold text-purple-800 ring-1 ring-purple-100 dark:bg-purple-950 dark:text-purple-200 dark:ring-purple-900">
-            Yahoo Mail SMTP
+            Gmail SMTP
           </span>
           <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800 ring-1 ring-amber-100 dark:bg-amber-950 dark:text-amber-200 dark:ring-amber-900">
             Development / Diagnostic Tool
@@ -307,7 +307,7 @@ function EmailDiagnosticsPanel() {
             DeliverEaze Logistics
           </p>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            delivereazelogistics@yahoo.com
+            delivereazelogistics@gmail.com
           </p>
         </div>
         <label className="block">
@@ -353,8 +353,8 @@ function EmailDiagnosticsPanel() {
           </button>
         </div>
         <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">
-          Yahoo requires an app password for SMTP access. The normal Yahoo
-          account password should not be used.
+          Gmail requires a Google app password for SMTP access. Do not use the
+          normal Gmail account password.
         </p>
         <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
           Diagnostic attempts are limited to three per Administrator every five
@@ -419,7 +419,7 @@ function EmailDiagnosticsPanel() {
             </div>
             {result.smtp.verified && !requestedSend ? (
               <p className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
-                Yahoo SMTP connection verified successfully.
+                Gmail SMTP connection verified successfully.
               </p>
             ) : null}
             {result.smtp.sent && requestedSend ? (
