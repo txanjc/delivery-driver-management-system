@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { apiError, authorizeAdministratorRequest } from "@/lib/server/administrator-api";
 import { findRelevantAssignment, isVehicleOperational } from "@/lib/operations";
+import { notificationPaths, notifyOperationalEvent } from "@/lib/server/notification-service";
 
 const statuses = ["pending", "assigned", "in_transit", "delivered", "delayed", "failed", "returned"] as const;
 const priorities = ["low", "normal", "high", "urgent"] as const;
@@ -183,6 +184,9 @@ export async function POST(request: Request) {
   const { data, error } = await authorization.client.from("deliveries").insert({ ...resolved.input, created_by: createdBy, updated_at: now }).select("delivery_id").single();
   if (error) return apiError(error.code === "23505" ? "That delivery number already exists." : error.message, error.code === "23505" ? 409 : 400);
   await recordStatusHistory(authorization.client, data.delivery_id, resolved.input.status, createdBy);
+  if (resolved.input.assigned_driver_id) void notifyOperationalEvent(authorization.client, {
+    type: "delivery_assignment", key: `delivery-assignment:${data.delivery_id}:${resolved.input.assigned_driver_id}:${resolved.input.assigned_vehicle_id ?? "none"}`, title: `Delivery ${resolved.input.delivery_number} assigned to you`, message: "A dispatcher assigned a delivery to your schedule.", tone: "blue", badge: "Delivery assignment", module: "deliveries", relatedId: data.delivery_id, actionPath: notificationPaths.delivery(data.delivery_id), driverActionPath: `/delivery/${data.delivery_id}`, actionLabel: "View assigned delivery", driverIds: [resolved.input.assigned_driver_id], recipientRoles: ["driver"], details: [{ label: "Delivery", value: resolved.input.delivery_number }, { label: "Scheduled", value: resolved.scheduleId ? "Your active or upcoming scheduled shift" : null }, { label: "Pickup", value: resolved.input.pickup_address }, { label: "Destination", value: resolved.input.delivery_address }, { label: "Priority", value: resolved.input.priority }, { label: "Notes", value: resolved.input.notes }],
+  });
   return Response.json({ deliveryId: data.delivery_id, scheduleId: resolved.scheduleId }, { status: 201 });
 }
 
@@ -196,7 +200,7 @@ export async function PATCH(request: Request) {
   const deliveryId = isRecord(body) && typeof body.delivery_id === "string" ? body.delivery_id.trim() : "";
   const parsed = parseDelivery(isRecord(body) ? body.delivery : null);
   if (!deliveryId || !parsed) return apiError("Invalid delivery update request.", 400);
-  const { data: existing, error: existingError } = await authorization.client.from("deliveries").select("delivery_id, status, pickup_address, pickup_place_id, pickup_latitude, pickup_longitude, delivery_address, delivery_place_id, delivery_latitude, delivery_longitude").eq("delivery_id", deliveryId).maybeSingle();
+  const { data: existing, error: existingError } = await authorization.client.from("deliveries").select("delivery_id, delivery_number, status, priority, notes, assigned_driver_id, assigned_vehicle_id, pickup_address, pickup_place_id, pickup_latitude, pickup_longitude, delivery_address, delivery_place_id, delivery_latitude, delivery_longitude").eq("delivery_id", deliveryId).maybeSingle();
   if (existingError || !existing) return apiError(existingError?.message ?? "Delivery not found.", 404);
   const resolved = await resolveAssignment(authorization.client, parsed);
   if (resolved.error) return apiError(resolved.error, 400);
@@ -206,6 +210,21 @@ export async function PATCH(request: Request) {
     await authorization.client.from("routes").update({ origin: resolved.input.pickup_address, destination: resolved.input.delivery_address, origin_address: resolved.input.pickup_address, origin_latitude: resolved.input.pickup_latitude, origin_longitude: resolved.input.pickup_longitude, destination_address: resolved.input.delivery_address, destination_latitude: resolved.input.delivery_latitude, destination_longitude: resolved.input.delivery_longitude, estimated_distance_km: null, estimated_duration_minutes: null, route_polyline: null, maps_url: null, route_provider: "stale_delivery_address", route_generated_at: null }).eq("delivery_id", deliveryId);
   }
   if (existing.status !== resolved.input.status) await recordStatusHistory(authorization.client, deliveryId, resolved.input.status, changedBy);
+  const assignmentChanged = existing.assigned_driver_id !== resolved.input.assigned_driver_id || existing.assigned_vehicle_id !== resolved.input.assigned_vehicle_id;
+  if (assignmentChanged && resolved.input.assigned_driver_id) void notifyOperationalEvent(authorization.client, {
+    type: "delivery_assignment", key: `delivery-assignment:${deliveryId}:${resolved.input.assigned_driver_id}:${resolved.input.assigned_vehicle_id ?? "none"}`, title: `Delivery ${resolved.input.delivery_number} assigned to you`, message: "Your delivery assignment was created or updated.", tone: "blue", badge: "Delivery assignment", module: "deliveries", relatedId: deliveryId, actionPath: notificationPaths.delivery(deliveryId), driverActionPath: `/delivery/${deliveryId}`, actionLabel: "View assigned delivery", driverIds: [resolved.input.assigned_driver_id], recipientRoles: ["driver"], details: [{ label: "Delivery", value: resolved.input.delivery_number }, { label: "Pickup", value: resolved.input.pickup_address }, { label: "Destination", value: resolved.input.delivery_address }, { label: "Priority", value: resolved.input.priority }, { label: "Notes", value: resolved.input.notes }],
+  });
+  if (existing.status !== resolved.input.status && ["delayed", "failed", "returned", "delivered"].includes(resolved.input.status)) {
+    const status = resolved.input.status;
+    const isDelay = status === "delayed";
+    const isCompleted = status === "delivered";
+    const recipientRoles = isCompleted ? ["dispatcher"] as const : isDelay && !["high", "urgent"].includes(resolved.input.priority) ? ["dispatcher"] as const : ["dispatcher", "administrator"] as const;
+    const signatureResponse = isCompleted ? await authorization.client.from("delivery_signatures").select("*").eq("delivery_id", deliveryId).limit(1) : null;
+    const proofOfDelivery = signatureResponse?.error ? null : isCompleted ? signatureResponse?.data?.length ? "Signature captured" : "No signature captured" : null;
+    void notifyOperationalEvent(authorization.client, {
+      type: status === "delayed" ? "delivery_delayed" : status === "failed" ? "delivery_failed" : status === "returned" ? "delivery_returned" : "delivery_completed", key: `delivery-status:${deliveryId}:${status}:${new Date().toISOString()}`, title: `Delivery ${resolved.input.delivery_number} ${status}`, message: isCompleted ? "The delivery was marked complete." : `The delivery status changed to ${status}.`, tone: isCompleted ? "green" : isDelay ? "orange" : "red", badge: isCompleted ? "Completed" : status === "failed" ? "Required action" : status === "returned" ? "Returned" : "Delay", module: "deliveries", relatedId: deliveryId, actionPath: notificationPaths.delivery(deliveryId), actionLabel: isCompleted ? "View delivery" : status === "failed" ? "Review or reassign delivery" : "Review delivery", recipientRoles: [...recipientRoles], priority: resolved.input.priority, critical: !isDelay || ["high", "urgent"].includes(resolved.input.priority), details: [{ label: "Delivery", value: resolved.input.delivery_number }, { label: "Driver", value: resolved.input.assigned_driver_id ? "Assigned driver" : null }, { label: "Vehicle", value: resolved.input.assigned_vehicle_id ? "Assigned vehicle" : null }, { label: "Pickup", value: resolved.input.pickup_address }, { label: "Destination", value: resolved.input.delivery_address }, { label: status === "delivered" ? "Proof of delivery" : "Reason or notes", value: status === "delivered" ? proofOfDelivery : resolved.input.notes }, { label: "Updated", value: new Date().toLocaleString("en-US") }],
+    });
+  }
   return Response.json({ message: "Delivery updated successfully.", scheduleId: resolved.scheduleId });
 }
 

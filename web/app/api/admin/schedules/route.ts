@@ -1,6 +1,7 @@
 import { apiError, authorizeAdministratorRequest } from "@/lib/server/administrator-api";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { deriveVehicleStatus } from "@/lib/operations";
+import { notificationPaths, notifyOperationalEvent } from "@/lib/server/notification-service";
 
 type ScheduleInput = {
   driver_id: string;
@@ -129,6 +130,11 @@ export async function POST(request: Request) {
   if (insertError) return apiError(insertError.message, 400);
   const syncError = await synchronizeAssignments(authorization.client, driverIds, vehicleIds);
   if (syncError) return apiError(`Schedules were created, but assignment synchronization failed: ${syncError.message}`, 500);
+  (created ?? []).forEach((schedule, index) => {
+    const item = validSchedules[index];
+    if (!item) return;
+    void notifyOperationalEvent(authorization.client!, { type: "schedule_created", key: `schedule:${schedule.schedule_id}:created`, title: "A new schedule was assigned to you", message: "A dispatcher or Administrator created a new shift for you.", tone: "blue", badge: "New schedule", module: "schedules", relatedId: schedule.schedule_id, actionPath: notificationPaths.schedule(schedule.schedule_id), driverActionPath: "/schedule", actionLabel: "View schedule", driverIds: [item.driver_id], recipientRoles: ["driver"], details: [{ label: "Shift", value: item.shift_name }, { label: "Shift date", value: item.shift_date }, { label: "Start", value: item.start_time }, { label: "End", value: item.end_time }, { label: "Assigned vehicle", value: item.vehicle_id ? "Assigned vehicle" : null }] });
+  });
   return Response.json({ message: "Schedules created successfully.", scheduleIds: (created ?? []).map((schedule) => schedule.schedule_id) }, { status: 201 });
 }
 
@@ -142,7 +148,7 @@ export async function PATCH(request: Request) {
   const input = parseSchedule(body.schedule);
   const status = isRecord(body.schedule) && body.schedule.status === "cancelled" ? "cancelled" : input?.status;
   if (!scheduleId || (!input && status !== "cancelled")) return apiError("Invalid schedule update request.", 400);
-  const { data: existing, error: existingError } = await authorization.client.from("schedules").select("driver_id, vehicle_id").eq("schedule_id", scheduleId).maybeSingle();
+  const { data: existing, error: existingError } = await authorization.client.from("schedules").select("driver_id, vehicle_id, shift_name, shift_date, start_time, end_time, status").eq("schedule_id", scheduleId).maybeSingle();
   if (existingError || !existing) return apiError(existingError?.message ?? "Schedule was not found.", 404);
   const scheduleBody = body.schedule as Record<string, unknown>;
   const updatePayload = input ? { ...input, status } : { status: "cancelled" as const };
@@ -152,5 +158,7 @@ export async function PATCH(request: Request) {
   const newVehicleId = input?.vehicle_id ?? existing.vehicle_id;
   const syncError = await synchronizeAssignments(authorization.client, [existing.driver_id, newDriverId].filter((id): id is string => Boolean(id)), [existing.vehicle_id, newVehicleId].filter((id): id is string => Boolean(id)));
   if (syncError) return apiError(syncError.message, 500);
+  const changed = input ?? { ...existing, driver_id: newDriverId, vehicle_id: newVehicleId, status: "cancelled" };
+  void notifyOperationalEvent(authorization.client, { type: status === "cancelled" ? "schedule_cancelled" : "schedule_updated", key: `schedule:${scheduleId}:${status === "cancelled" ? "cancelled" : JSON.stringify(changed)}`, title: status === "cancelled" ? "Your schedule was cancelled" : "Your schedule was updated", message: status === "cancelled" ? "A scheduled shift assigned to you was cancelled." : "A dispatcher or Administrator changed your shift details.", tone: status === "cancelled" ? "orange" : "blue", badge: status === "cancelled" ? "Schedule cancelled" : "Schedule updated", module: "schedules", relatedId: scheduleId, actionPath: notificationPaths.schedule(scheduleId), driverActionPath: "/schedule", actionLabel: "View schedule", driverIds: [newDriverId].filter((id): id is string => Boolean(id)), recipientRoles: ["driver"], details: [{ label: "Shift", value: changed.shift_name }, { label: "Shift date", value: changed.shift_date }, { label: "Start", value: changed.start_time }, { label: "End", value: changed.end_time }, { label: "Status", value: status }] });
   return Response.json({ message: "Schedule updated successfully." });
 }

@@ -1,4 +1,25 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+This is the DeliverEaze Logistics Next.js web application.
+
+## Outlook SMTP email notifications
+
+Operational emails are sent only from server-side route handlers through Outlook SMTP with STARTTLS. Add these values to `web/.env.local` for local development and to Vercel Environment Variables for Preview and Production. Do not commit `.env.local` or any password.
+
+```dotenv
+SMTP_HOST=smtp-mail.outlook.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=delivereazelogistics@outlook.com
+SMTP_PASSWORD=
+SMTP_FROM_EMAIL=delivereazelogistics@outlook.com
+SMTP_FROM_NAME=DeliverEaze Logistics
+APP_URL=https://delivery-driver-management-system.vercel.app
+NEXT_PUBLIC_APP_URL=https://delivery-driver-management-system.vercel.app
+DRIVER_APP_URL=delivereaze://
+```
+
+The sender is `DeliverEaze Logistics <delivereazelogistics@outlook.com>`. `SMTP_PASSWORD` is required at runtime but must remain only in local environment files and Vercel; it is never exposed to browser code.
+
+In development, an authenticated Administrator can send a single transport-validated test message with `POST /api/development/smtp-test` and `{ "recipient": "recipient@example.com" }`. This route is unavailable in production. Template-only previews remain available at `/api/development/email-preview`.
 
 ## Getting Started
 
