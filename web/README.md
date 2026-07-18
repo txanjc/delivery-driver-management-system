@@ -21,6 +21,8 @@ The sender is `DeliverEaze Logistics <delivereazelogistics@outlook.com>`. `SMTP_
 
 In development, an authenticated Administrator can send a single transport-validated test message with `POST /api/development/smtp-test` and `{ "recipient": "recipient@example.com" }`. This route is unavailable in production. Template-only previews remain available at `/api/development/email-preview`.
 
+For temporary production troubleshooting, an authenticated Administrator can use `POST /api/admin/email-diagnostics` with `{ "recipient": "recipient@example.com", "send": true }`. It rate-limits requests, reports only SMTP variable presence and sanitized verification results, checks the notification email columns, and can send a clearly labelled diagnostic message. It never returns credentials.
+
 ## Getting Started
 
 First, run the development server:

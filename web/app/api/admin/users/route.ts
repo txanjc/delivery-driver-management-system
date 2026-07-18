@@ -270,7 +270,7 @@ export async function PATCH(request: Request) {
     .eq("profile_id", userRequest.profileId);
   if (profileError) return jsonResponse({ error: profileError.message }, 400);
 
-  if (previousProfile.role !== userRequest.role || previousProfile.is_active !== userRequest.isActive) void notifyOperationalEvent(clients.adminSupabase, {
+  if (previousProfile.role !== userRequest.role || previousProfile.is_active !== userRequest.isActive) await notifyOperationalEvent(clients.adminSupabase, {
     type: "account_updated", key: `account:${userRequest.profileId}:${userRequest.role}:${userRequest.isActive}`, title: userRequest.isActive ? "Your DeliverEaze account was updated" : "Your DeliverEaze account was deactivated", message: userRequest.isActive ? `Your role is now ${userRequest.role}.` : "Your account is no longer active. Contact an Administrator if you need access.", tone: "grey", badge: userRequest.isActive ? "Account updated" : "Account deactivated", module: "system", relatedId: userRequest.profileId, actionPath: "/login", actionLabel: "Open DeliverEaze", recipientIds: [userRequest.profileId], details: [{ label: "Role", value: userRequest.role }, { label: "Account status", value: userRequest.isActive ? "Active" : "Deactivated" }],
   });
 
@@ -450,7 +450,7 @@ export async function POST(request: Request) {
     );
   }
 
-  void notifyOperationalEvent(adminSupabase, {
+  await notifyOperationalEvent(adminSupabase, {
     type: "account_created", key: `account:${createdProfile.profile_id}:created`, title: "Your DeliverEaze account is ready", message: "An Administrator created your account. Sign in with the credentials provided to you, then complete the required password change.", tone: "grey", badge: "Account created", module: "system", relatedId: createdProfile.profile_id, actionPath: "/login", actionLabel: "Sign in to DeliverEaze", recipientIds: [createdProfile.profile_id], details: [{ label: "Role", value: createdProfile.role }, { label: "Account status", value: createdProfile.is_active ? "Active" : "Inactive" }],
   });
 

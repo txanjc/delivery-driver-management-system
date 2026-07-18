@@ -12,6 +12,39 @@ export type NotificationEvent = { type: EventType; key: string; title: string; m
 
 type ProfileRow = { profile_id: string; first_name: string | null; last_name: string | null; email: string | null; role: string | null; is_active: boolean | null };
 type NotificationDeliveryRow = { notification_id: string; email_status: "pending" | "sent" | "failed" | null; email_attempts: number | null };
+type SafeError = { code: string };
+
+function diagnostic(stage: string, details: Record<string, boolean | number | string | null | undefined> = {}) {
+  console.info("[DeliverEaze email]", JSON.stringify({ stage, ...details }));
+}
+
+function safeError(error: unknown): SafeError {
+  return { code: typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "unknown" };
+}
+
+function smtpEnvironmentStatus() {
+  return {
+    SMTP_HOST: Boolean(process.env.SMTP_HOST),
+    SMTP_PORT: Boolean(process.env.SMTP_PORT),
+    SMTP_SECURE: Boolean(process.env.SMTP_SECURE),
+    SMTP_USER: Boolean(process.env.SMTP_USER),
+    SMTP_PASSWORD: Boolean(process.env.SMTP_PASSWORD),
+    SMTP_FROM_EMAIL: Boolean(process.env.SMTP_FROM_EMAIL),
+    SMTP_FROM_NAME: Boolean(process.env.SMTP_FROM_NAME),
+    APP_URL: Boolean(process.env.APP_URL),
+  };
+}
+
+export function getSmtpConfigurationDiagnostics() {
+  const variables = smtpEnvironmentStatus();
+  return { variables, configured: Object.values(variables).every(Boolean) };
+}
+
+function logSmtpConfiguration() {
+  const configuration = getSmtpConfigurationDiagnostics();
+  diagnostic("smtp_configuration_detected", { ...configuration.variables, configured: configuration.configured });
+  return configuration;
+}
 
 function eventNotificationId(profileId: string, key: string) {
   const hex = createHash("sha256").update(`email:${profileId}:${key}`).digest("hex");
@@ -53,20 +86,37 @@ function validEmail(value: string | null) {
 }
 
 async function resolveRecipients(client: SupabaseClient, event: NotificationEvent) {
+  diagnostic("recipient_lookup_started", { eventType: event.type, relatedRecordId: event.relatedId });
   const driverIds = [...new Set(event.driverIds ?? [])];
   const driverResponse = driverIds.length ? await client.from("drivers").select("user_id").in("driver_id", driverIds) : { data: [], error: null };
-  if (driverResponse.error) throw driverResponse.error;
+  if (driverResponse.error) {
+    diagnostic("driver_recipient_lookup_failed", { eventType: event.type, relatedRecordId: event.relatedId, errorCode: safeError(driverResponse.error).code });
+    throw driverResponse.error;
+  }
   const profileIds = [...new Set([...(event.recipientIds ?? []), ...(driverResponse.data ?? []).map((driver) => driver.user_id).filter((id): id is string => Boolean(id))])];
-  let query = client.from("profiles").select("profile_id, first_name, last_name, email, role, is_active").eq("is_active", true);
+  let query = client.from("profiles").select("profile_id, first_name, last_name, email, role, is_active");
   if (profileIds.length) query = query.in("profile_id", profileIds);
   const { data, error } = await query;
-  if (error) throw error;
+  if (error) {
+    diagnostic("profile_recipient_lookup_failed", { eventType: event.type, relatedRecordId: event.relatedId, errorCode: safeError(error).code });
+    throw error;
+  }
   const roles = event.recipientRoles ? new Set(event.recipientRoles) : null;
-  return ((data ?? []) as ProfileRow[]).flatMap((profile): Recipient[] => {
+  const recipients = ((data ?? []) as ProfileRow[]).flatMap((profile): Recipient[] => {
     const role = recipientRole(profile.role);
-    if (!role || !validEmail(profile.email) || (roles && !roles.has(role))) return [];
+    if (profile.is_active !== true) {
+      diagnostic("recipient_skipped_inactive", { eventType: event.type, relatedRecordId: event.relatedId, recipientProfileId: profile.profile_id });
+      return [];
+    }
+    if (!validEmail(profile.email)) {
+      diagnostic("recipient_skipped_missing_email", { eventType: event.type, relatedRecordId: event.relatedId, recipientProfileId: profile.profile_id });
+      return [];
+    }
+    if (!role || (roles && !roles.has(role))) return [];
     return [{ profileId: profile.profile_id, name: profileName(profile), email: profile.email as string, role }];
   });
+  diagnostic("recipients_resolved", { eventType: event.type, relatedRecordId: event.relatedId, count: recipients.length });
+  return recipients;
 }
 
 function roleReason(event: NotificationEvent, recipient: Recipient) {
@@ -113,56 +163,100 @@ async function sendEmail(email: DeliverEazeEmail, recipient: Recipient) {
   const content = renderDeliverEazeEmail(email, logoUrl);
   const message = { to: recipient.email, from: { address: process.env.SMTP_FROM_EMAIL as string, name: process.env.SMTP_FROM_NAME as string }, subject: email.title, html: content.html, text: content.text };
   try {
+    diagnostic("smtp_send_started", { recipientProfileId: recipient.profileId });
     await transport.sendMail(message);
+    diagnostic("smtp_send_succeeded", { recipientProfileId: recipient.profileId });
     return { status: "sent" as const, error: null };
   } catch (caught) {
+    const error = safeError(caught);
+    if (error.code === "EAUTH") diagnostic("smtp_authentication_failed", { recipientProfileId: recipient.profileId, errorCode: error.code });
+    else if (["ECONNECTION", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN", "ESOCKET"].includes(error.code)) diagnostic("smtp_connection_failed", { recipientProfileId: recipient.profileId, errorCode: error.code });
+    else diagnostic("smtp_send_failed", { recipientProfileId: recipient.profileId, errorCode: error.code });
     if (isTemporarySmtpFailure(caught)) {
-      try { await transport.sendMail(message); return { status: "sent" as const, error: null }; } catch (retryError) {
-        if (process.env.NODE_ENV === "development") console.error("Outlook SMTP retry failed:", { code: typeof retryError === "object" && retryError !== null && "code" in retryError ? retryError.code : "unknown" });
+      try {
+        diagnostic("smtp_send_retry_started", { recipientProfileId: recipient.profileId });
+        await transport.sendMail(message);
+        diagnostic("smtp_send_succeeded", { recipientProfileId: recipient.profileId, retry: true });
+        return { status: "sent" as const, error: null };
+      } catch (retryError) {
+        diagnostic("smtp_send_failed", { recipientProfileId: recipient.profileId, errorCode: safeError(retryError).code, retry: true });
       }
     }
-    if (process.env.NODE_ENV === "development") console.error("Outlook SMTP delivery failed:", { code: typeof caught === "object" && caught !== null && "code" in caught ? caught.code : "unknown" });
     return { status: "failed" as const, error: smtpFailureMessage(caught) };
   }
 }
 
-export async function sendDevelopmentSmtpTest(recipient: string) {
+export async function inspectNotificationEmailFields(client: SupabaseClient) {
+  const { error } = await client.from("notifications").select("email_status, email_sent_at, email_error, email_attempts").limit(1);
+  return { present: !error, errorCode: error ? safeError(error).code : null };
+}
+
+export async function runSmtpDiagnostic(recipient: string, sendEmailMessage: boolean) {
+  const configuration = logSmtpConfiguration();
   const transport = createOutlookTransport();
-  if (!transport) return { ok: false, error: "Outlook SMTP is not configured." };
+  if (!transport) return { configuration, verified: false, sent: false, error: "Outlook SMTP is not configured." };
   const actionUrl = appUrl("/admin");
   const logoUrl = appUrl("/images/brand/deliver-eaze-full.png");
-  if (!actionUrl || !logoUrl) return { ok: false, error: "Application URL is not configured." };
-  const content = renderDeliverEazeEmail({ recipientName: "DeliverEaze team", recipientRole: "Administrator", title: "DeliverEaze Outlook SMTP test", message: "This confirms that the DeliverEaze server can send email through Outlook SMTP.", tone: "purple", badge: "SMTP test", reason: "an Administrator requested a development SMTP test", details: [{ label: "From", value: process.env.SMTP_FROM_EMAIL }, { label: "SMTP host", value: process.env.SMTP_HOST }, { label: "Web application", value: actionUrl }], actionLabel: "Open DeliverEaze", actionUrl }, logoUrl);
+  if (!actionUrl || !logoUrl) return { configuration, verified: false, sent: false, error: "Application URL is not configured." };
   try {
     await transport.verify();
-    await transport.sendMail({ to: recipient, from: { address: process.env.SMTP_FROM_EMAIL as string, name: process.env.SMTP_FROM_NAME as string }, subject: "DeliverEaze Outlook SMTP test", html: content.html, text: content.text });
-    return { ok: true, error: null };
+    diagnostic("smtp_transport_verified");
+    if (!sendEmailMessage) return { configuration, verified: true, sent: false, error: null };
+    const content = renderDeliverEazeEmail({ recipientName: "DeliverEaze team", recipientRole: "Administrator", title: "DeliverEaze Outlook SMTP diagnostic", message: "This is a clearly labelled administrator-requested Outlook SMTP diagnostic email.", tone: "purple", badge: "SMTP diagnostic", reason: "an Administrator requested an SMTP diagnostic", details: [{ label: "From", value: process.env.SMTP_FROM_EMAIL }, { label: "Web application", value: actionUrl }], actionLabel: "Open DeliverEaze", actionUrl }, logoUrl);
+    diagnostic("smtp_send_started", { diagnostic: true });
+    await transport.sendMail({ to: recipient, from: { address: process.env.SMTP_FROM_EMAIL as string, name: process.env.SMTP_FROM_NAME as string }, subject: "DeliverEaze Outlook SMTP diagnostic", html: content.html, text: content.text });
+    diagnostic("smtp_send_succeeded", { diagnostic: true });
+    return { configuration, verified: true, sent: true, error: null };
   } catch (error) {
-    if (process.env.NODE_ENV === "development") console.error("Outlook SMTP test failed:", { code: typeof error === "object" && error !== null && "code" in error ? error.code : "unknown" });
-    return { ok: false, error: smtpFailureMessage(error) };
+    const detail = safeError(error);
+    if (detail.code === "EAUTH") diagnostic("smtp_authentication_failed", { errorCode: detail.code, diagnostic: true });
+    else if (["ECONNECTION", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN", "ESOCKET"].includes(detail.code)) diagnostic("smtp_connection_failed", { errorCode: detail.code, diagnostic: true });
+    else diagnostic("smtp_send_failed", { errorCode: detail.code, diagnostic: true });
+    return { configuration, verified: false, sent: false, error: smtpFailureMessage(error) };
   }
+}
+
+export async function sendDevelopmentSmtpTest(recipient: string) {
+  const result = await runSmtpDiagnostic(recipient, true);
+  return { ok: result.verified && result.sent, error: result.error };
 }
 
 /** Creates one existing in-app notification per recipient, then independently attempts email. */
 export async function notifyOperationalEvent(client: SupabaseClient, event: NotificationEvent) {
   try {
+    diagnostic("notification_event_received", { eventType: event.type, relatedRecordId: event.relatedId });
+    logSmtpConfiguration();
     const recipients = await resolveRecipients(client, event);
     await Promise.all(recipients.map(async (recipient) => {
       const actionUrl = actionUrlFor(event, recipient);
       const notificationId = eventNotificationId(recipient.profileId, event.key);
       const { data: existing, error: existingError } = await client.from("notifications").select("notification_id, email_status, email_attempts").eq("notification_id", notificationId).maybeSingle<NotificationDeliveryRow>();
-      if (existingError) throw existingError;
+      if (existingError) {
+        diagnostic("notification_row_lookup_failed", { eventType: event.type, relatedRecordId: event.relatedId, errorCode: safeError(existingError).code });
+        throw existingError;
+      }
       if (!existing) {
         const { error } = await client.from("notifications").insert({ notification_id: notificationId, user_id: recipient.profileId, notification_type: `email:${event.type}`, title: event.title, message: event.message, delivery_id: event.module === "deliveries" ? event.relatedId : null, status: "unresolved", email_status: "pending", email_attempts: 0 });
-        if (error) throw error;
+        if (error) {
+          diagnostic("notification_row_create_failed", { eventType: event.type, relatedRecordId: event.relatedId, errorCode: safeError(error).code });
+          throw error;
+        }
+        diagnostic("notification_row_created", { eventType: event.type, relatedRecordId: event.relatedId, recipientProfileId: recipient.profileId });
       }
-      if (existing?.email_status === "sent") return;
+      if (existing?.email_status === "sent") {
+        diagnostic("duplicate_notification_skipped", { eventType: event.type, relatedRecordId: event.relatedId, recipientProfileId: recipient.profileId });
+        return;
+      }
       const outcome = actionUrl ? await sendEmail(emailFor(event, recipient, actionUrl), recipient) : { status: "failed" as const, error: "Application URL is not configured." };
       const { error } = await client.from("notifications").update({ email_status: outcome.status, email_sent_at: outcome.status === "sent" ? new Date().toISOString() : null, email_error: outcome.error, email_attempts: (existing?.email_attempts ?? 0) + 1 }).eq("notification_id", notificationId);
-      if (error) throw error;
+      if (error) {
+        diagnostic("email_status_write_failed", { eventType: event.type, relatedRecordId: event.relatedId, errorCode: safeError(error).code });
+        throw error;
+      }
+      diagnostic("email_status_written", { eventType: event.type, relatedRecordId: event.relatedId, recipientProfileId: recipient.profileId, status: outcome.status });
     }));
   } catch (error) {
-    if (process.env.NODE_ENV === "development") console.error("Notification email delivery failed:", error);
+    diagnostic("notification_service_failed", { eventType: event.type, relatedRecordId: event.relatedId, errorCode: safeError(error).code });
   }
 }
 
