@@ -42,5 +42,5 @@ export async function POST(request: Request) {
   return Response.json({
     smtp: { variables: smtp.configuration.variables, configured: smtp.configuration.configured, verified: smtp.verified, sent: smtp.sent, error: smtp.error },
     notificationEmailFields: notificationFields,
-  }, { status: smtp.verified ? 200 : 502 });
+  });
 }
