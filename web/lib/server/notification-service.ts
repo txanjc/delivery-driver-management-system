@@ -145,9 +145,10 @@ export function createEmailTransport() {
 
 function smtpFailureMessage(error: unknown) {
   const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "";
-  if (code === "EAUTH") return "Yahoo rejected the SMTP login or app password.";
-  if (["ECONNECTION", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN"].includes(code)) return "Yahoo SMTP is temporarily unavailable.";
-  return "Email delivery could not be completed.";
+  if (code === "EAUTH") return "Yahoo rejected the SMTP login or app password. Confirm that SMTP_PASSWORD contains the Yahoo-generated app password, not the normal Yahoo account password.";
+  if (code === "ESOCKET") return "Yahoo SMTP TLS connection failed.";
+  if (["ECONNECTION", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN"].includes(code)) return "Yahoo SMTP connection failed.";
+  return "Yahoo SMTP email send failed.";
 }
 
 function isTemporarySmtpFailure(error: unknown) {
