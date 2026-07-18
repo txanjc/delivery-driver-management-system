@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { apiError, authorizeAdministratorRequest } from "@/lib/server/administrator-api";
+import { apiError, requireAdministratorAal2 } from "@/lib/server/administrator-api";
 import { expenseTypeRequiresVehicle, expenseTypeSyncsVehicleMaintenance, isExpenseType, type ExpenseType } from "@/lib/expense-types";
 
 type ExpenseInput = {
@@ -50,14 +50,8 @@ async function syncVehicleMaintenanceStatus(client: SupabaseClient, expense: Exp
   return { error: schedulesResponse.error ?? deliveriesResponse.error, warning: conflictCount > 0 ? "Vehicle was placed into maintenance and has existing future or active assignments to review." : "" };
 }
 
-async function requesterId(client: SupabaseClient, request: Request) {
-  const token = (request.headers.get("authorization") ?? "").split(" ")[1] ?? "";
-  const { data, error } = await client.auth.getUser(token);
-  return error ? null : data.user?.id ?? null;
-}
-
 export async function GET(request: Request) {
-  const authorization = await authorizeAdministratorRequest(request);
+  const authorization = await requireAdministratorAal2(request, "financial_records_read");
   if (!authorization.client) return authorization.response;
 
   const [expensesResponse, revenueResponse, maintenanceResponse] = await Promise.all([
@@ -86,26 +80,25 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authorization = await authorizeAdministratorRequest(request);
+  const authorization = await requireAdministratorAal2(request, "financial_expense_create");
   if (!authorization.client) return authorization.response;
-  const userId = await requesterId(authorization.client, request);
-  if (!userId) return apiError("Authentication is required.", 401);
   let body: unknown;
   try { body = await request.json(); } catch { return apiError("Request body must be valid JSON.", 400); }
   const expense = parseExpense(isRecord(body) ? body.expense : null);
   if (!expense) return apiError("Invalid expense details.", 400);
-  const { error } = await authorization.client.from("expenses").insert({ ...expense, created_by: userId });
+  const { error } = await authorization.client.from("expenses").insert({ ...expense, created_by: authorization.userId });
   if (error) return apiError(error.message, 400);
+  console.info("[DeliverEaze security]", JSON.stringify({ event: "financial_expense_created_at_aal2", userId: authorization.userId }));
   const syncResult = await syncVehicleMaintenanceStatus(authorization.client, expense);
   if (syncResult.error) {
-    console.error("Unable to sync expense vehicle maintenance status", { vehicleId: expense.vehicle_id, expenseType: expense.expense_type, message: syncResult.error.message });
+    console.info("[DeliverEaze security]", JSON.stringify({ event: "financial_vehicle_maintenance_sync_failed", vehicleId: expense.vehicle_id, expenseType: expense.expense_type }));
     return apiError("Expense was saved, but the related vehicle could not be placed into maintenance. Review vehicle status before continuing.", 400);
   }
   return Response.json({ message: syncResult.warning || "Expense recorded successfully." }, { status: 201 });
 }
 
 export async function PATCH(request: Request) {
-  const authorization = await authorizeAdministratorRequest(request);
+  const authorization = await requireAdministratorAal2(request, "financial_expense_update");
   if (!authorization.client) return authorization.response;
   let body: unknown;
   try { body = await request.json(); } catch { return apiError("Request body must be valid JSON.", 400); }
@@ -114,20 +107,22 @@ export async function PATCH(request: Request) {
   if (!expenseId || !expense) return apiError("Invalid expense update request.", 400);
   const { error } = await authorization.client.from("expenses").update(expense).eq("expense_id", expenseId);
   if (error) return apiError(error.message, 400);
+  console.info("[DeliverEaze security]", JSON.stringify({ event: "financial_expense_updated_at_aal2", userId: authorization.userId, expenseId }));
   const syncResult = await syncVehicleMaintenanceStatus(authorization.client, expense);
   if (syncResult.error) {
-    console.error("Unable to sync expense vehicle maintenance status", { vehicleId: expense.vehicle_id, expenseType: expense.expense_type, message: syncResult.error.message });
+    console.info("[DeliverEaze security]", JSON.stringify({ event: "financial_vehicle_maintenance_sync_failed", vehicleId: expense.vehicle_id, expenseType: expense.expense_type }));
     return apiError("Expense was saved, but the related vehicle could not be placed into maintenance. Review vehicle status before continuing.", 400);
   }
   return Response.json({ message: syncResult.warning || "Expense updated successfully." });
 }
 
 export async function DELETE(request: Request) {
-  const authorization = await authorizeAdministratorRequest(request);
+  const authorization = await requireAdministratorAal2(request, "financial_expense_delete");
   if (!authorization.client) return authorization.response;
   const expenseId = new URL(request.url).searchParams.get("expenseId")?.trim();
   if (!expenseId) return apiError("An expense ID is required.", 400);
   const { error } = await authorization.client.from("expenses").delete().eq("expense_id", expenseId);
   if (error) return apiError(error.message, 400);
+  console.info("[DeliverEaze security]", JSON.stringify({ event: "financial_expense_deleted_at_aal2", userId: authorization.userId, expenseId }));
   return Response.json({ message: "Expense deleted successfully." });
 }

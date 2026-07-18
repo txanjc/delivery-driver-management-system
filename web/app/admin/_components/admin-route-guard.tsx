@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/Skeleton";
 import { supabase } from "@/lib/supabase";
 import { isAdministrator } from "@/lib/roles";
+import { getVerifiedTotpFactors } from "@/lib/mfa";
 import { RoutesGuardLoadingState } from "../routes/routes-loading-state";
 
 type AdminProfile = {
@@ -118,6 +119,18 @@ export function AdminRouteGuard({ children }: { children: ReactNode }) {
 
         if (!isAdministrator(profile.role) || profile.is_active !== true) {
           redirectToUnauthorized();
+          return;
+        }
+
+        const [factorResult, assuranceResult] = await Promise.all([
+          supabase.auth.mfa.listFactors(),
+          supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
+        ]);
+        if (!isMounted) return;
+        const verifiedFactors = factorResult.error ? [] : getVerifiedTotpFactors(factorResult.data);
+        if (verifiedFactors.length && assuranceResult.data?.currentLevel === "aal1" && assuranceResult.data.nextLevel === "aal2") {
+          const returnTo = `${window.location.pathname}${window.location.search}`;
+          window.location.replace(`/verify-mfa?returnTo=${encodeURIComponent(returnTo)}`);
           return;
         }
 

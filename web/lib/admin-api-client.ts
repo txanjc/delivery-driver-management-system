@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { getVerifiedTotpFactors } from "@/lib/mfa";
 
 function readError(body: unknown) {
   return typeof body === "object" &&
@@ -25,6 +26,18 @@ export async function fetchAdministratorJson<T>(path: string, init?: RequestInit
   }
 
   const body: unknown = await response.json();
+  if (!response.ok && typeof body === "object" && body !== null && "code" in body && body.code === "MFA_REQUIRED") {
+    const { data: factors } = await supabase.auth.mfa.listFactors();
+    if (!getVerifiedTotpFactors(factors).length) {
+      const isFinancialAction = path.startsWith("/api/admin/finance") || path.startsWith("/api/admin/reports");
+      const setupParams = new URLSearchParams({ mfa: "setup", section: "security" });
+      if (isFinancialAction) setupParams.set("reason", "financial");
+      window.location.assign(`/admin/settings?${setupParams.toString()}`);
+      throw new Error(isFinancialAction ? "Set up an authenticator before performing this financial action." : "Set up an authenticator before performing this action.");
+    }
+    window.location.assign(`/verify-mfa?returnTo=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`);
+    throw new Error("Verify your identity to continue.");
+  }
   if (!response.ok) throw new Error(readError(body));
   return body as T;
 }

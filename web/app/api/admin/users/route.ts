@@ -5,6 +5,7 @@ import {
   type UserRole,
 } from "@/lib/roles";
 import { notifyOperationalEvent } from "@/lib/server/notification-service";
+import { requireAdministratorAal2 } from "@/lib/server/administrator-api";
 
 type CreateUserRequest = {
   firstName: string;
@@ -208,6 +209,8 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  const aal2 = await requireAdministratorAal2(request);
+  if (!aal2.client) return aal2.response ?? jsonResponse({ error: "Additional verification is required." }, 403);
   const authorization = await createAuthorizedAdminClients(request);
   if (!authorization.clients) {
     return jsonResponse({ error: authorization.error }, authorization.status);
@@ -275,6 +278,7 @@ export async function PATCH(request: Request) {
   });
 
   const { data } = await clients.adminSupabase.auth.admin.getUserById(userRequest.profileId);
+  console.info("[DeliverEaze security]", JSON.stringify({ event: "user_administration_completed_at_aal2", action: "update", userId: aal2.userId }));
   return Response.json({
     message: "User updated successfully.",
     authDetails: {
@@ -286,6 +290,8 @@ export async function PATCH(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const aal2 = await requireAdministratorAal2(request);
+  if (!aal2.client) return aal2.response ?? jsonResponse({ error: "Additional verification is required." }, 403);
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -453,6 +459,8 @@ export async function POST(request: Request) {
   await notifyOperationalEvent(adminSupabase, {
     type: "account_created", key: `account:${createdProfile.profile_id}:created`, title: "Your DeliverEaze account is ready", message: "An Administrator created your account. Sign in with the credentials provided to you, then complete the required password change.", tone: "grey", badge: "Account created", module: "system", relatedId: createdProfile.profile_id, actionPath: "/login", actionLabel: "Sign in to DeliverEaze", recipientIds: [createdProfile.profile_id], details: [{ label: "Role", value: createdProfile.role }, { label: "Account status", value: createdProfile.is_active ? "Active" : "Inactive" }],
   });
+
+  console.info("[DeliverEaze security]", JSON.stringify({ event: "user_administration_completed_at_aal2", action: "create", userId: aal2.userId }));
 
   return jsonResponse(
     {

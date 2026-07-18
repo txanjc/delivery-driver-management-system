@@ -1,4 +1,4 @@
-import { apiError, authorizeAdministratorRequest } from "@/lib/server/administrator-api";
+import { apiError, authorizeAdministratorRequest, requireAdministratorAal2 } from "@/lib/server/administrator-api";
 import { reportTypes, type GeneratedReport, type ReportCategory, type ReportChart, type ReportColumn, type ReportSummaryItem } from "@/lib/reporting";
 
 type Row = Record<string, unknown>;
@@ -27,17 +27,26 @@ export async function GET(request: Request) {
   const dateFrom = values(url, "dateFrom"); const dateTo = values(url, "dateTo");
   if (!reportTypes[category]?.some((option) => option.value === reportType)) return apiError("Select a supported report category and report type.", 400);
 
+  let client = authorization.client;
+  let protectedReportUserId: string | null = null;
+  if (category === "financial") {
+    const aal2Authorization = await requireAdministratorAal2(request, "financial_report_generate");
+    if (!aal2Authorization.client) return aal2Authorization.response;
+    client = aal2Authorization.client;
+    protectedReportUserId = aal2Authorization.userId;
+  }
+
   const [deliveriesResult, driversResult, profilesResult, vehiclesResult, schedulesResult, routesResult, expensesResult, revenueResult, maintenanceResult, historyResult] = await Promise.all([
-    authorization.client.from("deliveries").select("delivery_id, delivery_number, customer_name, assigned_driver_id, assigned_vehicle_id, status, priority, created_at"),
-    authorization.client.from("drivers").select("driver_id, user_id, availability"),
-    authorization.client.from("profiles").select("profile_id, first_name, last_name, email"),
-    authorization.client.from("vehicles").select("vehicle_id, vehicle_number, license_plate, make, model, status"),
-    authorization.client.from("schedules").select("schedule_id, driver_id, vehicle_id, shift_date, shift_type, shift_name, start_time, end_time, status"),
-    authorization.client.from("routes").select("route_id, delivery_id, route_generated_at, created_at"),
-    authorization.client.from("expenses").select("expense_id, delivery_id, vehicle_id, driver_id, expense_type, description, amount, expense_date"),
-    authorization.client.from("delivery_revenue").select("revenue_id, delivery_id, revenue_amount, tax_amount, discount_amount, net_revenue, invoice_number, revenue_date"),
-    authorization.client.from("vehicle_maintenance").select("maintenance_id, vehicle_id, maintenance_type, cost, maintenance_date"),
-    authorization.client.from("delivery_status_history").select("delivery_id, status, changed_by, created_at").order("created_at", { ascending: false }),
+    client.from("deliveries").select("delivery_id, delivery_number, customer_name, assigned_driver_id, assigned_vehicle_id, status, priority, created_at"),
+    client.from("drivers").select("driver_id, user_id, availability"),
+    client.from("profiles").select("profile_id, first_name, last_name, email"),
+    client.from("vehicles").select("vehicle_id, vehicle_number, license_plate, make, model, status"),
+    client.from("schedules").select("schedule_id, driver_id, vehicle_id, shift_date, shift_type, shift_name, start_time, end_time, status"),
+    client.from("routes").select("route_id, delivery_id, route_generated_at, created_at"),
+    category === "financial" ? client.from("expenses").select("expense_id, delivery_id, vehicle_id, driver_id, expense_type, description, amount, expense_date") : Promise.resolve({ data: [], error: null }),
+    category === "financial" ? client.from("delivery_revenue").select("revenue_id, delivery_id, revenue_amount, tax_amount, discount_amount, net_revenue, invoice_number, revenue_date") : Promise.resolve({ data: [], error: null }),
+    category === "financial" ? client.from("vehicle_maintenance").select("maintenance_id, vehicle_id, maintenance_type, cost, maintenance_date") : Promise.resolve({ data: [], error: null }),
+    client.from("delivery_status_history").select("delivery_id, status, changed_by, created_at").order("created_at", { ascending: false }),
   ]);
   const error = category === "delivery"
     ? deliveriesResult.error ?? driversResult.error ?? vehiclesResult.error ?? routesResult.error
@@ -48,7 +57,7 @@ export async function GET(request: Request) {
         : category === "operational"
           ? deliveriesResult.error ?? driversResult.error ?? vehiclesResult.error ?? schedulesResult.error ?? routesResult.error
           : historyResult.error ?? deliveriesResult.error ?? profilesResult.error;
-  if (error) { if (process.env.NODE_ENV === "development") console.error("Report query failed", error); return apiError("The report could not be generated.", 400); }
+  if (error) { console.info("[DeliverEaze security]", JSON.stringify({ event: "report_query_failed", category, reportType })); return apiError("The report could not be generated.", 400); }
   const deliveries = (deliveriesResult.data ?? []) as Row[]; const drivers = (driversResult.data ?? []) as Row[]; const profiles = (profilesResult.data ?? []) as Row[]; const vehicles = (vehiclesResult.data ?? []) as Row[]; const schedules = (schedulesResult.data ?? []) as Row[]; const routes = (routesResult.data ?? []) as Row[]; const expenses = (expensesResult.data ?? []) as Row[]; const revenue = (revenueResult.data ?? []) as Row[]; const maintenance = (maintenanceResult.data ?? []) as Row[]; const history = (historyResult.data ?? []) as Row[];
   const driverProfiles = new Map(drivers.map((driver) => [text(driver, "driver_id"), profiles.find((profile) => text(profile, "profile_id") === text(driver, "user_id"))]));
   const driverNames = new Map(drivers.map((driver) => [text(driver, "driver_id"), name(driverProfiles.get(text(driver, "driver_id")))]));
@@ -127,5 +136,8 @@ export async function GET(request: Request) {
     shifts: [...new Set(schedules.map((row) => text(row, "shift_name") || text(row, "shift_type")).filter(Boolean))].map((value) => ({ value, label: label(value) })),
     users: profiles.map((row) => ({ value: text(row, "profile_id"), label: name(row) })),
   };
+  if (category === "financial") {
+    console.info("[DeliverEaze security]", JSON.stringify({ event: "financial_report_generated_at_aal2", userId: protectedReportUserId, reportType }));
+  }
   return Response.json({ ...response, options: optionPayload });
 }

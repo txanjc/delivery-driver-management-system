@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 
 import { AppIcons } from "@/config/icons";
 import { getRoleRedirectPath, type WebUserRole } from "@/lib/role-redirect";
+import { getVerifiedTotpFactors } from "@/lib/mfa";
 import { supabase } from "@/lib/supabase";
 
 const SLIDE_INTERVAL_MS = 3500;
@@ -277,6 +278,16 @@ export default function LoginPage() {
     if (profile.role === "driver") {
       setErrorMessage("Drivers must use the mobile app.");
       setIsLoading(false);
+      return;
+    }
+
+    const [factorResult, assuranceResult] = await Promise.all([
+      supabase.auth.mfa.listFactors(),
+      supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
+    ]);
+    const verifiedFactors = factorResult.error ? [] : getVerifiedTotpFactors(factorResult.data);
+    if (verifiedFactors.length && assuranceResult.data?.currentLevel === "aal1" && assuranceResult.data.nextLevel === "aal2") {
+      router.replace(`/verify-mfa?returnTo=${encodeURIComponent(getRoleRedirectPath(profile.role))}`);
       return;
     }
 
