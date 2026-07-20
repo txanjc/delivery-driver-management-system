@@ -27,7 +27,11 @@ export function Skeleton({ className, rounded = "rounded-xl", style }: SkeletonP
   return (
     <span
       aria-hidden="true"
-      className={cx("block animate-pulse bg-slate-200/75 motion-reduce:animate-none", rounded, className)}
+      className={cx(
+        "block animate-pulse bg-slate-200/75 motion-reduce:animate-none dark:bg-slate-700/70",
+        rounded,
+        className,
+      )}
       style={style}
     />
   );
@@ -261,9 +265,6 @@ export function SkeletonMapPanel({ className }: SkeletonProps) {
     <div aria-busy="true" aria-live="polite" className={cx("relative overflow-hidden rounded-[24px] bg-slate-100", className)}>
       <span className="sr-only">Loading route map</span>
       <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(148,163,184,.28)_1px,transparent_1px),linear-gradient(rgba(148,163,184,.28)_1px,transparent_1px)] bg-[size:56px_56px]" />
-      <Skeleton className="absolute left-[12%] top-[18%] h-3 w-[52%] rotate-[-24deg]" rounded="rounded-full" />
-      <Skeleton className="absolute left-[36%] top-[48%] h-3 w-[46%] rotate-[18deg]" rounded="rounded-full" />
-      <Skeleton className="absolute left-[58%] top-[70%] h-3 w-[30%] rotate-[-34deg]" rounded="rounded-full" />
       {["left-[18%] top-[26%]", "left-[48%] top-[45%]", "left-[76%] top-[62%]"].map((position) => (
         <Skeleton className={cx("absolute h-8 w-8 border-4 border-white shadow-lg", position)} key={position} rounded="rounded-full" />
       ))}

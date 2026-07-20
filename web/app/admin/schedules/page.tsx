@@ -80,6 +80,20 @@ function SchedulesSkeleton({ showOverview, visibleDays }: { showOverview: boolea
   return <div className="space-y-4"><AdminCard className="p-4"><div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_150px_150px_auto]"><Skeleton className="h-11 w-full" rounded="rounded-full" /><Skeleton className="h-11 w-full" rounded="rounded-full" /><Skeleton className="h-11 w-full" rounded="rounded-full" /><Skeleton className="h-11 w-40" rounded="rounded-full" /></div></AdminCard>{showOverview ? <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }).map((_, index) => <Skeleton className="h-28" key={index} rounded="rounded-[20px]" />)}</div> : null}<AdminCard className="p-4"><div className="grid gap-3 md:grid-cols-3"><Skeleton className="h-12" rounded="rounded-2xl" /><Skeleton className="h-12" rounded="rounded-2xl" /><Skeleton className="h-12" rounded="rounded-2xl" /></div></AdminCard><AdminCard className="overflow-hidden"><div className="overflow-x-auto"><div className="min-w-max"><div className="grid border-b border-slate-100 bg-slate-50/80" style={{ gridTemplateColumns: `220px repeat(${visibleDays.length}, minmax(132px, 1fr))` }}><div className="sticky left-0 z-10 bg-slate-50 p-4"><Skeleton className="h-4 w-24" rounded="rounded-full" /></div>{visibleDays.map((day) => <div className="border-l border-slate-100 p-4" key={dateOnly(day)}><Skeleton className="mx-auto h-8 w-16" rounded="rounded-full" /></div>)}</div>{Array.from({ length: 6 }).map((_, row) => <div className="grid border-b border-slate-100" key={row} style={{ gridTemplateColumns: `220px repeat(${visibleDays.length}, minmax(132px, 1fr))` }}><div className="sticky left-0 z-10 flex gap-3 bg-white p-4"><Skeleton className="h-10 w-10" rounded="rounded-full" /><div className="space-y-2"><Skeleton className="h-4 w-28" rounded="rounded-full" /><Skeleton className="h-3 w-20" rounded="rounded-full" /></div></div>{visibleDays.map((day, index) => <div className="min-h-28 border-l border-slate-100 p-2" key={`${row}-${dateOnly(day)}`}><Skeleton className={`h-14 ${index % 3 === 0 ? "w-full" : "w-3/4"}`} rounded="rounded-xl" /></div>)}</div>)}</div></div></AdminCard></div>;
 }
 
+function SchedulesLoadingState({ showOverview, visibleDays }: { showOverview: boolean; visibleDays: Date[] }) {
+  return (
+    <section aria-busy="true" className="space-y-4 text-[#17232b]">
+      <AdminCard className="rounded-[24px] border-white bg-white/80 p-5 ring-1 ring-purple-100/60">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div><Skeleton className="h-4 w-32" rounded="rounded-full" /><Skeleton className="mt-3 h-9 w-40" rounded="rounded-full" /><Skeleton className="mt-3 h-4 w-80 max-w-full" rounded="rounded-full" /></div>
+          <div className="flex flex-wrap items-center gap-2"><Skeleton className="h-10 w-10" rounded="rounded-full" /><Skeleton className="h-7 w-36" rounded="rounded-full" /><Skeleton className="h-10 w-10" rounded="rounded-full" /><Skeleton className="h-10 w-20" rounded="rounded-full" /><Skeleton className="h-10 w-24" rounded="rounded-full" /><Skeleton className="h-10 w-36" rounded="rounded-full" /></div>
+        </div>
+      </AdminCard>
+      <SchedulesSkeleton showOverview={showOverview} visibleDays={visibleDays} />
+    </section>
+  );
+}
+
 function SearchableSelect({ label, placeholder, value, options, onChange, allowEmpty = false }: { label: string; placeholder: string; value: string; options: Array<{ id: string; label: string; detail?: string }>; onChange: (value: string) => void; allowEmpty?: boolean }) {
   const selected = options.find((option) => option.id === value);
   const [query, setQuery] = useState(selected?.label ?? "");
@@ -191,6 +205,7 @@ const driverOptions = data.drivers.map((driver) => { const profile = driver.user
   async function cancelSchedule(schedule: ScheduleRecord) { setIsSaving(true); setErrorMessage(""); try { await fetchAdministratorJson("/api/admin/schedules", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ schedule_id: schedule.scheduleId, schedule: { status: "cancelled", notes: schedule.notes } }) }); await loadData(); setSelectedSchedule(null); notify.success("Schedule cancelled successfully."); } catch (error) { setErrorMessage(error instanceof Error ? error.message : "Unable to cancel schedule."); } finally { setIsSaving(false); } }
 
   const filterClass = "users-filter-select h-10 w-full appearance-none rounded-full border border-slate-200 bg-slate-50 px-3 pr-9 text-sm text-slate-600 outline-none focus:border-purple-300 focus:bg-white focus:ring-2 focus:ring-purple-100";
+  if (isLoading) return <SchedulesLoadingState showOverview={showOverview} visibleDays={visibleDays} />;
   return <section className="space-y-4 text-[#17232b]">
     <div className="rounded-[24px] border border-white bg-white/80 p-5 shadow-sm ring-1 ring-purple-100/60 backdrop-blur-xl">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">

@@ -8,6 +8,7 @@ import { useNotify } from "@/components/ui/ToastProvider";
 import { fetchAdministratorJson } from "@/lib/admin-api-client";
 import {
   AdminCard,
+  AdminFilterBarSkeleton,
   AdminPageIntro,
   PrimaryActionButton,
 } from "../_components/admin-design-system";
@@ -208,8 +209,7 @@ function matchesDriverSearch(driver: DriverRecord, search: string) {
 function DriverKpiCard({ label, value, detail, accent = false, isLoading = false }: { label: string; value: string; detail: string; accent?: boolean; isLoading?: boolean }) {
   return (
     <div className={`rounded-[20px] border p-5 shadow-sm ${accent ? "border-[#172f3a] bg-[#172f3a] text-white" : "border-slate-100 bg-white text-[#17232b]"}`}>
-      <p className={accent ? "text-xs text-slate-300" : "text-xs text-slate-500"}>{label}</p>
-      {isLoading ? <><Skeleton className="mt-4 h-9 w-20" rounded="rounded-full" /><Skeleton className="mt-2 h-3 w-32" rounded="rounded-full" /></> : <><p className="mt-4 text-3xl font-semibold tracking-[-0.03em]">{value}</p><p className="mt-1 text-xs text-slate-400">{detail}</p></>}
+      {isLoading ? <><Skeleton className="h-3 w-24" rounded="rounded-full" /><Skeleton className="mt-4 h-9 w-20" rounded="rounded-full" /><Skeleton className="mt-2 h-3 w-32" rounded="rounded-full" /></> : <><p className={accent ? "text-xs text-slate-300" : "text-xs text-slate-500"}>{label}</p><p className="mt-4 text-3xl font-semibold tracking-[-0.03em]">{value}</p><p className="mt-1 text-xs text-slate-400">{detail}</p></>}
     </div>
   );
 }
@@ -569,7 +569,7 @@ export default function AdminDriversPage() {
 
   return (
     <section className="space-y-4 text-[#17232b]">
-      <AdminPageIntro actions={<PrimaryActionButton className="gap-2 px-6 py-3 focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:ring-offset-2" onClick={openCreateModal} type="button"><span aria-hidden="true" className="text-lg leading-none">+</span><span>Create Driver</span></PrimaryActionButton>} description="Monitor driver profiles, license readiness, availability, performance, and vehicle assignments across the delivery network." eyebrow="Fleet operations" title="Drivers" />
+      <AdminPageIntro actions={<PrimaryActionButton className="gap-2 px-6 py-3 focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:ring-offset-2" onClick={openCreateModal} type="button"><span aria-hidden="true" className="text-lg leading-none">+</span><span>Create Driver</span></PrimaryActionButton>} description="Monitor driver profiles, license readiness, availability, performance, and vehicle assignments across the delivery network." eyebrow="Fleet operations" loading={isLoading} title="Drivers" />
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <DriverKpiCard accent detail="All operational records" isLoading={isLoading} label="Total Drivers" value={String(stats.total)} />
@@ -578,17 +578,17 @@ export default function AdminDriversPage() {
         <DriverKpiCard detail="Not available for assignment" isLoading={isLoading} label="Unavailable Drivers" value={String(stats.unavailable)} />
       </div>
 
-      <AdminCard className="p-4"><div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_180px_180px]">
+      {isLoading ? <AdminFilterBarSkeleton className="lg:grid-cols-[minmax(0,1fr)_180px_180px_180px]" count={4} /> : <AdminCard className="p-4"><div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_180px_180px]">
         <label><span className="sr-only">Search drivers</span><input className="users-search-input h-11 w-full rounded-full border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-blue-200 focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100" onChange={(event) => setSearchInput(event.target.value)} placeholder="Search drivers" type="search" value={searchInput} /></label>
         <label><span className="sr-only">Availability filter</span><select className={filterClass} onChange={(event) => { setAvailabilityFilter(event.target.value as AvailabilityFilter); setCurrentPage(1); }} value={availabilityFilter}><option value="all">All Availability</option>{availabilityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label><span className="sr-only">Status filter</span><select className={filterClass} onChange={(event) => { setStatusFilter(event.target.value as StatusFilter); setCurrentPage(1); }} value={statusFilter}><option value="all">All Drivers</option><option value="active">Active Drivers</option><option value="inactive">Inactive Drivers</option></select></label>
         <label><span className="sr-only">Sort drivers</span><select className={filterClass} onChange={(event) => { setSortKey(event.target.value as SortKey); setCurrentPage(1); }} value={sortKey}><option value="name">Sort: Name</option><option value="licenseExpiry">Sort: License Expiry</option><option value="performanceScore">Sort: Performance</option></select></label>
-      </div></AdminCard>
+      </div></AdminCard>}
 
       {errorMessage && !isModalOpen ? <p aria-live="assertive" className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</p> : null}
 
       <AdminCard className="overflow-hidden">
-        <div className="border-b border-slate-100 px-5 py-4"><h2 className="text-xl font-medium">Driver Records</h2><p className="mt-1 text-sm text-slate-400">Driver records joined to profiles and assigned vehicles.</p></div>
+        <div className="border-b border-slate-100 px-5 py-4">{isLoading ? <><Skeleton className="h-5 w-36" rounded="rounded-full" /><Skeleton className="mt-2 h-3 w-56" rounded="rounded-full" /></> : <><h2 className="text-xl font-medium">Driver Records</h2><p className="mt-1 text-sm text-slate-400">Driver records joined to profiles and assigned vehicles.</p></>}</div>
         {isLoading ? <DriverTableSkeleton /> : filteredDrivers.length === 0 ? <div className="px-5 py-16 text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-purple-50 text-sm font-semibold text-purple-700">DR</div><h3 className="mt-4 text-lg font-semibold">No drivers found.</h3><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">{drivers.length === 0 ? "Create a driver record to begin managing fleet availability." : "Try adjusting your search or filters."}</p></div> : <div className="overflow-x-auto"><table className="min-w-full text-sm [&_td]:py-2.5 [&_th]:py-2.5">
           <thead className="border-b border-slate-100 bg-slate-50/70 text-left text-xs text-slate-400"><tr><th className="px-5 py-4 font-medium">Driver Name</th><th className="px-5 py-4 font-medium">Phone</th><th className="px-5 py-4 font-medium">License Number</th><th className="px-5 py-4 font-medium">License Expiry</th><th className="px-5 py-4 font-medium">Availability</th><th className="px-5 py-4 font-medium">Assigned Vehicle</th><th className="px-5 py-4 font-medium">Performance Score</th><th className="px-5 py-4 text-right font-medium">Actions</th></tr></thead>
           <tbody className="divide-y divide-slate-100 text-slate-500">{paginatedDrivers.map((driver) => <tr className="transition hover:bg-slate-50/70" key={driver.driverId}>

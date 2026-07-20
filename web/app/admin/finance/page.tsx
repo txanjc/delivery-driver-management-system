@@ -332,11 +332,10 @@ function KpiCard({
     <AdminCard className="overflow-hidden p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold text-slate-500">{label}</p>
           {isLoading ? (
-            <Skeleton className="mt-3 h-8 w-28" rounded="rounded-full" />
+            <><Skeleton className="h-3 w-28" rounded="rounded-full" /><Skeleton className="mt-3 h-8 w-28" rounded="rounded-full" /></>
           ) : (
-            <p className="mt-3 text-2xl font-bold tracking-[-0.035em] text-slate-950">{value}</p>
+            <><p className="text-xs font-semibold text-slate-500">{label}</p><p className="mt-3 text-2xl font-bold tracking-[-0.035em] text-slate-950">{value}</p></>
           )}
         </div>
         <span className={`grid h-10 w-10 place-items-center rounded-2xl ${tone}`}>
@@ -1526,6 +1525,7 @@ export default function FinancePage() {
         }
         description="Monitor revenue, operational expenses, delivery costs, and overall financial performance."
         eyebrow="Financial operations"
+        loading={loading}
         title="Finance"
       />
 

@@ -9,23 +9,35 @@ import { AppButton, IconButton } from "@/components/ui/AppButton";
 import { fetchAdministratorJson } from "@/lib/admin-api-client";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useNotify } from "@/components/ui/ToastProvider";
-import { RoutesMap, type RoutesMapHandle, type RoutesMapLayer } from "@/components/routes/RoutesMap";
+import { isVehicleOperational } from "@/lib/operations";
+import { RoutesMap, type RoutesMapHandle, type RoutesMapLayer, type RoutesMapPreview } from "@/components/routes/RoutesMap";
+import type { SelectedPlace } from "@/components/routes/PlacesAddressInput";
+import { MultiStopRouteBuilder } from "./MultiStopRouteBuilder";
+import type { DeliveryEligibilityReason, MultiStopDelivery } from "./DeliveryMultiSelect";
+import { companyDefaultStartLocation, isValidStartLocation, type CompanySettingsLocation, type StartLocation } from "./start-location";
+import type { OptimizationPreview, OptimizedStop, PreviewDeliveryDetail } from "./multi-stop-preview";
 
-type RouteRow = { route_id: string; delivery_id: string | null; origin: string | null; destination: string | null; origin_name: string | null; origin_address: string | null; origin_latitude: number | string | null; origin_longitude: number | string | null; destination_name: string | null; destination_address: string | null; destination_latitude: number | string | null; destination_longitude: number | string | null; estimated_distance_km: number | string | null; estimated_duration_minutes: number | string | null; actual_distance_km: number | string | null; actual_duration_minutes: number | string | null; route_polyline: string | null; maps_url: string | null; route_provider: string | null; route_generated_at: string | null; sequence_order: number | null; created_at: string | null };
+type RouteRow = { route_id: string; delivery_id: string | null; origin: string | null; destination: string | null; origin_name: string | null; origin_address: string | null; origin_latitude: number | string | null; origin_longitude: number | string | null; destination_name: string | null; destination_address: string | null; destination_latitude: number | string | null; destination_longitude: number | string | null; estimated_distance_km: number | string | null; estimated_duration_minutes: number | string | null; actual_distance_km: number | string | null; actual_duration_minutes: number | string | null; route_polyline: string | null; maps_url: string | null; route_provider: string | null; route_generated_at: string | null; sequence_order: number | null; created_at: string | null; route_number: string | null; route_date: string | null; driver_id: string | null; vehicle_id: string | null; schedule_id: string | null; start_location_name: string | null; start_address: string | null; start_place_id: string | null; start_latitude: number | string | null; start_longitude: number | string | null; end_location_name: string | null; end_address: string | null; end_place_id: string | null; end_latitude: number | string | null; end_longitude: number | string | null; return_to_depot: boolean | null; departure_time: string | null; shift_end_time: string | null; estimated_completion_time: string | null; total_distance_meters: number | string | null; total_duration_seconds: number | string | null; encoded_polyline: string | null; optimization_status: string | null; optimized_at: string | null; status: string | null };
+type RouteStopRow = { route_id: string; delivery_id: string; stop_sequence: number; original_sequence: number | null; estimated_arrival_time: string | null; estimated_departure_time: string | null; service_duration_seconds: number | null; distance_from_previous_meters: number | null; duration_from_previous_seconds: number | null; stop_status: string | null; deliveryNumber?: string; customer?: string; address?: string };
 type DeliveryRow = { delivery_id: string; delivery_number: string | null; customer_name: string | null; customer_phone: string | null; pickup_address: string | null; pickup_place_id: string | null; pickup_latitude: number | string | null; pickup_longitude: number | string | null; delivery_address: string | null; delivery_place_id: string | null; delivery_latitude: number | string | null; delivery_longitude: number | string | null; assigned_driver_id: string | null; assigned_vehicle_id: string | null; status: string | null; priority: string | null; updated_at: string | null };
 type DriverRow = { driver_id: string; user_id: string | null; availability: string | null };
 type ProfileRow = { profile_id: string; first_name: string | null; last_name: string | null; email: string | null; phone: string | null; is_active: boolean | null };
 type VehicleRow = { vehicle_id: string; vehicle_number: string | null; license_plate: string | null; make: string | null; model: string | null; vehicle_type: string | null; status: string | null };
-type ScheduleRow = { schedule_id: string; driver_id: string | null; vehicle_id: string | null; shift_name: string | null; start_time: string | null; end_time: string | null; status: string | null };
-type ApiData = { routes: RouteRow[]; deliveries: DeliveryRow[]; drivers: DriverRow[]; profiles: ProfileRow[]; vehicles: VehicleRow[]; schedules: ScheduleRow[] };
+type ScheduleRow = { schedule_id: string; driver_id: string | null; vehicle_id: string | null; shift_date: string | null; shift_type: string | null; shift_name: string | null; start_time: string | null; end_time: string | null; status: string | null };
+type ApiData = { routes: RouteRow[]; routeStops: RouteStopRow[]; deliveries: DeliveryRow[]; drivers: DriverRow[]; profiles: ProfileRow[]; vehicles: VehicleRow[]; schedules: ScheduleRow[] };
+type CompanySettingsResponse = { companySettings: CompanySettingsLocation | null };
 type ComputeRouteResponse = { distanceMeters: number; durationSeconds: number; encodedPolyline: string };
+type RouteDriverOption = { id: string; name: string; availability: string; isActive: boolean; assignmentSummary?: string };
+type RouteVehicleOption = { id: string; label: string; status: string | null; isOperational: boolean };
+type OptimizationResponse = { optimizedStops?: unknown; route?: unknown; skippedShipments?: unknown; metrics?: unknown };
+type MultiStopSaveResponse = { routeId: string; routeNumber: string; status: string; stopCount: number; savedAt: string };
 type RouteStatus = "planned" | "assigned" | "active" | "completed" | "delayed" | "exception";
 type MapMode = "all" | "drivers" | "vehicles" | "deliveries";
 type FullscreenElement = Element & { msRequestFullscreen?: () => Promise<void>; webkitRequestFullscreen?: () => Promise<void> };
-type DeliveryOption = { id: string; number: string; customer: string; phone: string; pickup: string; pickupPlaceId: string; pickupLatitude: number | null; pickupLongitude: number | null; destination: string; destinationPlaceId: string; destinationLatitude: number | null; destinationLongitude: number | null; driverId: string; vehicleId: string; status: string; priority: string };
+type DeliveryOption = { id: string; number: string; customer: string; phone: string; pickup: string; pickupPlaceId: string; pickupLatitude: number | null; pickupLongitude: number | null; destination: string; destinationPlaceId: string; destinationLatitude: number | null; destinationLongitude: number | null; driverId: string; vehicleId: string; status: string; priority: string; coordinateIssue: "Missing mapped location" | "Invalid mapped coordinates" | null };
 type DriverSearchRecord = { id: string; name: string; email: string; phone: string; availability: string };
 type VehicleSearchRecord = { id: string; number: string; name: string; makeModel: string; plate: string; type: string; status: string };
-type RouteRecord = { id: string; label: string; deliveryId: string; deliveryNumber: string; customer: string; customerPhone: string; origin: string; destination: string; originLat: number | null; originLng: number | null; destinationLat: number | null; destinationLng: number | null; polyline: string; distance: number | null; duration: number | null; actualDuration: number | null; mapsUrl: string; provider: string; createdAt: string | null; status: RouteStatus; deliveryStatus: string; priority: string; driverId: string; driverName: string; driverDetail: string; driverAvailable: boolean; vehicleId: string; vehicleName: string; vehicleStatus: string; vehicleNumber: string; vehicleMakeModel: string; vehiclePlate: string; vehicleType: string; schedule: ScheduleRow | null };
+type RouteRecord = { id: string; label: string; routeNumber: string; routeDate: string | null; deliveryId: string; deliveryNumber: string; customer: string; customerPhone: string; origin: string; destination: string; originLat: number | null; originLng: number | null; destinationLat: number | null; destinationLng: number | null; polyline: string; distance: number | null; duration: number | null; actualDuration: number | null; mapsUrl: string; provider: string; createdAt: string | null; status: RouteStatus; deliveryStatus: string; priority: string; driverId: string; driverName: string; driverDetail: string; driverAvailable: boolean; vehicleId: string; vehicleName: string; vehicleStatus: string; vehicleNumber: string; vehicleMakeModel: string; vehiclePlate: string; vehicleType: string; schedule: ScheduleRow | null; isMultiStop: boolean; returnToDepot: boolean; departureTime: string | null; shiftEndTime: string | null; estimatedCompletionTime: string | null; stops: RouteStopRow[] };
 type RouteForm = { deliveryId: string; origin: string; originPlaceId: string; destination: string; destinationPlaceId: string; originLat: string; originLng: string; destinationLat: string; destinationLng: string; distance: string; duration: string; mapsUrl: string; routePolyline: string };
 type RouteFormField = keyof Pick<RouteForm, "deliveryId" | "origin" | "destination" | "originLat" | "originLng" | "destinationLat" | "destinationLng" | "distance" | "duration" | "mapsUrl" | "routePolyline">;
 type RouteSearchResult = { id: string; type: "delivery" | "route" | "driver" | "vehicle" | "location"; title: string; subtitle?: string; metadata?: string; status?: string; deliveryId?: string; routeId?: string; driverId?: string; vehicleId?: string; locationRole?: "origin" | "destination"; rank: number };
@@ -42,6 +54,7 @@ const routesGlassActionButton = "border border-white/55 bg-[#6d4aff]/82 text-whi
 const card = routesGlassCard;
 
 function numberValue(value: number | string | null) { const number = Number(value); return value === null || value === "" || !Number.isFinite(number) ? null : number; }
+function mappedCoordinateIssue(delivery: DeliveryRow): DeliveryOption["coordinateIssue"] { const coordinates = [delivery.pickup_latitude, delivery.pickup_longitude, delivery.delivery_latitude, delivery.delivery_longitude]; if (coordinates.some((value) => value === null || value === "")) return "Missing mapped location"; const [pickupLatitude, pickupLongitude, destinationLatitude, destinationLongitude] = coordinates.map((value) => Number(value)); if (![pickupLatitude, pickupLongitude, destinationLatitude, destinationLongitude].every(Number.isFinite) || pickupLatitude < -90 || pickupLatitude > 90 || destinationLatitude < -90 || destinationLatitude > 90 || pickupLongitude < -180 || pickupLongitude > 180 || destinationLongitude < -180 || destinationLongitude > 180) return "Invalid mapped coordinates"; return null; }
 function coordinateString(value: number | null) { return value === null ? "" : value.toString(); }
 function hasMappedDelivery(delivery: DeliveryOption) { return delivery.pickupLatitude !== null && delivery.pickupLongitude !== null && delivery.destinationLatitude !== null && delivery.destinationLongitude !== null; }
 function buildMapsUrl(originLatitude: number, originLongitude: number, destinationLatitude: number, destinationLongitude: number) { const search = new URLSearchParams({ api: "1", origin: `${originLatitude},${originLongitude}`, destination: `${destinationLatitude},${destinationLongitude}`, travelmode: "driving" }); return `https://www.google.com/maps/dir/?${search.toString()}`; }
@@ -77,6 +90,28 @@ function scoreMatch(query: string, values: string[], exactBoost = 0) {
   return best;
 }
 function routeIsActive(route: RouteRecord) { return route.status !== "completed" && route.status !== "exception"; }
+function multiStopEligibilityReason(delivery: DeliveryOption, assignedRoute?: RouteRecord): DeliveryEligibilityReason | null { const status = delivery.status.toLowerCase(); if (status === "delivered") return "Completed"; if (status === "cancelled") return "Cancelled"; if (status === "returned") return "Returned"; if (status === "failed") return "Failed"; if (delivery.coordinateIssue) return delivery.coordinateIssue; if (assignedRoute && routeIsActive(assignedRoute)) return "Already assigned to an active route"; return null; }
+function dateKey(value: string | null) { if (!value) return ""; const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10); }
+function scheduleMatchesRouteDate(schedule: ScheduleRow, routeDate: string) { return Boolean(routeDate) && (schedule.shift_date === routeDate || (!schedule.shift_date && dateKey(schedule.start_time) === routeDate)); }
+function scheduleHasValidTiming(schedule: ScheduleRow) { if (!schedule.start_time || !schedule.end_time) return false; const start = new Date(schedule.start_time).getTime(); const end = new Date(schedule.end_time).getTime(); return Number.isFinite(start) && Number.isFinite(end) && end > start; }
+function isRouteScheduleEligible(schedule: ScheduleRow, routeDate: string) { return scheduleMatchesRouteDate(schedule, routeDate) && scheduleHasValidTiming(schedule) && !["cancelled", "conflict", "completed"].includes((schedule.status ?? "scheduled").toLowerCase()); }
+function localDateKey(date = new Date()) { const offset = date.getTimezoneOffset() * 60_000; return new Date(date.getTime() - offset).toISOString().slice(0, 10); }
+function validIsoTime(value: string) { const time = new Date(value).getTime(); return value.length > 0 && Number.isFinite(time); }
+function normalizeOptimizationResponse(value: OptimizationResponse): Omit<OptimizationPreview, "context" | "previewId"> | null {
+  if (!Array.isArray(value.optimizedStops) || !value.metrics || typeof value.metrics !== "object" || value.metrics === null || !value.route || typeof value.route !== "object" || value.route === null || !Array.isArray(value.skippedShipments)) return null;
+  const metrics = value.metrics as Record<string, unknown>;
+  const route = value.route as Record<string, unknown>;
+  if (typeof metrics.totalDistanceMeters !== "number" || typeof metrics.totalDurationSeconds !== "number" || typeof metrics.estimatedCompletionTime !== "string" || !validIsoTime(metrics.estimatedCompletionTime) || typeof route.encodedPolyline !== "string" || !value.skippedShipments.every((item) => typeof item === "string")) return null;
+  const optimizedStops = value.optimizedStops.flatMap((item): OptimizedStop[] => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const stop = item as Record<string, unknown>;
+    return typeof stop.deliveryId === "string" && typeof stop.sequence === "number" && Number.isFinite(stop.sequence) && (typeof stop.estimatedArrivalTime === "string" || stop.estimatedArrivalTime === null) && typeof stop.serviceDurationSeconds === "number" && Number.isFinite(stop.serviceDurationSeconds)
+      ? [{ deliveryId: stop.deliveryId, sequence: Math.round(stop.sequence), estimatedArrivalTime: stop.estimatedArrivalTime, serviceDurationSeconds: Math.round(stop.serviceDurationSeconds) }]
+      : [];
+  });
+  if (optimizedStops.length !== value.optimizedStops.length) return null;
+  return { optimizedStops, encodedPolyline: route.encodedPolyline, skippedShipmentIds: value.skippedShipments as string[], metrics: { totalDistanceMeters: metrics.totalDistanceMeters, totalDurationSeconds: metrics.totalDurationSeconds, estimatedCompletionTime: metrics.estimatedCompletionTime } };
+}
 function StatusBadge({ status }: { status: RouteStatus }) { const tone = status === "completed" ? "bg-emerald-50 text-emerald-700" : status === "active" ? "bg-blue-50 text-blue-700" : status === "delayed" ? "bg-orange-50 text-orange-700" : status === "exception" ? "bg-red-50 text-red-700" : status === "assigned" ? "bg-purple-50 text-purple-700" : "bg-slate-100 text-slate-600"; return <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${tone}`}>{statusLabel(status)}</span>; }
 function Icon({ children }: { children: React.ReactNode }) { return <span className="grid h-7 w-7 place-items-center rounded-xl bg-purple-50 text-xs text-purple-600">{children}</span>; }
 function SectionTitle({ icon: TitleIcon, children }: { icon: typeof AppIcons[keyof typeof AppIcons]; children: React.ReactNode }) { return <h2 className="flex items-center gap-2 text-sm font-bold"><span className="grid h-7 w-7 place-items-center rounded-xl bg-purple-50 text-purple-600"><TitleIcon aria-hidden size={15} weight="bold" /></span>{children}</h2>; }
@@ -103,21 +138,176 @@ function OperationsCard({ routes, loading }: { routes: RouteRecord[]; loading: b
 function routeSearchText(route: RouteRecord) { return `${route.label} ${route.deliveryNumber} ${route.customer} ${route.driverName} ${route.vehicleName} ${route.origin} ${route.destination} ${route.status}`.toLowerCase(); }
 function RoutesList({ routes, selectedId, onSelect, loading }: { routes: RouteRecord[]; selectedId: string; onSelect: (route: RouteRecord) => void; loading: boolean }) {
   const [query, setQuery] = useState(""); const [page, setPage] = useState(1); const matched = routes.filter((route) => routeSearchText(route).includes(query.toLowerCase())); const pages = Math.max(1, Math.ceil(matched.length / 3)); const visible = matched.slice((Math.min(page, pages) - 1) * 3, Math.min(page, pages) * 3);
-  return <section aria-busy={loading} className={`${card} p-3.5`}><div className="flex items-center justify-between gap-2"><SectionTitle icon={AppIcons.map}>Today&apos;s Routes</SectionTitle>{loading ? <span className="sr-only">Loading routes</span> : null}<input className="h-8 w-32 rounded-lg border border-white/60 bg-white/55 px-2.5 text-[10px] outline-none backdrop-blur-sm placeholder:text-slate-400 focus:border-purple-300 focus:ring-2 focus:ring-purple-100/70" onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Search..." value={query} /></div><div className="mt-3 space-y-1.5">{loading ? Array.from({ length: 3 }).map((_, index) => <div className={`grid w-full grid-cols-[1fr_1fr_auto] items-center gap-2 px-2.5 py-2 ${routesGlassCell}`} key={index}><Skeleton className="h-3 w-20" rounded="rounded-full" /><Skeleton className="h-3 w-24" rounded="rounded-full" /><Skeleton className="h-3 w-12" rounded="rounded-full" /></div>) : visible.map((route) => <button className={`grid w-full grid-cols-[1fr_1fr_auto] items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-[10px] backdrop-blur-sm transition ${selectedId === route.id ? "border-purple-300 bg-purple-100/70 shadow-sm ring-1 ring-purple-200/70" : "border-white/60 bg-white/42 hover:bg-white/68"}`} key={route.id} onClick={() => onSelect(route)} type="button"><span className="inline-flex items-center gap-1 font-semibold" style={{ color: hashColor(route.id) }}><AppIcons.routes aria-hidden size={12} weight="bold" />{route.label}</span><span className="truncate text-slate-500">{route.driverName}</span><span className="text-slate-400">{route.duration === null ? "-" : formatDuration(route.duration)}</span></button>)}{!loading && !visible.length ? <p className="py-3 text-center text-xs text-slate-400">No routes match.</p> : null}</div><div className="mt-2 flex items-center justify-between text-[10px] text-slate-400"><span>{loading ? <Skeleton className="h-3 w-24" rounded="rounded-full" /> : <>Showing {visible.length} of {matched.length}</>}</span><div className="flex items-center gap-1.5"><IconButton ariaLabel="Previous route list page" className={routesGlassIconButton} disabled={page <= 1} icon={AppIcons.previous} onClick={() => setPage((value) => Math.max(1, value - 1))} size="sm" tooltip="Previous route list page" /><span>{Math.min(page, pages)} of {pages}</span><IconButton ariaLabel="Next route list page" className={routesGlassIconButton} disabled={page >= pages} icon={AppIcons.next} onClick={() => setPage((value) => Math.min(pages, value + 1))} size="sm" tooltip="Next route list page" /></div></div></section>;
+  return <section aria-busy={loading} className={`${card} p-3.5`}><div className="flex items-center justify-between gap-2"><SectionTitle icon={AppIcons.map}>Today&apos;s Routes</SectionTitle>{loading ? <span className="sr-only">Loading routes</span> : null}<input className="h-8 w-32 rounded-lg border border-white/60 bg-white/55 px-2.5 text-[10px] outline-none backdrop-blur-sm placeholder:text-slate-400 focus:border-purple-300 focus:ring-2 focus:ring-purple-100/70" onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Search..." value={query} /></div><div className="mt-3 space-y-1.5">{loading ? Array.from({ length: 3 }).map((_, index) => <div className={`grid w-full grid-cols-[1fr_1fr_auto] items-center gap-2 px-2.5 py-2 ${routesGlassCell}`} key={index}><Skeleton className="h-3 w-20" rounded="rounded-full" /><Skeleton className="h-3 w-24" rounded="rounded-full" /><Skeleton className="h-3 w-12" rounded="rounded-full" /></div>) : visible.map((route) => <button className={`grid w-full grid-cols-[1fr_1fr_auto] items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-[10px] backdrop-blur-sm transition ${selectedId === route.id ? "border-purple-300 bg-purple-100/70 shadow-sm ring-1 ring-purple-200/70" : "border-white/60 bg-white/42 hover:bg-white/68"}`} key={route.id} onClick={() => onSelect(route)} type="button"><span className="inline-flex min-w-0 items-center gap-1 font-semibold" style={{ color: hashColor(route.id) }}><AppIcons.routes aria-hidden size={12} weight="bold" /><span className="truncate">{route.label}{route.isMultiStop ? ` · ${route.stops.length} stops` : ""}</span></span><span className="truncate text-slate-500">{route.driverName}</span><span className="text-slate-400">{route.duration === null ? "-" : formatDuration(route.duration)}</span></button>)}{!loading && !visible.length ? <p className="py-3 text-center text-xs text-slate-400">No routes match.</p> : null}</div><div className="mt-2 flex items-center justify-between text-[10px] text-slate-400"><span>{loading ? <Skeleton className="h-3 w-24" rounded="rounded-full" /> : <>Showing {visible.length} of {matched.length}</>}</span><div className="flex items-center gap-1.5"><IconButton ariaLabel="Previous route list page" className={routesGlassIconButton} disabled={page <= 1} icon={AppIcons.previous} onClick={() => setPage((value) => Math.max(1, value - 1))} size="sm" tooltip="Previous route list page" /><span>{Math.min(page, pages)} of {pages}</span><IconButton ariaLabel="Next route list page" className={routesGlassIconButton} disabled={page >= pages} icon={AppIcons.next} onClick={() => setPage((value) => Math.min(pages, value + 1))} size="sm" tooltip="Next route list page" /></div></div></section>;
 }
 
-function ActionToolbar({ cardsVisible, mode, showCompleted, onToggleCards, onMode, onCompleted, onCreate }: { cardsVisible: boolean; mode: MapMode; showCompleted: boolean; onToggleCards: () => void; onMode: (mode: MapMode) => void; onCompleted: () => void; onCreate: () => void }) {
-  const [filterOpen, setFilterOpen] = useState(false); const [actionsOpen, setActionsOpen] = useState(false);
-  const modeIcons: Record<MapMode, typeof AppIcons[keyof typeof AppIcons]> = { all: AppIcons.dashboard, deliveries: AppIcons.deliveries, drivers: AppIcons.drivers, vehicles: AppIcons.vehicles };
+function ActionToolbar({
+  cardsVisible,
+  mode,
+  showCompleted,
+  onToggleCards,
+  onMode,
+  onCompleted,
+  onCreate,
+  onOpenMultiStopBuilder,
+  isMultiStopBuilderOpen,
+}: {
+  cardsVisible: boolean;
+  mode: MapMode;
+  showCompleted: boolean;
+  onToggleCards: () => void;
+  onMode: (mode: MapMode) => void;
+  onCompleted: () => void;
+  onCreate: () => void;
+  onOpenMultiStopBuilder: () => void;
+  isMultiStopBuilderOpen: boolean;
+}) {
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const modeIcons: Record<MapMode, (typeof AppIcons)[keyof typeof AppIcons]> = {
+    all: AppIcons.dashboard,
+    deliveries: AppIcons.deliveries,
+    drivers: AppIcons.drivers,
+    vehicles: AppIcons.vehicles,
+  };
   const modes: MapMode[] = ["all", "drivers", "vehicles", "deliveries"];
-  return <div className={`absolute right-5 top-4 z-30 flex items-start justify-between gap-3 transition-[left] duration-200 ease-out motion-reduce:transition-none ${cardsVisible ? "left-[392px]" : "left-14"}`}><IconButton active={cardsVisible} ariaLabel={cardsVisible ? "Collapse route overview" : "Expand route overview"} className={routesGlassIconButton} icon={cardsVisible ? AppIcons.back : AppIcons.forward} onClick={onToggleCards} tooltip={cardsVisible ? "Collapse route overview" : "Expand route overview"} /><div className="flex items-start justify-end gap-2"><div className="relative"><IconButton aria-expanded={filterOpen} ariaLabel="Route filters" className={routesGlassIconButton} icon={AppIcons.filter} onClick={() => { setFilterOpen((value) => !value); setActionsOpen(false); }} tooltip="Route filters" />{filterOpen ? <div className={`${routesGlassDropdown} absolute right-0 top-12 w-56 p-2`}><button className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-semibold text-slate-600 transition hover:bg-white/60 hover:text-purple-700" onClick={onCompleted} type="button"><span className="inline-flex items-center gap-2">{showCompleted ? <AppIcons.checkedSquare aria-hidden size={15} weight="fill" /> : <AppIcons.uncheckedSquare aria-hidden size={15} weight="bold" />} Show completed</span></button><div className="my-1 h-px bg-white/60" />{modes.map((item) => { const ModeIcon = modeIcons[item]; return <button className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-semibold capitalize transition ${mode === item ? "border border-purple-200 bg-purple-100/70 text-purple-700 ring-1 ring-purple-100" : "text-slate-600 hover:bg-white/60 hover:text-purple-700"}`} key={item} onClick={() => { onMode(item); setFilterOpen(false); }} type="button"><ModeIcon aria-hidden size={15} weight="bold" />{item}</button>; })}</div> : null}</div><div className="relative"><AppButton aria-expanded={actionsOpen} className={routesGlassActionButton} icon={AppIcons.more} onClick={() => { setActionsOpen((value) => !value); setFilterOpen(false); }} variant="primary">Actions</AppButton>{actionsOpen ? <div className={`${routesGlassDropdown} absolute right-0 top-12 w-52 p-2`}><button className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-white/60 hover:text-purple-700" onClick={() => { onCreate(); setActionsOpen(false); }} type="button"><AppIcons.create aria-hidden size={15} weight="bold" />Create Route</button><button className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-semibold text-slate-400 disabled:cursor-not-allowed disabled:opacity-60" disabled title="Route optimization service is not configured" type="button"><AppIcons.optimize aria-hidden size={15} weight="bold" />Optimize Routes</button></div> : null}</div></div></div>;
+  return (
+    <div
+      className={`absolute right-5 top-4 z-30 flex items-start justify-between gap-3 transition-[left] duration-200 ease-out motion-reduce:transition-none ${cardsVisible ? "left-[392px]" : "left-14"}`}
+    >
+      <IconButton
+        active={cardsVisible}
+        ariaLabel={
+          cardsVisible ? "Collapse route overview" : "Expand route overview"
+        }
+        className={routesGlassIconButton}
+        icon={cardsVisible ? AppIcons.back : AppIcons.forward}
+        onClick={onToggleCards}
+        tooltip={
+          cardsVisible ? "Collapse route overview" : "Expand route overview"
+        }
+      />
+      <div className="flex items-start justify-end gap-2">
+        <div className="relative">
+          <IconButton
+            aria-expanded={filterOpen}
+            ariaLabel="Route filters"
+            className={routesGlassIconButton}
+            icon={AppIcons.filter}
+            onClick={() => {
+              setFilterOpen((value) => !value);
+              setActionsOpen(false);
+            }}
+            tooltip="Route filters"
+          />
+          {filterOpen ? (
+            <div
+              className={`${routesGlassDropdown} absolute right-0 top-12 w-56 p-2`}
+            >
+              <button
+                className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-semibold text-slate-600 transition hover:bg-white/60 hover:text-purple-700"
+                onClick={onCompleted}
+                type="button"
+              >
+                <span className="inline-flex items-center gap-2">
+                  {showCompleted ? (
+                    <AppIcons.checkedSquare
+                      aria-hidden
+                      size={15}
+                      weight="fill"
+                    />
+                  ) : (
+                    <AppIcons.uncheckedSquare
+                      aria-hidden
+                      size={15}
+                      weight="bold"
+                    />
+                  )}{" "}
+                  Show completed
+                </span>
+              </button>
+              <div className="my-1 h-px bg-white/60" />
+              {modes.map((item) => {
+                const ModeIcon = modeIcons[item];
+                return (
+                  <button
+                    className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-semibold capitalize transition ${mode === item ? "border border-purple-200 bg-purple-100/70 text-purple-700 ring-1 ring-purple-100" : "text-slate-600 hover:bg-white/60 hover:text-purple-700"}`}
+                    key={item}
+                    onClick={() => {
+                      onMode(item);
+                      setFilterOpen(false);
+                    }}
+                    type="button"
+                  >
+                    <ModeIcon aria-hidden size={15} weight="bold" />
+                    {item}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+        <div className="relative">
+          <AppButton
+            aria-expanded={actionsOpen}
+            className={routesGlassActionButton}
+            icon={AppIcons.more}
+            onClick={() => {
+              setActionsOpen((value) => !value);
+              setFilterOpen(false);
+            }}
+            variant="primary"
+          >
+            Actions
+          </AppButton>
+          {actionsOpen ? (
+            <div
+              className={`${routesGlassDropdown} absolute right-0 top-12 w-52 p-2`}
+            >
+              <button
+                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-white/60 hover:text-purple-700"
+                onClick={() => {
+                  onCreate();
+                  setActionsOpen(false);
+                }}
+                type="button"
+              >
+                <AppIcons.create aria-hidden size={15} weight="bold" />
+                Create Route
+              </button>
+              <button
+                aria-expanded={isMultiStopBuilderOpen}
+                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-white/60 hover:text-purple-700"
+                onClick={() => {
+                  onOpenMultiStopBuilder();
+                  setActionsOpen(false);
+                }}
+                type="button"
+              >
+                <AppIcons.optimize aria-hidden size={15} weight="bold" />
+                Optimize Routes
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
 }
 
-function MapSurface({ routes, selectedId, panelOpen, layer, loading, mapInitializing, mapRef, onReadyChange, onSelect }: { routes: RouteRecord[]; selectedId: string; panelOpen: boolean; layer: RoutesMapLayer; loading: boolean; mapInitializing: boolean; mapRef: React.RefObject<RoutesMapHandle | null>; onReadyChange: (ready: boolean) => void; onSelect: (route: RouteRecord) => void }) {
-  return <RoutesMap layer={layer} loading={loading || mapInitializing} onReadyChange={onReadyChange} onSelect={(route) => { const selectedRoute = routes.find((item) => item.id === route.id); if (selectedRoute) onSelect(selectedRoute); }} panelOpen={panelOpen} ref={mapRef} routes={routes} selectedId={selectedId} />;
+function MapSurface({ companyLocation, routes, selectedId, panelOpen, layer, loading, mapInitializing, mapRef, onReadyChange, onSelect, preview, selectedPreviewStopId, onPreviewGeometryWarning, onPreviewStopSelect }: { companyLocation: CompanySettingsLocation | null; routes: RouteRecord[]; selectedId: string; panelOpen: boolean; layer: RoutesMapLayer; loading: boolean; mapInitializing: boolean; mapRef: React.RefObject<RoutesMapHandle | null>; onReadyChange: (ready: boolean) => void; onSelect: (route: RouteRecord) => void; preview: RoutesMapPreview | null; selectedPreviewStopId: string; onPreviewGeometryWarning: (message: string | null) => void; onPreviewStopSelect: (deliveryId: string) => void }) {
+  const warehouse = companyDefaultStartLocation(companyLocation);
+  const warehouseMarker = warehouse && typeof warehouse.latitude === "number" && typeof warehouse.longitude === "number"
+    ? { name: companyLocation?.operating_location_name || "DeliverEaze Warehouse", address: warehouse.address, latitude: warehouse.latitude, longitude: warehouse.longitude }
+    : null;
+  return <RoutesMap companyLocation={warehouseMarker} layer={layer} loading={loading || mapInitializing} onPreviewGeometryWarning={onPreviewGeometryWarning} onPreviewStopSelect={onPreviewStopSelect} onReadyChange={onReadyChange} onSelect={(route) => { const selectedRoute = routes.find((item) => item.id === route.id); if (selectedRoute) onSelect(selectedRoute); }} panelOpen={panelOpen} preview={preview} ref={mapRef} routes={routes} selectedId={selectedId} selectedPreviewStopId={selectedPreviewStopId} />;
 }
 
 function SelectedRouteCard({ route, panelOpen, onClose, onEdit }: { route: RouteRecord; panelOpen: boolean; onClose: () => void; onEdit: () => void }) { const progress = progressFor(route.status); return <div className={`${routesGlassDropdown} absolute bottom-14 z-30 w-[320px] p-4 transition-[left] duration-200 ease-out motion-reduce:transition-none ${panelOpen ? "left-[392px]" : "left-5"}`}><div className="flex items-center justify-between"><div className="flex min-w-0 items-center gap-2"><span className="h-2 w-2 shrink-0 rounded-full bg-purple-600" /><h2 className="truncate font-bold">{route.deliveryNumber}</h2></div><IconButton ariaLabel="Close route card" className={routesGlassIconButton} icon={AppIcons.close} onClick={onClose} size="sm" tooltip="Close route card" /></div><p className="mt-1 truncate text-xs text-slate-500">{route.origin} to {route.destination}</p><div className="mt-3 flex items-center justify-between"><StatusBadge status={route.status} /><button className="rounded-full border border-purple-200 bg-white/45 px-2.5 py-1 text-[10px] font-semibold text-purple-600 backdrop-blur-sm transition hover:bg-purple-50/80" onClick={onEdit} type="button">Edit</button></div><dl className="mt-3 divide-y divide-white/60 text-xs">{[["Driver", route.driverName], ["Vehicle", route.vehicleName], ["Distance", formatDistance(route.distance)], ["Estimated Duration", formatDuration(route.duration)], ["Status", statusLabel(route.status)], ["Created", formatDate(route.createdAt)]].map(([label, value]) => <div className="flex justify-between gap-3 py-2" key={label}><dt className="shrink-0 text-slate-500">{label}</dt><dd className="max-w-48 truncate text-right font-medium" title={value}>{value}</dd></div>)}</dl>{route.mapsUrl ? <a className="mt-3 inline-flex w-full justify-center rounded-full border border-purple-200 bg-white/45 px-3 py-2 text-xs font-semibold text-purple-700 transition hover:bg-purple-50/80" href={route.mapsUrl} rel="noreferrer" target="_blank">Open in Google Maps</a> : null}<div className="mt-3"><div className="flex justify-between text-xs"><span>Progress</span><strong>{progress === null ? "Operational stage only" : `${progress}%`}</strong></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-white/60"><div className="h-full rounded-full bg-purple-600" style={{ width: progress === null ? "45%" : `${progress}%`, opacity: progress === null ? .45 : 1 }} /></div></div></div>; }
+
+function MultiStopRouteCard({ route, panelOpen, onClose }: { route: RouteRecord; panelOpen: boolean; onClose: () => void }) {
+  return <div className={`${routesGlassDropdown} user-modal-scrollbar absolute bottom-14 z-30 max-h-[calc(100%-7rem)] w-[360px] overflow-y-auto p-4 transition-[left] duration-200 ease-out motion-reduce:transition-none ${panelOpen ? "left-[392px]" : "left-5"}`}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wide text-purple-600">Optimized multi-stop route</p><h2 className="mt-1 truncate font-bold">{route.routeNumber}</h2><p className="mt-1 text-xs text-slate-500">{route.routeDate ?? formatDate(route.createdAt)} · {route.stops.length} stops</p></div><IconButton ariaLabel="Close route details" className={routesGlassIconButton} icon={AppIcons.close} onClick={onClose} size="sm" tooltip="Close route details" /></div><div className="mt-3 flex items-center justify-between"><StatusBadge status={route.status} /><span className="text-[10px] font-semibold text-slate-500">{route.returnToDepot ? "Returns to depot" : "Ends at final stop"}</span></div><dl className="mt-3 divide-y divide-white/60 text-xs">{[["Driver", route.driverName], ["Vehicle", route.vehicleName], ["Shift", route.schedule?.shift_name ?? "Not recorded"], ["Departure", route.departureTime ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(route.departureTime)) : "Not recorded"], ["Completion", route.estimatedCompletionTime ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(route.estimatedCompletionTime)) : "Not recorded"], ["Distance", formatDistance(route.distance)], ["Duration", formatDuration(route.duration)]].map(([label, value]) => <div className="flex justify-between gap-3 py-2" key={label}><dt className="shrink-0 text-slate-500">{label}</dt><dd className="max-w-52 truncate text-right font-medium" title={value}>{value}</dd></div>)}</dl><div className="mt-3 border-t border-white/70 pt-3"><p className="text-xs font-bold text-slate-800">Ordered stops</p><div className="mt-2 space-y-2">{route.stops.map((stop) => <div className="flex items-start gap-2 rounded-lg border border-white/70 bg-white/50 px-2.5 py-2 text-[11px]" key={stop.delivery_id}><span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-purple-600 text-[10px] font-bold text-white">{stop.stop_sequence}</span><span className="min-w-0"><strong className="block truncate text-slate-800">{stop.deliveryNumber} · {stop.customer}</strong><span className="mt-0.5 block truncate text-slate-500" title={stop.address}>{stop.address}</span><span className="mt-0.5 block truncate text-slate-500">ETA {stop.estimated_arrival_time ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(stop.estimated_arrival_time)) : "Not available"} · {stop.stop_status ?? "pending"}</span></span></div>)}</div></div></div>;
+}
 
 function MapLegend() {
   const [open, setOpen] = useState(true);
@@ -177,13 +367,487 @@ function RouteModal({ form, deliveries, saving, calculating, error, invalidField
 export function RoutesWorkspace() {
   const notify = useNotify();
   const searchParams = useSearchParams();
-  const mapRef = useRef<RoutesMapHandle | null>(null); const workspaceRef = useRef<HTMLElement | null>(null); const layersRef = useRef<HTMLDivElement | null>(null); const searchRequestRef = useRef(0); const [routes, setRoutes] = useState<RouteRecord[]>([]); const [deliveries, setDeliveries] = useState<DeliveryOption[]>([]); const [driverRecords, setDriverRecords] = useState<DriverSearchRecord[]>([]); const [vehicleRecords, setVehicleRecords] = useState<VehicleSearchRecord[]>([]); const [loading, setLoading] = useState(true); const [mapInitializing, setMapInitializing] = useState(true); const [mapReady, setMapReady] = useState(false); const [error, setError] = useState(""); const [invalidField, setInvalidField] = useState<RouteFormField | "">(""); const [selectedId, setSelectedId] = useState(""); const [search, setSearch] = useState(""); const [focusSummary, setFocusSummary] = useState<RouteFocusSummary | null>(null); const [mode, setMode] = useState<MapMode>("all"); const [showCompleted, setShowCompleted] = useState(false); const [cardsVisible, setCardsVisible] = useState(() => typeof window === "undefined" ? true : window.localStorage.getItem("routes-overview-collapsed") !== "true"); const [modalOpen, setModalOpen] = useState(false); const [editingId, setEditingId] = useState(""); const [form, setForm] = useState<RouteForm>(emptyForm); const [saving, setSaving] = useState(false); const [calculatingRoute, setCalculatingRoute] = useState(false); const [layer, setLayer] = useState<RoutesMapLayer>("roadmap"); const [layersOpen, setLayersOpen] = useState(false); const [locating, setLocating] = useState(false); const [fullscreen, setFullscreen] = useState(false); const [geoError, setGeoError] = useState("");
-  const loadData = useCallback(async () => { setLoading(true); setError(""); try { const data = await fetchAdministratorJson<ApiData>("/api/admin/routes"); const profiles = new Map(data.profiles.map((profile) => [profile.profile_id, profile])); const drivers = new Map(data.drivers.map((driver) => [driver.driver_id, driver])); const vehicles = new Map(data.vehicles.map((vehicle) => [vehicle.vehicle_id, vehicle])); const deliveryOptions = data.deliveries.map((delivery) => ({ id: delivery.delivery_id, number: delivery.delivery_number ?? "Unnumbered", customer: delivery.customer_name ?? "Unknown customer", phone: delivery.customer_phone ?? "", pickup: delivery.pickup_address ?? "", pickupPlaceId: delivery.pickup_place_id ?? "", pickupLatitude: numberValue(delivery.pickup_latitude), pickupLongitude: numberValue(delivery.pickup_longitude), destination: delivery.delivery_address ?? "", destinationPlaceId: delivery.delivery_place_id ?? "", destinationLatitude: numberValue(delivery.delivery_latitude), destinationLongitude: numberValue(delivery.delivery_longitude), driverId: delivery.assigned_driver_id ?? "", vehicleId: delivery.assigned_vehicle_id ?? "", status: delivery.status ?? "pending", priority: delivery.priority ?? "normal" })); const deliveryMap = new Map(deliveryOptions.map((delivery) => [delivery.id, delivery])); const now = new Date(); setDriverRecords(data.drivers.map((driver) => { const profile = driver.user_id ? profiles.get(driver.user_id) : undefined; return { id: driver.driver_id, name: [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || profile?.email || "Unnamed driver", email: profile?.email ?? "", phone: profile?.phone ?? "", availability: driver.availability ?? "unknown" }; })); setVehicleRecords(data.vehicles.map((vehicle) => ({ id: vehicle.vehicle_id, number: vehicle.vehicle_number ?? "", name: readableVehicle(vehicle), makeModel: [vehicle.make, vehicle.model].filter(Boolean).join(" "), plate: vehicle.license_plate ?? "", type: vehicle.vehicle_type ?? "", status: vehicle.status ?? "unknown" }))); const records = data.routes.map((route) => { const delivery = route.delivery_id ? deliveryMap.get(route.delivery_id) : undefined; const driver = delivery?.driverId ? drivers.get(delivery.driverId) : undefined; const profile = driver?.user_id ? profiles.get(driver.user_id) : undefined; const vehicle = delivery?.vehicleId ? vehicles.get(delivery.vehicleId) : undefined; const schedule = data.schedules.find((item) => item.driver_id === delivery?.driverId && item.start_time && item.end_time && new Date(item.start_time) <= now && new Date(item.end_time) > now) ?? null; return { id: route.route_id, label: shortRouteId(route.route_id), deliveryId: route.delivery_id ?? "", deliveryNumber: delivery?.number ?? "Unassigned", customer: delivery?.customer ?? "Unknown customer", customerPhone: delivery?.phone ?? "", origin: route.origin_address ?? route.origin ?? delivery?.pickup ?? "Not provided", destination: route.destination_address ?? route.destination ?? delivery?.destination ?? "Not provided", originLat: numberValue(route.origin_latitude), originLng: numberValue(route.origin_longitude), destinationLat: numberValue(route.destination_latitude), destinationLng: numberValue(route.destination_longitude), polyline: route.route_polyline ?? "", distance: numberValue(route.estimated_distance_km), duration: numberValue(route.estimated_duration_minutes), actualDuration: numberValue(route.actual_duration_minutes), mapsUrl: route.maps_url ?? "", provider: route.route_provider ?? "manual", createdAt: route.created_at, status: displayStatus(delivery?.status ?? null), deliveryStatus: delivery?.status ?? "pending", priority: delivery?.priority ?? "normal", driverId: delivery?.driverId ?? "", driverName: [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || profile?.email || "Unassigned", driverDetail: [profile?.phone, profile?.email, driver?.availability].filter(Boolean).join(" / "), driverAvailable: profile?.is_active === true && driver?.availability !== "unavailable", vehicleId: delivery?.vehicleId ?? "", vehicleName: vehicle ? `${[vehicle.vehicle_number, vehicle.make, vehicle.model].filter(Boolean).join(" / ")} - ${vehicle.license_plate ?? "No plate"}` : "Unassigned", vehicleStatus: vehicle?.status ?? "unassigned", vehicleNumber: vehicle?.vehicle_number ?? "", vehicleMakeModel: [vehicle?.make, vehicle?.model].filter(Boolean).join(" "), vehiclePlate: vehicle?.license_plate ?? "", vehicleType: vehicle?.vehicle_type ?? "", schedule } satisfies RouteRecord; }); setDeliveries(deliveryOptions); setRoutes(records); setSelectedId((current) => records.some((route) => route.id === current) ? current : ""); } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load routes."); } finally { setLoading(false); } }, []);
+  const mapRef = useRef<RoutesMapHandle | null>(null);
+  const workspaceRef = useRef<HTMLElement | null>(null);
+  const layersRef = useRef<HTMLDivElement | null>(null);
+  const searchRequestRef = useRef(0);
+  const optimizationRequestRef = useRef(false);
+  const multiStopSaveRequestRef = useRef(false);
+  const [routes, setRoutes] = useState<RouteRecord[]>([]);
+  const [deliveries, setDeliveries] = useState<DeliveryOption[]>([]);
+  const [driverRecords, setDriverRecords] = useState<DriverSearchRecord[]>([]);
+  const [vehicleRecords, setVehicleRecords] = useState<VehicleSearchRecord[]>(
+    [],
+  );
+  const [loading, setLoading] = useState(true);
+  const [mapInitializing, setMapInitializing] = useState(true);
+  const [mapReady, setMapReady] = useState(false);
+  const [error, setError] = useState("");
+  const [invalidField, setInvalidField] = useState<RouteFormField | "">("");
+  const [selectedId, setSelectedId] = useState("");
+  const [search, setSearch] = useState("");
+  const [focusSummary, setFocusSummary] = useState<RouteFocusSummary | null>(
+    null,
+  );
+  const [mode, setMode] = useState<MapMode>("all");
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [cardsVisible, setCardsVisible] = useState(() =>
+    typeof window === "undefined"
+      ? true
+      : window.localStorage.getItem("routes-overview-collapsed") !== "true",
+  );
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState("");
+  const [form, setForm] = useState<RouteForm>(emptyForm);
+  const [saving, setSaving] = useState(false);
+  const [calculatingRoute, setCalculatingRoute] = useState(false);
+  const [layer, setLayer] = useState<RoutesMapLayer>("roadmap");
+  const [layersOpen, setLayersOpen] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [geoError, setGeoError] = useState("");
+  const [isMultiStopBuilderOpen, setIsMultiStopBuilderOpen] = useState(false);
+  const [selectedDeliveryIds, setSelectedDeliveryIds] = useState<string[]>([]);
+  const [routeDate, setRouteDate] = useState(() => localDateKey());
+  const [selectedDriverId, setSelectedDriverId] = useState("");
+  const [selectedScheduleId, setSelectedScheduleId] = useState("");
+  const [selectedVehicleId, setSelectedVehicleId] = useState("");
+  const [startLocation, setStartLocation] = useState<StartLocation | null>(null);
+  const [companySettingsLocation, setCompanySettingsLocation] = useState<CompanySettingsLocation | null>(null);
+  const [companyLocationLoading, setCompanyLocationLoading] = useState(false);
+  const [companyLocationError, setCompanyLocationError] = useState("");
+  const [returnToDepot, setReturnToDepot] = useState(true);
+  const [departureTime, setDepartureTime] = useState("");
+  const [shiftEndTime, setShiftEndTime] = useState("");
+  const [optimizedPreview, setOptimizedPreview] = useState<OptimizationPreview | null>(null);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [optimizationError, setOptimizationError] = useState<string | null>(null);
+  const [optimizationNotice, setOptimizationNotice] = useState<string | null>(null);
+  const [isEditingOptimizedPreview, setIsEditingOptimizedPreview] = useState(false);
+  const [selectedPreviewStopId, setSelectedPreviewStopId] = useState("");
+  const [previewGeometryWarning, setPreviewGeometryWarning] = useState<string | null>(null);
+  const [isSavingMultiStopRoute, setIsSavingMultiStopRoute] = useState(false);
+  const [routeDriverOptions, setRouteDriverOptions] = useState<RouteDriverOption[]>([]);
+  const [routeVehicleOptions, setRouteVehicleOptions] = useState<RouteVehicleOption[]>([]);
+  const [routeSchedules, setRouteSchedules] = useState<ScheduleRow[]>([]);
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await fetchAdministratorJson<ApiData>("/api/admin/routes");
+      const profiles = new Map(
+        data.profiles.map((profile) => [profile.profile_id, profile]),
+      );
+      const drivers = new Map(
+        data.drivers.map((driver) => [driver.driver_id, driver]),
+      );
+      const vehicles = new Map(
+        data.vehicles.map((vehicle) => [vehicle.vehicle_id, vehicle]),
+      );
+      const deliveryOptions = data.deliveries.map((delivery) => ({
+        id: delivery.delivery_id,
+        number: delivery.delivery_number ?? "Unnumbered",
+        customer: delivery.customer_name ?? "Unknown customer",
+        phone: delivery.customer_phone ?? "",
+        pickup: delivery.pickup_address ?? "",
+        pickupPlaceId: delivery.pickup_place_id ?? "",
+        pickupLatitude: numberValue(delivery.pickup_latitude),
+        pickupLongitude: numberValue(delivery.pickup_longitude),
+        destination: delivery.delivery_address ?? "",
+        destinationPlaceId: delivery.delivery_place_id ?? "",
+        destinationLatitude: numberValue(delivery.delivery_latitude),
+        destinationLongitude: numberValue(delivery.delivery_longitude),
+        driverId: delivery.assigned_driver_id ?? "",
+        vehicleId: delivery.assigned_vehicle_id ?? "",
+        status: delivery.status ?? "pending",
+        priority: delivery.priority ?? "normal",
+        coordinateIssue: mappedCoordinateIssue(delivery),
+      }));
+      const deliveryMap = new Map(
+        deliveryOptions.map((delivery) => [delivery.id, delivery]),
+      );
+      const now = new Date();
+      setDriverRecords(
+        data.drivers.map((driver) => {
+          const profile = driver.user_id
+            ? profiles.get(driver.user_id)
+            : undefined;
+          return {
+            id: driver.driver_id,
+            name:
+              [profile?.first_name, profile?.last_name]
+                .filter(Boolean)
+                .join(" ") ||
+              profile?.email ||
+              "Unnamed driver",
+            email: profile?.email ?? "",
+            phone: profile?.phone ?? "",
+            availability: driver.availability ?? "unknown",
+          };
+        }),
+      );
+      setRouteDriverOptions(
+        data.drivers.map((driver) => {
+          const profile = driver.user_id ? profiles.get(driver.user_id) : undefined;
+          return {
+            id: driver.driver_id,
+            name: [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || profile?.email || "Unnamed driver",
+            availability: driver.availability ?? "unknown",
+            isActive: profile?.is_active === true,
+          };
+        }),
+      );
+      setVehicleRecords(
+        data.vehicles.map((vehicle) => ({
+          id: vehicle.vehicle_id,
+          number: vehicle.vehicle_number ?? "",
+          name: readableVehicle(vehicle),
+          makeModel: [vehicle.make, vehicle.model].filter(Boolean).join(" "),
+          plate: vehicle.license_plate ?? "",
+          type: vehicle.vehicle_type ?? "",
+          status: vehicle.status ?? "unknown",
+        })),
+      );
+      setRouteVehicleOptions(
+        data.vehicles.map((vehicle) => ({
+          id: vehicle.vehicle_id,
+          label: readableVehicle(vehicle),
+          status: vehicle.status,
+          isOperational: isVehicleOperational(vehicle.status),
+        })),
+      );
+      setRouteSchedules(data.schedules);
+      const stopsByRouteId = new Map<string, RouteStopRow[]>();
+      data.routeStops.forEach((stop) => {
+        const current = stopsByRouteId.get(stop.route_id) ?? [];
+        current.push(stop);
+        stopsByRouteId.set(stop.route_id, current);
+      });
+      stopsByRouteId.forEach((stops) => stops.sort((left, right) => left.stop_sequence - right.stop_sequence));
+      const records = data.routes.map((route) => {
+        const stops = (stopsByRouteId.get(route.route_id) ?? []).map((stop) => {
+          const stopDelivery = deliveryMap.get(stop.delivery_id);
+          return { ...stop, deliveryNumber: stopDelivery?.number ?? "Delivery", customer: stopDelivery?.customer ?? "Customer not available", address: stopDelivery?.destination ?? "Address not available" };
+        });
+        const delivery = route.delivery_id
+          ? deliveryMap.get(route.delivery_id)
+          : undefined;
+        const primaryStopDelivery = stops[0] ? deliveryMap.get(stops[0].delivery_id) : undefined;
+        const driverId = route.driver_id ?? delivery?.driverId ?? "";
+        const vehicleId = route.vehicle_id ?? delivery?.vehicleId ?? "";
+        const driver = driverId
+          ? drivers.get(driverId)
+          : undefined;
+        const profile = driver?.user_id
+          ? profiles.get(driver.user_id)
+          : undefined;
+        const vehicle = vehicleId
+          ? vehicles.get(vehicleId)
+          : undefined;
+        const schedule =
+          data.schedules.find((item) => item.schedule_id === route.schedule_id) ??
+          data.schedules.find(
+            (item) =>
+              item.driver_id === driverId &&
+              item.start_time &&
+              item.end_time &&
+              new Date(item.start_time) <= now &&
+              new Date(item.end_time) > now,
+          ) ?? null;
+        return {
+          id: route.route_id,
+          label: route.route_number ?? shortRouteId(route.route_id),
+          routeNumber: route.route_number ?? shortRouteId(route.route_id),
+          routeDate: route.route_date,
+          deliveryId: route.delivery_id ?? "",
+          deliveryNumber: delivery?.number ?? primaryStopDelivery?.number ?? `${stops.length} stops`,
+          customer: delivery?.customer ?? primaryStopDelivery?.customer ?? "Multi-stop route",
+          customerPhone: delivery?.phone ?? primaryStopDelivery?.phone ?? "",
+          origin:
+            route.start_address ??
+            route.origin_address ??
+            route.origin ??
+            delivery?.pickup ??
+            "Not provided",
+          destination:
+            route.end_address ??
+            route.destination_address ??
+            route.destination ??
+            delivery?.destination ??
+            "Not provided",
+          originLat: numberValue(route.start_latitude ?? route.origin_latitude),
+          originLng: numberValue(route.start_longitude ?? route.origin_longitude),
+          destinationLat: numberValue(route.end_latitude ?? route.destination_latitude),
+          destinationLng: numberValue(route.end_longitude ?? route.destination_longitude),
+          polyline: route.encoded_polyline ?? route.route_polyline ?? "",
+          distance: route.total_distance_meters === null ? numberValue(route.estimated_distance_km) : numberValue(route.total_distance_meters) === null ? null : numberValue(route.total_distance_meters)! / 1000,
+          duration: route.total_duration_seconds === null ? numberValue(route.estimated_duration_minutes) : numberValue(route.total_duration_seconds) === null ? null : numberValue(route.total_duration_seconds)! / 60,
+          actualDuration: numberValue(route.actual_duration_minutes),
+          mapsUrl: route.maps_url ?? "",
+          provider: route.route_provider ?? "manual",
+          createdAt: route.created_at,
+          status: route.delivery_id ? displayStatus(delivery?.status ?? null) : (["planned", "assigned", "active", "completed", "delayed", "exception"].includes(route.status ?? "") ? route.status as RouteStatus : "planned"),
+          deliveryStatus: delivery?.status ?? "pending",
+          priority: delivery?.priority ?? "normal",
+          driverId,
+          driverName:
+            [profile?.first_name, profile?.last_name]
+              .filter(Boolean)
+              .join(" ") ||
+            profile?.email ||
+            "Unassigned",
+          driverDetail: [profile?.phone, profile?.email, driver?.availability]
+            .filter(Boolean)
+            .join(" / "),
+          driverAvailable:
+            profile?.is_active === true &&
+            driver?.availability !== "unavailable",
+          vehicleId,
+          vehicleName: vehicle
+            ? `${[vehicle.vehicle_number, vehicle.make, vehicle.model].filter(Boolean).join(" / ")} - ${vehicle.license_plate ?? "No plate"}`
+            : "Unassigned",
+          vehicleStatus: vehicle?.status ?? "unassigned",
+          vehicleNumber: vehicle?.vehicle_number ?? "",
+          vehicleMakeModel: [vehicle?.make, vehicle?.model]
+            .filter(Boolean)
+            .join(" "),
+          vehiclePlate: vehicle?.license_plate ?? "",
+          vehicleType: vehicle?.vehicle_type ?? "",
+          schedule,
+          isMultiStop: !route.delivery_id && stops.length > 0,
+          returnToDepot: route.return_to_depot === true,
+          departureTime: route.departure_time,
+          shiftEndTime: route.shift_end_time,
+          estimatedCompletionTime: route.estimated_completion_time,
+          stops,
+        } satisfies RouteRecord;
+      });
+      const activeRoutesByDeliveryId = new Map(records.filter(routeIsActive).flatMap((route) => (route.stops.length ? route.stops.map((stop) => [stop.delivery_id, route] as const) : route.deliveryId ? [[route.deliveryId, route] as const] : [])));
+      const eligibleDeliveryIds = new Set(deliveryOptions.filter((delivery) => multiStopEligibilityReason(delivery, activeRoutesByDeliveryId.get(delivery.id)) === null).map((delivery) => delivery.id));
+      setDeliveries(deliveryOptions);
+      setRoutes(records);
+      setSelectedDeliveryIds((current) => current.filter((deliveryId, index) => current.indexOf(deliveryId) === index && eligibleDeliveryIds.has(deliveryId)));
+      setSelectedId((current) =>
+        records.some((route) => route.id === current) ? current : "",
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Unable to load routes.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
   useEffect(() => { const timer = window.setTimeout(() => setMapInitializing(false), 300); return () => window.clearTimeout(timer); }, []);
   useEffect(() => { queueMicrotask(() => void loadData()); }, [loadData]);
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCompanyLocation() {
+      setCompanyLocationLoading(true);
+      setCompanyLocationError("");
+      try {
+        const response = await fetchAdministratorJson<CompanySettingsResponse>("/api/operations/company-settings");
+        if (cancelled) return;
+        setCompanySettingsLocation(response.companySettings);
+        const defaultLocation = companyDefaultStartLocation(response.companySettings);
+        if (defaultLocation) setStartLocation((current) => current?.source === "route_override" ? current : current ?? defaultLocation);
+      } catch {
+        if (!cancelled) setCompanyLocationError("Company operating location is unavailable. You can select a starting location for this route.");
+      } finally {
+        if (!cancelled) setCompanyLocationLoading(false);
+      }
+    }
+
+    void loadCompanyLocation();
+    return () => { cancelled = true; };
+  }, []);
+  useEffect(() => {
+    const onCompanyLocationUpdated = (event: Event) => {
+      const location = (event as CustomEvent<CompanySettingsLocation | null>).detail;
+      setCompanySettingsLocation(location);
+      const defaultLocation = companyDefaultStartLocation(location);
+      if (defaultLocation) setStartLocation((current) => current?.source === "route_override" ? current : defaultLocation);
+    };
+    window.addEventListener("company-settings-location-updated", onCompanyLocationUpdated);
+    return () => window.removeEventListener("company-settings-location-updated", onCompanyLocationUpdated);
+  }, []);
   useEffect(() => { const routeId = searchParams.get("route"); if (!routeId || loading) return; if (routes.some((route) => route.id === routeId)) queueMicrotask(() => { setSelectedId(routeId); setCardsVisible(true); setFocusSummary(null); }); }, [loading, routes, searchParams]);
   useEffect(() => { window.localStorage.setItem("routes-overview-collapsed", cardsVisible ? "false" : "true"); const timer = window.setTimeout(() => mapRef.current?.resize(), 230); return () => window.clearTimeout(timer); }, [cardsVisible]);
-  const routeByDeliveryId = useMemo(() => new Map(routes.map((route) => [route.deliveryId, route])), [routes]);
+  const companyDefaultLocation = useMemo(() => companyDefaultStartLocation(companySettingsLocation), [companySettingsLocation]);
+  const routeByDeliveryId = useMemo(() => new Map(routes.flatMap((route) => route.stops.length ? route.stops.map((stop) => [stop.delivery_id, route] as const) : route.deliveryId ? [[route.deliveryId, route] as const] : [])), [routes]);
+  const multiStopDeliveries = useMemo<MultiStopDelivery[]>(() => deliveries.map((delivery) => { const assignedRoute = routeByDeliveryId.get(delivery.id); const eligibilityReason = multiStopEligibilityReason(delivery, assignedRoute); return { id: delivery.id, number: delivery.number, customer: delivery.customer, address: delivery.destination, status: delivery.status, scheduledDateTime: null, assignedDriverId: delivery.driverId, eligibilityReason }; }), [deliveries, routeByDeliveryId]);
+  const eligibleMultiStopDeliveryIds = useMemo(() => new Set(multiStopDeliveries.filter((delivery) => delivery.eligibilityReason === null).map((delivery) => delivery.id)), [multiStopDeliveries]);
+  const eligibleRouteDrivers = useMemo(() => routeDriverOptions.filter((driver) => driver.isActive && !["unavailable", "suspended"].includes(driver.availability.toLowerCase())), [routeDriverOptions]);
+  const routeDriverChoices = useMemo(() => eligibleRouteDrivers.map((driver) => {
+    const schedule = routeSchedules.find((item) => item.driver_id === driver.id && isRouteScheduleEligible(item, routeDate));
+    const vehicle = routeVehicleOptions.find((item) => item.id === schedule?.vehicle_id);
+    return { ...driver, assignmentSummary: schedule ? `${schedule.shift_name ?? schedule.shift_type ?? "Scheduled shift"}${vehicle ? ` · ${vehicle.label}` : " · No vehicle assigned"}` : "No valid shift on this date" };
+  }), [eligibleRouteDrivers, routeDate, routeSchedules, routeVehicleOptions]);
+  const eligibleRouteSchedules = useMemo(() => routeSchedules.filter((schedule) => schedule.driver_id === selectedDriverId && isRouteScheduleEligible(schedule, routeDate)), [routeSchedules, selectedDriverId, routeDate]);
+  const selectedRouteSchedule = useMemo(() => eligibleRouteSchedules.find((schedule) => schedule.schedule_id === selectedScheduleId) ?? null, [eligibleRouteSchedules, selectedScheduleId]);
+  const selectedRouteVehicle = useMemo(() => routeVehicleOptions.find((vehicle) => vehicle.id === selectedVehicleId) ?? null, [routeVehicleOptions, selectedVehicleId]);
+  const selectedDeliveryRecords = useMemo(() => selectedDeliveryIds.map((id) => deliveries.find((delivery) => delivery.id === id)).filter((delivery): delivery is DeliveryOption => Boolean(delivery)), [deliveries, selectedDeliveryIds]);
+  const previewDeliveryDetails = useMemo<PreviewDeliveryDetail[]>(() => optimizedPreview ? optimizedPreview.context.selectedDeliveryIds.flatMap((id) => {
+    const delivery = deliveries.find((item) => item.id === id);
+    return delivery ? [{ id: delivery.id, number: delivery.number, customer: delivery.customer, address: delivery.destination, status: delivery.status }] : [];
+  }) : [], [deliveries, optimizedPreview]);
+  const optimizedMapPreview = useMemo<RoutesMapPreview | null>(() => {
+    if (!optimizedPreview) return null;
+    const skipped = new Set(optimizedPreview.skippedShipmentIds);
+    const detailById = new Map(previewDeliveryDetails.map((delivery) => [delivery.id, delivery]));
+    const stops = optimizedPreview.optimizedStops
+      .filter((stop) => !skipped.has(stop.deliveryId))
+      .sort((left, right) => left.sequence - right.sequence)
+      .flatMap((stop) => {
+        const delivery = deliveries.find((item) => item.id === stop.deliveryId);
+        const detail = detailById.get(stop.deliveryId);
+        return delivery && delivery.destinationLatitude !== null && delivery.destinationLongitude !== null && detail
+          ? [{ deliveryId: stop.deliveryId, sequence: stop.sequence, latitude: delivery.destinationLatitude, longitude: delivery.destinationLongitude, label: detail.number }]
+          : [];
+      });
+    return { encodedPolyline: optimizedPreview.encodedPolyline, returnToDepot: optimizedPreview.context.returnToDepot, start: { latitude: optimizedPreview.context.startLocation.latitude as number, longitude: optimizedPreview.context.startLocation.longitude as number, label: optimizedPreview.context.startLocation.name || optimizedPreview.context.startLocation.address }, stops };
+  }, [deliveries, optimizedPreview, previewDeliveryDetails]);
+  const savedMultiStopMapPreview = useMemo<RoutesMapPreview | null>(() => {
+    const route = routes.find((item) => item.id === selectedId);
+    if (!route?.isMultiStop || route.originLat === null || route.originLng === null) return null;
+    const stops = route.stops.flatMap((stop) => {
+      const delivery = deliveries.find((item) => item.id === stop.delivery_id);
+      return delivery && delivery.destinationLatitude !== null && delivery.destinationLongitude !== null
+        ? [{ deliveryId: stop.delivery_id, sequence: stop.stop_sequence, latitude: delivery.destinationLatitude, longitude: delivery.destinationLongitude, label: delivery.number }]
+        : [];
+    });
+    return { encodedPolyline: route.polyline, returnToDepot: route.returnToDepot, start: { latitude: route.originLat, longitude: route.originLng, label: route.origin }, stops };
+  }, [deliveries, routes, selectedId]);
+  const incompatibleSelectedDeliveryIds = useMemo(() => selectedDeliveryRecords.filter((delivery) => (selectedDriverId && delivery.driverId && delivery.driverId !== selectedDriverId) || (selectedVehicleId && delivery.vehicleId && delivery.vehicleId !== selectedVehicleId)).map((delivery) => delivery.id), [selectedDeliveryRecords, selectedDriverId, selectedVehicleId]);
+  const routeTimesValid = validIsoTime(departureTime) && validIsoTime(shiftEndTime);
+  const routeEndAfterDeparture = routeTimesValid && new Date(shiftEndTime) > new Date(departureTime);
+  const selectedDeliveriesValid = selectedDeliveryRecords.length === selectedDeliveryIds.length && selectedDeliveryRecords.every((delivery) => eligibleMultiStopDeliveryIds.has(delivery.id)) && incompatibleSelectedDeliveryIds.length === 0;
+  const vehicleValid = Boolean(selectedRouteVehicle?.isOperational && selectedRouteSchedule?.vehicle_id === selectedVehicleId);
+  const canOptimizeRoute = selectedDeliveryIds.length >= 2 && selectedDeliveriesValid && isValidStartLocation(startLocation) && Boolean(selectedDriverId) && Boolean(selectedRouteSchedule) && vehicleValid && routeTimesValid && routeEndAfterDeparture && !isOptimizing;
+  const optimizeDisabledReason = isOptimizing ? "Optimizing Route…" : selectedDeliveryIds.length < 2 || !selectedDeliveriesValid ? "Select at least two eligible deliveries" : !isValidStartLocation(startLocation) ? "Select a valid starting location" : !selectedDriverId ? "Select a driver" : !selectedRouteSchedule ? "Select a valid schedule or shift" : !vehicleValid ? "A valid vehicle is required" : !routeTimesValid ? "Select valid route times" : !routeEndAfterDeparture ? "Route end time must be later than departure time" : "";
+  function invalidateOptimizationPreview() { if (!optimizedPreview) return; setOptimizedPreview(null); setOptimizationNotice("Route setup changed. Optimize again to refresh the preview."); setIsEditingOptimizedPreview(false); setSelectedPreviewStopId(""); setPreviewGeometryWarning(null); }
+  function resetOptimizationPreview() { setOptimizedPreview(null); setOptimizationError(null); setOptimizationNotice(null); setIsEditingOptimizedPreview(false); setSelectedPreviewStopId(""); setPreviewGeometryWarning(null); }
+  function resolveSchedule(driverId: string, nextRouteDate: string, preferredScheduleId = "") {
+    const matches = routeSchedules.filter((schedule) => schedule.driver_id === driverId && isRouteScheduleEligible(schedule, nextRouteDate));
+    const schedule = matches.find((item) => item.schedule_id === preferredScheduleId) ?? (matches.length === 1 ? matches[0] : null);
+    setSelectedScheduleId(schedule?.schedule_id ?? "");
+    const vehicle = routeVehicleOptions.find((item) => item.id === schedule?.vehicle_id);
+    setSelectedVehicleId(vehicle?.isOperational ? vehicle.id : "");
+    setDepartureTime(schedule?.start_time ?? "");
+    setShiftEndTime(schedule?.end_time ?? "");
+    return vehicle?.isOperational ? vehicle.id : "";
+  }
+  function removeIncompatibleSelectedDeliveries(driverId: string, vehicleId: string) {
+    const incompatible = selectedDeliveryIds.filter((id) => {
+      const delivery = deliveries.find((item) => item.id === id);
+      return Boolean(delivery && ((driverId && delivery.driverId && delivery.driverId !== driverId) || (vehicleId && delivery.vehicleId && delivery.vehicleId !== vehicleId)));
+    });
+    if (!incompatible.length) return;
+    setSelectedDeliveryIds((current) => current.filter((id) => !incompatible.includes(id)));
+    notify.warning(`${incompatible.length} selected ${incompatible.length === 1 ? "delivery was" : "deliveries were"} removed because the assignment does not match the selected driver or vehicle.`);
+  }
+  function toggleMultiStopDelivery(deliveryId: string) { if (!eligibleMultiStopDeliveryIds.has(deliveryId)) return; invalidateOptimizationPreview(); setSelectedDeliveryIds((current) => current.includes(deliveryId) ? current.filter((id) => id !== deliveryId) : [...current, deliveryId]); }
+  function clearMultiStopDeliverySelection() { invalidateOptimizationPreview(); setSelectedDeliveryIds([]); }
+  function updateRouteDate(value: string) { if (value === routeDate) return; invalidateOptimizationPreview(); setRouteDate(value); const vehicleId = resolveSchedule(selectedDriverId, value, selectedScheduleId); removeIncompatibleSelectedDeliveries(selectedDriverId, vehicleId); }
+  function updateRouteDriver(driverId: string) { if (driverId === selectedDriverId) return; invalidateOptimizationPreview(); setSelectedDriverId(driverId); const vehicleId = resolveSchedule(driverId, routeDate); removeIncompatibleSelectedDeliveries(driverId, vehicleId); }
+  function updateRouteSchedule(scheduleId: string) { if (scheduleId === selectedScheduleId) return; invalidateOptimizationPreview(); const vehicleId = resolveSchedule(selectedDriverId, routeDate, scheduleId); removeIncompatibleSelectedDeliveries(selectedDriverId, vehicleId); }
+  function updateRouteStartLocation(place: SelectedPlace) { invalidateOptimizationPreview(); setStartLocation({ name: place.formattedAddress, address: place.formattedAddress, placeId: place.placeId, latitude: place.latitude, longitude: place.longitude, source: "route_override" }); }
+  function updateRouteStartLocationText(value: string) { invalidateOptimizationPreview(); setStartLocation((current) => current?.address === value ? current : value.trim() ? { name: value.trim(), address: value.trim(), placeId: "", latitude: null, longitude: null, source: "route_override" } : null); }
+  function useCompanyDefaultStartLocation() { if (companyDefaultLocation) { invalidateOptimizationPreview(); setStartLocation(companyDefaultLocation); } }
+  function updateReturnToDepot(value: boolean) { if (value === returnToDepot) return; invalidateOptimizationPreview(); setReturnToDepot(value); }
+  async function saveOptimizedMultiStopRoute() {
+    const preview = optimizedPreview;
+    if (!preview || !preview.optimizedStops.length || isSavingMultiStopRoute || multiStopSaveRequestRef.current) return;
+    multiStopSaveRequestRef.current = true;
+    setIsSavingMultiStopRoute(true);
+    setOptimizationError(null);
+    try {
+      const originalSequenceById = new Map(preview.context.selectedDeliveryIds.map((deliveryId, index) => [deliveryId, index + 1]));
+      const saved = await fetchAdministratorJson<MultiStopSaveResponse>("/api/admin/routes/multi-stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          previewId: preview.previewId,
+          routeDate: preview.context.routeDate,
+          driverId: preview.context.selectedDriverId,
+          vehicleId: preview.context.selectedVehicleId,
+          scheduleId: preview.context.selectedScheduleId,
+          startLocation: preview.context.startLocation,
+          returnToDepot: preview.context.returnToDepot,
+          departureTime: preview.context.departureTime,
+          shiftEndTime: preview.context.shiftEndTime,
+          estimatedCompletionTime: preview.metrics.estimatedCompletionTime,
+          totalDistanceMeters: preview.metrics.totalDistanceMeters,
+          totalDurationSeconds: preview.metrics.totalDurationSeconds,
+          encodedPolyline: preview.encodedPolyline,
+          selectedDeliveryIds: preview.context.selectedDeliveryIds,
+          skippedDeliveryIds: preview.skippedShipmentIds,
+          stops: preview.optimizedStops.map((stop) => ({ deliveryId: stop.deliveryId, sequence: stop.sequence, originalSequence: originalSequenceById.get(stop.deliveryId) ?? stop.sequence, estimatedArrivalTime: stop.estimatedArrivalTime, serviceDurationSeconds: stop.serviceDurationSeconds })),
+        }),
+      });
+      resetOptimizationPreview();
+      setSelectedDeliveryIds([]);
+      setSelectedDriverId("");
+      setSelectedScheduleId("");
+      setSelectedVehicleId("");
+      setDepartureTime("");
+      setShiftEndTime("");
+      setReturnToDepot(true);
+      if (companyDefaultLocation) setStartLocation(companyDefaultLocation);
+      await loadData();
+      setSelectedId(saved.routeId);
+      setIsMultiStopBuilderOpen(false);
+      notify.success(`${saved.routeNumber} saved with ${saved.stopCount} ${saved.stopCount === 1 ? "stop" : "stops"}.`);
+    } catch (caught) {
+      setOptimizationError(caught instanceof Error ? caught.message : "The optimized route could not be saved. Please try again.");
+    } finally {
+      multiStopSaveRequestRef.current = false;
+      setIsSavingMultiStopRoute(false);
+    }
+  }
+  async function optimizeMultiStopRoute() {
+    if (!canOptimizeRoute || !startLocation || isOptimizing || optimizationRequestRef.current) return;
+    optimizationRequestRef.current = true;
+    setOptimizationError(null);
+    setOptimizationNotice(null);
+    setIsOptimizing(true);
+    try {
+      const response = await fetchAdministratorJson<OptimizationResponse>("/api/maps/optimize-routes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startLocation: { latitude: startLocation.latitude, longitude: startLocation.longitude },
+          ...(returnToDepot ? { endLocation: { latitude: startLocation.latitude, longitude: startLocation.longitude } } : {}),
+          departureTime: new Date(departureTime).toISOString(),
+          shiftEndTime: new Date(shiftEndTime).toISOString(),
+          stops: selectedDeliveryRecords.map((delivery) => ({ id: delivery.id, latitude: delivery.destinationLatitude, longitude: delivery.destinationLongitude, serviceDurationSeconds: 600 })),
+        }),
+      });
+      const normalized = normalizeOptimizationResponse(response);
+      if (!normalized) throw new Error("The route optimization response was incomplete. Please try again.");
+      const skippedShipmentIds = new Set(normalized.skippedShipmentIds);
+      const optimizedStops = normalized.optimizedStops.filter((stop) => !skippedShipmentIds.has(stop.deliveryId));
+      if (!optimizedStops.length) throw new Error("No optimized stops were returned for this route.");
+      if (normalized.skippedShipmentIds.length === selectedDeliveryIds.length) throw new Error("All selected deliveries were skipped. Review the route setup and try again.");
+      setOptimizedPreview({
+        ...normalized,
+        previewId: crypto.randomUUID(),
+        optimizedStops,
+        context: { selectedDeliveryIds: [...selectedDeliveryIds], selectedDriverId, selectedScheduleId, selectedVehicleId, routeDate, startLocation, returnToDepot, departureTime, shiftEndTime },
+      });
+      setIsEditingOptimizedPreview(false);
+      setSelectedPreviewStopId("");
+      setPreviewGeometryWarning(null);
+      setOptimizationNotice(normalized.skippedShipmentIds.length ? `Route optimization completed with ${normalized.skippedShipmentIds.length} skipped ${normalized.skippedShipmentIds.length === 1 ? "delivery" : "deliveries"}. Preview ready.` : "Route optimization completed. Preview ready.");
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Route optimization could not be completed. Please try again.";
+      setOptimizationError(["Google Route Optimization is not configured.", "Google Route Optimization authentication was rejected.", "Google Route Optimization quota is currently unavailable.", "Google Route Optimization rejected the route request.", "Route optimization timed out. Please try again.", "No optimized stops were returned for this route.", "All selected deliveries were skipped. Review the route setup and try again.", "The route optimization response was incomplete. Please try again."].includes(message) ? message : "Route optimization could not be completed. Please try again.");
+    } finally {
+      optimizationRequestRef.current = false;
+      setIsOptimizing(false);
+    }
+  }
   const searchResults = useMemo(() => {
     const query = search.trim();
     if (query.length < 2) return [];
@@ -332,5 +996,300 @@ export function RoutesWorkspace() {
   function locate() { setGeoError(""); if (!mapRef.current?.isReady()) { setGeoError("Map is still loading."); return; } if (locating) return; if (!navigator.geolocation) { setGeoError("Geolocation is unavailable."); return; } setLocating(true); navigator.geolocation.getCurrentPosition((position) => { mapRef.current?.centerOnPosition(position.coords); setLocating(false); }, () => { setGeoError("Location permission was denied."); setLocating(false); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }); }
   async function toggleFullscreen() { setGeoError(""); const target = workspaceRef.current as FullscreenElement | null; try { if (document.fullscreenElement) { await document.exitFullscreen(); return; } if (target?.requestFullscreen) await target.requestFullscreen(); else if (target?.webkitRequestFullscreen) await target.webkitRequestFullscreen(); else if (target?.msRequestFullscreen) await target.msRequestFullscreen(); else setGeoError("Fullscreen is unavailable in this browser."); } catch { setGeoError("Unable to change fullscreen mode."); } }
   const layerOptions: Array<{ value: RoutesMapLayer; label: string }> = [{ value: "roadmap", label: "Roadmap" }, { value: "satellite", label: "Satellite" }, { value: "terrain", label: "Terrain" }];
-  return <section className="relative h-full overflow-hidden text-[#17232b]" ref={workspaceRef}><MapSurface layer={layer} loading={loading} mapInitializing={mapInitializing} mapRef={mapRef} onReadyChange={setMapReady} onSelect={selectRoute} panelOpen={cardsVisible} routes={visible} selectedId={selectedId} /><ActionToolbar cardsVisible={cardsVisible} mode={mode} onCompleted={() => setShowCompleted((value) => !value)} onCreate={openCreate} onMode={setMode} onToggleCards={() => setCardsVisible((value) => !value)} showCompleted={showCompleted} /><aside aria-hidden={!cardsVisible} className={`user-modal-scrollbar absolute bottom-3 left-4 top-3 z-30 w-[360px] space-y-2.5 overflow-y-auto overscroll-contain pr-1 transition-transform duration-200 ease-out motion-reduce:transition-none ${cardsVisible ? "translate-x-0" : "-translate-x-[390px] pointer-events-none"}`}><OverviewCard loading={loading} routes={visible} /><PerformanceCard loading={loading} routes={visible} /><ActivityCard loading={loading} routes={visible} /><OperationsCard loading={loading} routes={visible} /><RoutesList loading={loading} onSelect={selectRoute} routes={visible} selectedId={selectedId} /></aside>{!loading && !visible.length ? <div className={`${routesGlassDropdown} absolute left-1/2 top-28 z-30 max-w-sm -translate-x-1/2 px-5 py-4 text-center`}><p className="text-sm font-bold text-slate-800">No routes match the active filters.</p><p className="mt-1 text-xs text-slate-500">{routes.length ? "Clear filters or change the search." : "No routes are available for this period."}</p></div> : null}{focusSummary ? <div className={`${routesGlassDropdown} absolute bottom-5 z-30 w-[min(380px,calc(100vw-2rem))] p-4 ${cardsVisible ? "left-[392px]" : "left-5"}`}><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold text-slate-950">{focusSummary.title}</p><p className="mt-1 text-xs font-medium text-slate-500">{focusSummary.subtitle}</p></div><button aria-label="Clear search focus" className="grid h-8 w-8 place-items-center rounded-full text-slate-400 transition hover:bg-white/70 hover:text-purple-700" onClick={() => setFocusSummary(null)} type="button"><AppIcons.close aria-hidden size={14} weight="bold" /></button></div><div className="mt-3 space-y-1.5">{visible.slice(0, 4).map((route) => <button className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/60 bg-white/50 px-3 py-2 text-left text-xs transition hover:bg-white/75" key={route.id} onClick={() => selectRoute(route)} type="button"><span><span className="block font-bold text-slate-800">{route.deliveryNumber}</span><span className="mt-0.5 block text-slate-500">{routeSummary(route)}</span></span><StatusBadge status={route.status} /></button>)}</div></div> : null}{selected ? <SelectedRouteCard onClose={() => setSelectedId("")} onEdit={() => openEdit(selected)} panelOpen={cardsVisible} route={selected} /> : null}<MapLegend /><div className="absolute bottom-16 right-5 z-30 flex flex-col gap-2">{mapInitializing ? Array.from({ length: 6 }).map((_, index) => <Skeleton className={`${routesGlassIconButton} h-10 w-10`} key={index} rounded="rounded-full" />) : <><IconButton ariaLabel="Locate current position" className={routesGlassIconButton} disabled={!mapReady || locating} icon={AppIcons.locate} loading={locating} onClick={locate} tooltip="Locate current position" variant="mapControl" /><IconButton ariaLabel="Zoom in" className={routesGlassIconButton} disabled={!mapReady} icon={AppIcons.zoomIn} onClick={() => mapRef.current?.zoomIn()} tooltip="Zoom in" variant="mapControl" /><IconButton ariaLabel="Zoom out" className={routesGlassIconButton} disabled={!mapReady} icon={AppIcons.zoomOut} onClick={() => mapRef.current?.zoomOut()} tooltip="Zoom out" variant="mapControl" /><div className="relative" ref={layersRef}><IconButton active={layersOpen} aria-expanded={layersOpen} ariaLabel="Map layers" className={routesGlassIconButton} disabled={!mapReady} icon={AppIcons.layers} onClick={() => setLayersOpen((value) => !value)} tooltip="Map layers" variant="mapControl" />{layersOpen ? <div className={`${routesGlassDropdown} absolute bottom-0 right-12 w-40 p-2`} role="menu">{layerOptions.map((option) => <button aria-checked={layer === option.value} className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-semibold transition ${layer === option.value ? "bg-purple-100/70 text-purple-700 ring-1 ring-purple-100" : "text-slate-600 hover:bg-white/60 hover:text-purple-700"}`} key={option.value} onClick={() => { setLayer(option.value); setLayersOpen(false); }} role="menuitemradio" type="button"><span>{option.label}</span>{layer === option.value ? <AppIcons.check aria-hidden size={14} weight="bold" /> : null}</button>)}</div> : null}</div><IconButton ariaLabel="Fit all routes" className={routesGlassIconButton} disabled={!mapReady || !visible.length} icon={AppIcons.map} onClick={() => mapRef.current?.fitAllRoutes()} tooltip="Fit all routes" variant="mapControl" /><IconButton ariaLabel={fullscreen ? "Exit fullscreen" : "Enter fullscreen"} className={routesGlassIconButton} disabled={!mapReady} icon={AppIcons.fullscreen} onClick={() => void toggleFullscreen()} tooltip={fullscreen ? "Exit fullscreen" : "Enter fullscreen"} variant="mapControl" /></>}</div>{loading && !mapInitializing ? <div className={`pointer-events-none absolute right-5 top-20 z-40 px-4 py-2 text-xs font-medium text-slate-500 ${routesGlassDropdown}`}>Loading route data...</div> : null}{error && !modalOpen ? <div className="absolute right-5 top-20 z-40 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 shadow-lg">{error}</div> : null}{geoError ? <div className={`absolute bottom-14 right-20 z-40 px-4 py-3 text-xs text-slate-600 ${routesGlassDropdown}`}>{geoError}</div> : null}{modalOpen ? <RouteModal calculating={calculatingRoute} deliveries={deliveries.filter((delivery) => !routes.some((route) => route.deliveryId === delivery.id && route.id !== editingId))} error={error} form={form} invalidField={invalidField} onClose={() => { if (!saving && !calculatingRoute) setModalOpen(false); }} onDelivery={(delivery) => void populateFromDelivery(delivery)} onSubmit={submit} saving={saving} /> : null}</section>;
+  return (
+    <section
+      className="relative h-full overflow-hidden text-[#17232b]"
+      ref={workspaceRef}
+    >
+      <MapSurface
+        companyLocation={companySettingsLocation}
+        layer={layer}
+        loading={loading}
+        mapInitializing={mapInitializing}
+        mapRef={mapRef}
+        onReadyChange={setMapReady}
+        onSelect={selectRoute}
+        panelOpen={cardsVisible}
+        preview={isMultiStopBuilderOpen ? optimizedMapPreview : savedMultiStopMapPreview}
+        routes={visible}
+        selectedId={selectedId}
+        selectedPreviewStopId={selectedPreviewStopId}
+        onPreviewGeometryWarning={setPreviewGeometryWarning}
+        onPreviewStopSelect={setSelectedPreviewStopId}
+      />
+      <ActionToolbar
+        cardsVisible={cardsVisible}
+        mode={mode}
+        isMultiStopBuilderOpen={isMultiStopBuilderOpen}
+        onCompleted={() => setShowCompleted((value) => !value)}
+        onCreate={openCreate}
+        onMode={setMode}
+        onOpenMultiStopBuilder={() => setIsMultiStopBuilderOpen((value) => !value)}
+        onToggleCards={() => setCardsVisible((value) => !value)}
+        showCompleted={showCompleted}
+      />
+      {isMultiStopBuilderOpen ? (
+        <MultiStopRouteBuilder
+          canOptimizeRoute={canOptimizeRoute}
+          cardsVisible={cardsVisible}
+          companyDefaultStartLocation={companyDefaultLocation}
+          companyLocationError={companyLocationError}
+          companyLocationLoading={companyLocationLoading}
+          departureTime={departureTime}
+          deliveries={multiStopDeliveries}
+          drivers={routeDriverChoices}
+          isOptimizing={isOptimizing}
+          isEditingOptimizedPreview={isEditingOptimizedPreview}
+          isSavingOptimizedRoute={isSavingMultiStopRoute}
+          optimizationError={optimizationError}
+          optimizationNotice={optimizationNotice}
+          optimizedPreview={optimizedPreview}
+          optimizeDisabledReason={optimizeDisabledReason}
+          previewDeliveries={previewDeliveryDetails}
+          previewGeometryWarning={previewGeometryWarning}
+          returnToDepot={returnToDepot}
+          routeDate={routeDate}
+          schedules={eligibleRouteSchedules}
+          selectedDeliveryIds={selectedDeliveryIds}
+          selectedDriverId={selectedDriverId}
+          selectedPreviewStopId={selectedPreviewStopId}
+          selectedScheduleId={selectedScheduleId}
+          selectedVehicleId={selectedVehicleId}
+          shiftEndTime={shiftEndTime}
+          startLocation={startLocation}
+          vehicles={routeVehicleOptions}
+          onClearSelection={clearMultiStopDeliverySelection}
+          onClose={() => setIsMultiStopBuilderOpen(false)}
+          onEditSelection={() => setIsEditingOptimizedPreview(true)}
+          onOptimize={optimizeMultiStopRoute}
+          onPreviewStopSelect={setSelectedPreviewStopId}
+          onRouteDateChange={updateRouteDate}
+          onRouteDriverChange={updateRouteDriver}
+          onRouteScheduleChange={updateRouteSchedule}
+          onReturnToDepotChange={updateReturnToDepot}
+          onResetPreview={resetOptimizationPreview}
+          onSaveOptimizedRoute={() => void saveOptimizedMultiStopRoute()}
+          onStartLocationSelect={updateRouteStartLocation}
+          onStartLocationTextChange={updateRouteStartLocationText}
+          onToggleDelivery={toggleMultiStopDelivery}
+          onUseCompanyDefault={useCompanyDefaultStartLocation}
+        />
+      ) : null}
+      <aside
+        aria-hidden={!cardsVisible}
+        className={`user-modal-scrollbar absolute bottom-3 left-4 top-3 z-30 w-[360px] space-y-2.5 overflow-y-auto overscroll-contain pr-1 transition-transform duration-200 ease-out motion-reduce:transition-none ${cardsVisible ? "translate-x-0" : "-translate-x-[390px] pointer-events-none"}`}
+      >
+        <OverviewCard loading={loading} routes={visible} />
+        <PerformanceCard loading={loading} routes={visible} />
+        <ActivityCard loading={loading} routes={visible} />
+        <OperationsCard loading={loading} routes={visible} />
+        <RoutesList
+          loading={loading}
+          onSelect={selectRoute}
+          routes={visible}
+          selectedId={selectedId}
+        />
+      </aside>
+      {!loading && !visible.length ? (
+        <div
+          className={`${routesGlassDropdown} absolute left-1/2 top-28 z-30 max-w-sm -translate-x-1/2 px-5 py-4 text-center`}
+        >
+          <p className="text-sm font-bold text-slate-800">
+            No routes match the active filters.
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {routes.length
+              ? "Clear filters or change the search."
+              : "No routes are available for this period."}
+          </p>
+        </div>
+      ) : null}
+      {focusSummary ? (
+        <div
+          className={`${routesGlassDropdown} absolute bottom-5 z-30 w-[min(380px,calc(100vw-2rem))] p-4 ${cardsVisible ? "left-[392px]" : "left-5"}`}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-slate-950">
+                {focusSummary.title}
+              </p>
+              <p className="mt-1 text-xs font-medium text-slate-500">
+                {focusSummary.subtitle}
+              </p>
+            </div>
+            <button
+              aria-label="Clear search focus"
+              className="grid h-8 w-8 place-items-center rounded-full text-slate-400 transition hover:bg-white/70 hover:text-purple-700"
+              onClick={() => setFocusSummary(null)}
+              type="button"
+            >
+              <AppIcons.close aria-hidden size={14} weight="bold" />
+            </button>
+          </div>
+          <div className="mt-3 space-y-1.5">
+            {visible.slice(0, 4).map((route) => (
+              <button
+                className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/60 bg-white/50 px-3 py-2 text-left text-xs transition hover:bg-white/75"
+                key={route.id}
+                onClick={() => selectRoute(route)}
+                type="button"
+              >
+                <span>
+                  <span className="block font-bold text-slate-800">
+                    {route.deliveryNumber}
+                  </span>
+                  <span className="mt-0.5 block text-slate-500">
+                    {routeSummary(route)}
+                  </span>
+                </span>
+                <StatusBadge status={route.status} />
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {selected ? (
+        selected.isMultiStop ? <MultiStopRouteCard onClose={() => setSelectedId("")} panelOpen={cardsVisible} route={selected} /> : <SelectedRouteCard onClose={() => setSelectedId("")} onEdit={() => openEdit(selected)} panelOpen={cardsVisible} route={selected} />
+      ) : null}
+      <MapLegend />
+      <div className="absolute bottom-16 right-5 z-30 flex flex-col gap-2">
+        {mapInitializing ? (
+          Array.from({ length: 6 }).map((_, index) => (
+            <Skeleton
+              className={`${routesGlassIconButton} h-10 w-10`}
+              key={index}
+              rounded="rounded-full"
+            />
+          ))
+        ) : (
+          <>
+            <IconButton
+              ariaLabel="Locate current position"
+              className={routesGlassIconButton}
+              disabled={!mapReady || locating}
+              icon={AppIcons.locate}
+              loading={locating}
+              onClick={locate}
+              tooltip="Locate current position"
+              variant="mapControl"
+            />
+            <IconButton
+              ariaLabel="Zoom in"
+              className={routesGlassIconButton}
+              disabled={!mapReady}
+              icon={AppIcons.zoomIn}
+              onClick={() => mapRef.current?.zoomIn()}
+              tooltip="Zoom in"
+              variant="mapControl"
+            />
+            <IconButton
+              ariaLabel="Zoom out"
+              className={routesGlassIconButton}
+              disabled={!mapReady}
+              icon={AppIcons.zoomOut}
+              onClick={() => mapRef.current?.zoomOut()}
+              tooltip="Zoom out"
+              variant="mapControl"
+            />
+            <div className="relative" ref={layersRef}>
+              <IconButton
+                active={layersOpen}
+                aria-expanded={layersOpen}
+                ariaLabel="Map layers"
+                className={routesGlassIconButton}
+                disabled={!mapReady}
+                icon={AppIcons.layers}
+                onClick={() => setLayersOpen((value) => !value)}
+                tooltip="Map layers"
+                variant="mapControl"
+              />
+              {layersOpen ? (
+                <div
+                  className={`${routesGlassDropdown} absolute bottom-0 right-12 w-40 p-2`}
+                  role="menu"
+                >
+                  {layerOptions.map((option) => (
+                    <button
+                      aria-checked={layer === option.value}
+                      className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-semibold transition ${layer === option.value ? "bg-purple-100/70 text-purple-700 ring-1 ring-purple-100" : "text-slate-600 hover:bg-white/60 hover:text-purple-700"}`}
+                      key={option.value}
+                      onClick={() => {
+                        setLayer(option.value);
+                        setLayersOpen(false);
+                      }}
+                      role="menuitemradio"
+                      type="button"
+                    >
+                      <span>{option.label}</span>
+                      {layer === option.value ? (
+                        <AppIcons.check aria-hidden size={14} weight="bold" />
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <IconButton
+              ariaLabel="Fit all routes"
+              className={routesGlassIconButton}
+              disabled={!mapReady || !visible.length}
+              icon={AppIcons.map}
+              onClick={() => mapRef.current?.fitAllRoutes()}
+              tooltip="Fit all routes"
+              variant="mapControl"
+            />
+            <IconButton
+              ariaLabel={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              className={routesGlassIconButton}
+              disabled={!mapReady}
+              icon={AppIcons.fullscreen}
+              onClick={() => void toggleFullscreen()}
+              tooltip={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              variant="mapControl"
+            />
+          </>
+        )}
+      </div>
+      {loading && !mapInitializing ? (
+        <div
+          className={`pointer-events-none absolute right-5 top-20 z-40 px-4 py-2 text-xs font-medium text-slate-500 ${routesGlassDropdown}`}
+        >
+          Loading route data...
+        </div>
+      ) : null}
+      {error && !modalOpen ? (
+        <div className="absolute right-5 top-20 z-40 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 shadow-lg">
+          {error}
+        </div>
+      ) : null}
+      {geoError ? (
+        <div
+          className={`absolute bottom-14 right-20 z-40 px-4 py-3 text-xs text-slate-600 ${routesGlassDropdown}`}
+        >
+          {geoError}
+        </div>
+      ) : null}
+      {modalOpen ? (
+        <RouteModal
+          calculating={calculatingRoute}
+          deliveries={deliveries.filter(
+            (delivery) =>
+              !routes.some(
+                (route) =>
+                  route.deliveryId === delivery.id && route.id !== editingId,
+              ),
+          )}
+          error={error}
+          form={form}
+          invalidField={invalidField}
+          onClose={() => {
+            if (!saving && !calculatingRoute) setModalOpen(false);
+          }}
+          onDelivery={(delivery) => void populateFromDelivery(delivery)}
+          onSubmit={submit}
+          saving={saving}
+        />
+      ) : null}
+    </section>
+  );
 }

@@ -7,6 +7,7 @@ import { fetchAdministratorJson } from "@/lib/admin-api-client";
 import { useNotify } from "@/components/ui/ToastProvider";
 import {
   AdminCard,
+  AdminFilterBarSkeleton,
   AdminPageIntro,
   PrimaryActionButton,
   SecondaryButton,
@@ -324,14 +325,15 @@ function VehicleKpiCard({
     <div
       className={`rounded-[20px] border p-5 shadow-sm ${accent ? "border-[#172f3a] bg-[#172f3a] text-white" : "border-slate-100 bg-white text-[#17232b]"}`}
     >
-      <p className={accent ? "text-xs text-slate-300" : "text-xs text-slate-500"}>{label}</p>
       {isLoading ? (
         <>
+          <Skeleton className="h-3 w-24" rounded="rounded-full" />
           <Skeleton className="mt-4 h-9 w-20" rounded="rounded-full" />
           <Skeleton className="mt-2 h-3 w-32" rounded="rounded-full" />
         </>
       ) : (
         <>
+          <p className={accent ? "text-xs text-slate-300" : "text-xs text-slate-500"}>{label}</p>
           <p className="mt-4 text-3xl font-semibold tracking-[-0.03em]">{value}</p>
           <p className="mt-1 text-xs text-slate-400">{detail}</p>
         </>
@@ -862,6 +864,7 @@ export default function AdminVehiclesPage() {
         actions={<PrimaryActionButton className="gap-2 px-6 py-3" onClick={openCreateModal} type="button"><span aria-hidden="true" className="text-lg leading-none">+</span><span>Create Vehicle</span></PrimaryActionButton>}
         description="Manage vehicle availability, service readiness, compliance dates, and assignment capacity across the delivery fleet."
         eyebrow="Fleet management"
+        loading={isLoading}
         title="Vehicles"
       />
 
@@ -893,7 +896,7 @@ export default function AdminVehiclesPage() {
         />
       </div>
 
-      <AdminCard className="p-4">
+      {isLoading ? <AdminFilterBarSkeleton className="lg:grid-cols-[minmax(0,1fr)_220px_240px]" count={3} /> : <AdminCard className="p-4">
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_240px]">
           <label className="block">
             <span className="sr-only">Search vehicles</span>
@@ -930,7 +933,7 @@ export default function AdminVehiclesPage() {
             </select>
           </label>
         </div>
-      </AdminCard>
+      </AdminCard>}
 
       {errorMessage && !isModalOpen ? (
         <p className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -940,12 +943,7 @@ export default function AdminVehiclesPage() {
 
       <AdminCard className="overflow-hidden">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <div>
-            <h2 className="text-xl font-medium">Vehicle Records</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              Fleet records loaded from the vehicles table.
-            </p>
-          </div>
+          {isLoading ? <div><Skeleton className="h-5 w-36" rounded="rounded-full" /><Skeleton className="mt-2 h-3 w-56" rounded="rounded-full" /></div> : <div><h2 className="text-xl font-medium">Vehicle Records</h2><p className="mt-1 text-sm text-slate-400">Fleet records loaded from the vehicles table.</p></div>}
         </div>
 
         {isLoading ? (

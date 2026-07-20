@@ -323,7 +323,53 @@ function DriverPerformanceCard({ drivers }: { drivers: DriverPerformanceRow[] })
 }
 
 function DashboardSkeleton() {
-  return <section className="space-y-4">{Array.from({ length: 6 }).map((_, index) => <Skeleton className="h-28" key={index} rounded="rounded-[20px]" />)}</section>;
+  return (
+    <section aria-busy="true" className="space-y-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <Skeleton className="h-3 w-40" rounded="rounded-full" />
+          <Skeleton className="mt-3 h-8 w-64" rounded="rounded-full" />
+          <Skeleton className="mt-3 h-4 w-[28rem] max-w-full" rounded="rounded-full" />
+        </div>
+        <div className="flex gap-2">
+          <Skeleton className="h-9 w-40" rounded="rounded-full" />
+          <Skeleton className="h-10 w-24" rounded="rounded-full" />
+          <Skeleton className="h-10 w-28" rounded="rounded-full" />
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <div className="rounded-[20px] border border-slate-100 bg-white p-4 shadow-sm" key={index}>
+            <div className="flex items-start justify-between">
+              <Skeleton className="h-3 w-24" rounded="rounded-full" />
+              <Skeleton className="h-10 w-10" rounded="rounded-2xl" />
+            </div>
+            <Skeleton className="mt-4 h-8 w-14" rounded="rounded-lg" />
+            <Skeleton className="mt-2 h-3 w-28" rounded="rounded-full" />
+          </div>
+        ))}
+      </div>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+        <div className="space-y-5">
+          <div className="relative h-[360px] overflow-hidden rounded-[20px] border border-slate-100 bg-slate-100">
+            <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(148,163,184,.22)_1px,transparent_1px),linear-gradient(rgba(148,163,184,.22)_1px,transparent_1px)] bg-[size:56px_56px]" />
+            <div className="absolute left-5 top-5 rounded-2xl bg-white/90 p-4 shadow-sm">
+              <Skeleton className="h-4 w-36" rounded="rounded-full" />
+              <Skeleton className="mt-3 h-3 w-48" rounded="rounded-full" />
+            </div>
+          </div>
+          <div className="overflow-hidden rounded-[20px] border border-slate-100 bg-white">
+            <div className="flex justify-between px-5 py-4"><Skeleton className="h-5 w-36" /><Skeleton className="h-9 w-20" rounded="rounded-full" /></div>
+            {Array.from({ length: 6 }).map((_, index) => <div className="flex items-center gap-4 border-t border-slate-100 px-5 py-4" key={index}><Skeleton className="h-4 w-24" /><Skeleton className="h-4 flex-1" /><Skeleton className="h-6 w-20" rounded="rounded-full" /></div>)}
+          </div>
+        </div>
+        <div className="space-y-5">
+          {Array.from({ length: 3 }).map((_, index) => <div className="rounded-[20px] border border-slate-100 bg-white p-5" key={index}><Skeleton className="h-5 w-44" /><div className="mt-4 grid grid-cols-2 gap-3">{Array.from({ length: index === 1 ? 6 : 4 }).map((__, metric) => <Skeleton className="h-16 w-full" key={metric} rounded="rounded-2xl" />)}</div></div>)}
+          <div className="rounded-[20px] border border-slate-100 bg-white p-5"><Skeleton className="h-5 w-40" />{Array.from({ length: 4 }).map((_, index) => <div className="mt-3 flex gap-3" key={index}><Skeleton className="h-9 w-9" rounded="rounded-2xl" /><Skeleton className="h-4 flex-1" /></div>)}</div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function alertTone(alert: OperationalAlert) {

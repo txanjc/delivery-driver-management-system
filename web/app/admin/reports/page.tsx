@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AdminCard, AdminPageIntro, PrimaryActionButton, SecondaryButton } from "../_components/admin-design-system";
 import { AppIcons } from "@/config/icons";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { fetchAdministratorJson } from "@/lib/admin-api-client";
 import { reportTypes, type GeneratedReport, type ReportCategory } from "@/lib/reporting";
 
@@ -31,16 +32,62 @@ function ReportChart({ report }: { report: GeneratedReport }) {
   return <div className="overflow-x-auto"><svg aria-label={`${report.title} chart`} className="h-[230px]" role="img" viewBox={`0 0 ${width} ${height}`} style={{ width }}><line stroke="#e2e8f0" x1="42" x2={width - 12} y1="190" y2="190" />{chart.labels.map((label, index) => { const groupWidth = (width - 70) / chart.labels.length; return <g key={`${label}-${index}`}>{chart.series.map((series, seriesIndex) => { const value = series.values[index] ?? 0; const barWidth = Math.min(28, groupWidth / Math.max(1, chart.series.length) - 4); const x = 48 + index * groupWidth + seriesIndex * (barWidth + 4); const barHeight = value / max * 145; return <rect fill={seriesIndex === 0 ? "#7c3aed" : "#94a3b8"} height={barHeight} key={series.name} rx="4" width={barWidth} x={x} y={190 - barHeight}><title>{`${label} · ${series.name}: ${value}`}</title></rect>; })}<text fill="#64748b" fontSize="10" textAnchor="middle" x={48 + index * groupWidth + groupWidth / 3} y="210">{label.length > 12 ? `${label.slice(0, 11)}…` : label}</text></g>; })}</svg><div className="flex flex-wrap justify-center gap-4">{chart.series.map((series, index) => <span className="inline-flex items-center gap-2 text-xs text-slate-500" key={series.name}><span className={`h-2.5 w-2.5 rounded-full ${index === 0 ? "bg-purple-600" : "bg-slate-400"}`} />{series.name}</span>)}</div></div>;
 }
 
+function ReportsLoadingState() {
+  return (
+    <section aria-busy="true" className="reports-page space-y-5 text-[#17232b]">
+      <AdminPageIntro description="" eyebrow="" loading title="" />
+      <AdminCard className="report-controls p-5">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div className="space-y-2" key={index}>
+              <Skeleton className="h-3 w-20" rounded="rounded-full" />
+              <Skeleton className="h-10 w-full" rounded="rounded-xl" />
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <Skeleton className="h-10 w-44" key={index} rounded="rounded-xl" />
+          ))}
+        </div>
+      </AdminCard>
+      <section>
+        <Skeleton className="h-6 w-40" rounded="rounded-full" />
+        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <AdminCard className="p-4" key={index}>
+              <Skeleton className="h-10 w-10" rounded="rounded-2xl" />
+              <Skeleton className="mt-3 h-4 w-32" rounded="rounded-full" />
+              <Skeleton className="mt-3 h-3 w-full" rounded="rounded-full" />
+              <Skeleton className="mt-2 h-3 w-4/5" rounded="rounded-full" />
+            </AdminCard>
+          ))}
+        </div>
+      </section>
+      <AdminCard className="report-preview overflow-hidden">
+        <div className="border-b border-slate-100 px-5 py-4">
+          <Skeleton className="h-5 w-36" rounded="rounded-full" />
+          <Skeleton className="mt-2 h-3 w-48" rounded="rounded-full" />
+        </div>
+        <div className="min-h-44 p-12">
+          <Skeleton className="mx-auto h-4 w-96 max-w-full" rounded="rounded-full" />
+        </div>
+      </AdminCard>
+    </section>
+  );
+}
+
 export default function ReportsPage() {
-  const [category, setCategory] = useState<ReportCategory>("delivery"); const [reportType, setReportType] = useState(reportTypes.delivery[0].value); const [dateFrom, setDateFrom] = useState(monthStart); const [dateTo, setDateTo] = useState(today); const [filters, setFilters] = useState<Record<string, string>>({}); const [options, setOptions] = useState<OptionsPayload>({ drivers: [], vehicles: [], deliveries: [], routes: [], shifts: [], users: [] }); const [report, setReport] = useState<GeneratedReport | null>(null); const [loading, setLoading] = useState(false); const [error, setError] = useState("");
+  const [category, setCategory] = useState<ReportCategory>("delivery"); const [reportType, setReportType] = useState(reportTypes.delivery[0].value); const [dateFrom, setDateFrom] = useState(monthStart); const [dateTo, setDateTo] = useState(today); const [filters, setFilters] = useState<Record<string, string>>({}); const [options, setOptions] = useState<OptionsPayload>({ drivers: [], vehicles: [], deliveries: [], routes: [], shifts: [], users: [] }); const [report, setReport] = useState<GeneratedReport | null>(null); const [loading, setLoading] = useState(false); const [isInitialLoading, setIsInitialLoading] = useState(true); const [error, setError] = useState("");
   const selectedCategory = categories.find((item) => item.value === category) ?? categories[0];
-  useEffect(() => { fetchAdministratorJson<OptionsPayload>("/api/admin/reports/options").then(setOptions).catch((caught) => { if (process.env.NODE_ENV === "development") console.error(caught); }); }, []);
+  useEffect(() => { let cancelled = false; void fetchAdministratorJson<OptionsPayload>("/api/admin/reports/options").then((data) => { if (!cancelled) setOptions(data); }).catch((caught) => { if (process.env.NODE_ENV === "development") console.error(caught); }).finally(() => { if (!cancelled) setIsInitialLoading(false); }); return () => { cancelled = true; }; }, []);
   const setFilter = (key: string, value: string) => setFilters((current) => ({ ...current, [key]: value }));
   const contextual = useMemo(() => category === "delivery" ? [["status", "Delivery Status", deliveryStatuses], ["driverId", "Driver", options.drivers], ["vehicleId", "Vehicle", options.vehicles], ["routeId", "Route", options.routes], ["priority", "Priority", ["low", "normal", "high", "urgent"]]] as const : category === "driver" ? [["driverId", "Driver", options.drivers], ["availability", "Availability", ["available", "unavailable"]], ["shift", "Shift", options.shifts]] as const : category === "financial" ? [["expenseCategory", "Expense Category", expenseOptions], ["driverId", "Driver", options.drivers], ["vehicleId", "Vehicle", options.vehicles], ["deliveryId", "Delivery", options.deliveries]] as const : category === "operational" ? [["driverId", "Driver", options.drivers], ["vehicleId", "Vehicle", options.vehicles], ["shift", "Shift", options.shifts], ["vehicleStatus", "Vehicle Status", vehicleStatuses], ["status", "Delivery Status", deliveryStatuses]] as const : [["deliveryId", "Delivery", options.deliveries], ["changedBy", "Changed By", options.users], ["status", "Status", deliveryStatuses]] as const, [category, options]);
   async function generate() { setLoading(true); setError(""); try { const query = new URLSearchParams({ category, reportType, dateFrom, dateTo, ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value)) }); const generated = await fetchAdministratorJson<GeneratedReport & { options?: OptionsPayload }>(`/api/admin/reports?${query}`); setReport(generated); if (generated.options) setOptions(generated.options); } catch (caught) { if (process.env.NODE_ENV === "development") console.error(caught); setError("The report could not be generated."); setReport(null); } finally { setLoading(false); } }
   function chooseCategory(value: ReportCategory) { setCategory(value); setReportType(reportTypes[value][0].value); setFilters({}); setReport(null); setError(""); }
   function exportCsv() { if (!report) return; const metadata = [["Report", report.title], ["Reporting period", `${report.period.from} to ${report.period.to}`], ["Generated", report.generatedAt], ...report.filters.map((item) => [`Filter: ${item.label}`, item.value])]; const lines = [...metadata.map((row) => row.map(csvCell).join(",")), "", report.columns.map((column) => csvCell(column.label)).join(","), ...report.rows.map((row) => report.columns.map((column) => csvCell(row[column.key])).join(","))]; const blob = new Blob([lines.join("\r\n")], { type: "text/csv;charset=utf-8" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `${report.reportType.replaceAll("_", "-")}_${report.period.from}_to_${report.period.to}_${report.generatedAt.slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(url); }
   const inputClass = "h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-600 outline-none focus:border-purple-300 focus:ring-2 focus:ring-purple-100";
+  if (isInitialLoading) return <ReportsLoadingState />;
   return <section className="reports-page space-y-5 text-[#17232b]"><AdminPageIntro description="Generate accurate operational reports from current DDMS data." eyebrow="Reporting center" title="Reports" />
     <AdminCard className="report-controls p-5"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5"><label className="text-xs font-semibold text-slate-500">Date From<input className={`${inputClass} mt-1 w-full`} onChange={(event) => { setDateFrom(event.target.value); setReport(null); }} type="date" value={dateFrom} /></label><label className="text-xs font-semibold text-slate-500">Date To<input className={`${inputClass} mt-1 w-full`} onChange={(event) => { setDateTo(event.target.value); setReport(null); }} type="date" value={dateTo} /></label><label className="text-xs font-semibold text-slate-500">Report Category<select className={`${inputClass} mt-1 w-full`} onChange={(event) => chooseCategory(event.target.value as ReportCategory)} value={category}>{categories.map((item) => <option key={item.value} value={item.value}>{item.title}</option>)}</select></label><label className="text-xs font-semibold text-slate-500">Report Type<select className={`${inputClass} mt-1 w-full`} onChange={(event) => { setReportType(event.target.value); setReport(null); }} value={reportType}>{reportTypes[category].map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><div className="flex items-end"><PrimaryActionButton className="w-full justify-center" disabled={loading || !dateFrom || !dateTo || dateFrom > dateTo} onClick={() => void generate()} type="button">{loading ? "Generating report..." : "Generate Report"}</PrimaryActionButton></div></div><div className="mt-4 flex flex-wrap gap-3">{contextual.map(([key, filterLabel, values]) => <label className="text-xs font-semibold text-slate-500" key={key}>{filterLabel}<select className={`${inputClass} ml-2 min-w-40`} onChange={(event) => { setFilter(key, event.target.value); setReport(null); }} value={filters[key] ?? ""}><option value="">All</option>{values.map((value) => typeof value === "string" ? <option key={value} value={value}>{title(value)}</option> : <option key={value.value} value={value.value}>{value.label}</option>)}</select></label>)}</div></AdminCard>
     <section><h2 className="text-lg font-semibold">Report Categories</h2><div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-5">{categories.map((item) => <button className={`rounded-[20px] border bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${category === item.value ? "border-purple-300 ring-2 ring-purple-100" : "border-slate-100"}`} key={item.value} onClick={() => chooseCategory(item.value)} type="button"><span className="grid h-10 w-10 place-items-center rounded-2xl bg-purple-50 text-purple-600"><AppIcons.reports aria-hidden size={18} weight="bold" /></span><h3 className="mt-3 text-sm font-semibold">{item.title}</h3><p className="mt-1 text-xs leading-5 text-slate-500">{item.description}</p></button>)}</div></section>

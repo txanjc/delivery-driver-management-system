@@ -86,8 +86,6 @@ export function RoutesGuardLoadingState() {
         <section className="relative h-dvh overflow-hidden">
           <div className="absolute inset-0 bg-[#dff2f0]">
             <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(37,99,235,.12)_1px,transparent_1px),linear-gradient(rgba(37,99,235,.12)_1px,transparent_1px)] bg-[size:72px_72px]" />
-            <Skeleton className="absolute left-[14%] top-[24%] h-3 w-[48%] rotate-[-18deg] bg-white/52" rounded="rounded-full" />
-            <Skeleton className="absolute left-[42%] top-[56%] h-3 w-[38%] rotate-[24deg] bg-white/52" rounded="rounded-full" />
           </div>
 
           <div className="absolute left-[430px] right-5 top-4 z-30 flex items-start justify-between gap-3">

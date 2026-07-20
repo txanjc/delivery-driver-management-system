@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 
 import {
   AdminCard,
+  AdminFilterBarSkeleton,
   AdminPageIntro,
   PrimaryActionButton,
 } from "../_components/admin-design-system";
@@ -237,14 +238,15 @@ function UserKpiCard({
 }) {
   return (
     <div className={`rounded-[20px] border p-5 shadow-sm ${accent ? "border-[#172f3a] bg-[#172f3a] text-white" : "border-slate-100 bg-white text-[#17232b]"}`}>
-      <p className={accent ? "text-xs text-slate-300" : "text-xs text-slate-500"}>{label}</p>
       {isLoading ? (
         <>
+          <Skeleton className="h-3 w-24" rounded="rounded-full" />
           <Skeleton className="mt-4 h-9 w-20" rounded="rounded-full" />
           <Skeleton className="mt-2 h-3 w-32" rounded="rounded-full" />
         </>
       ) : (
         <>
+          <p className={accent ? "text-xs text-slate-300" : "text-xs text-slate-500"}>{label}</p>
           <p className="mt-4 text-3xl font-semibold tracking-[-0.03em]">{value}</p>
           <p className="mt-1 text-xs text-slate-400">{detail}</p>
         </>
@@ -890,10 +892,11 @@ export default function AdminUsersPage() {
           "Manage user accounts, roles, contact information, and access status."
         }
         eyebrow="Access operations"
+        loading={isLoading}
         title="Users"
       />
 
-      {showAuthNotice ? (
+      {isLoading ? <Skeleton className="h-[52px] w-full" rounded="rounded-2xl" /> : showAuthNotice ? (
         <div className="flex items-start justify-between gap-3 rounded-2xl border border-purple-100 bg-purple-50/70 px-4 py-3 text-sm text-purple-700">
           <p>User accounts are created securely through the authentication service.</p>
           <button className="shrink-0 rounded-full px-2 text-xs font-semibold text-purple-500 transition hover:bg-white/70 hover:text-purple-700" onClick={() => setShowAuthNotice(false)} type="button">Dismiss</button>
@@ -928,7 +931,7 @@ export default function AdminUsersPage() {
         />
       </div>
 
-      <AdminCard className="p-4">
+      {isLoading ? <AdminFilterBarSkeleton className="lg:grid-cols-[minmax(0,1fr)_180px_180px_170px_auto]" count={4} /> : <AdminCard className="p-4">
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_180px_170px_auto]">
           <label className="block">
             <span className="sr-only">Search users</span>
@@ -1004,7 +1007,7 @@ export default function AdminUsersPage() {
             </button>
           ) : null}
         </div>
-      </AdminCard>
+      </AdminCard>}
 
       {errorMessage && !isModalOpen ? (
         <p aria-live="assertive" className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -1014,13 +1017,7 @@ export default function AdminUsersPage() {
 
       <AdminCard className="overflow-hidden">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <div>
-            <h2 className="text-xl font-medium">User Profiles</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              Profile records loaded from the profiles table.
-            </p>
-          </div>
-          <p className="text-sm font-semibold text-slate-400">{filteredUsers.length} result{filteredUsers.length === 1 ? "" : "s"}</p>
+          {isLoading ? <><div><Skeleton className="h-5 w-36" rounded="rounded-full" /><Skeleton className="mt-2 h-3 w-56" rounded="rounded-full" /></div><Skeleton className="h-4 w-20" rounded="rounded-full" /></> : <><div><h2 className="text-xl font-medium">User Profiles</h2><p className="mt-1 text-sm text-slate-400">Profile records loaded from the profiles table.</p></div><p className="text-sm font-semibold text-slate-400">{filteredUsers.length} result{filteredUsers.length === 1 ? "" : "s"}</p></>}
         </div>
 
         {isLoading ? (

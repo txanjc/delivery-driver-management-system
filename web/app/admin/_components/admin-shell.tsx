@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { ReactNode } from "react";
 
@@ -155,6 +155,14 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const globalSearchInputRef = useRef<HTMLInputElement>(null);
   const globalSearchPanelRef = useRef<HTMLDivElement>(null);
   const routesSearchRequestRef = useRef(0);
+  const ignoreRestoredSearchFocusRef = useRef(false);
+
+  const closeGlobalSearch = useCallback(() => {
+    if (!isRoutesSearchOpen) return;
+
+    ignoreRestoredSearchFocusRef.current = true;
+    setIsRoutesSearchOpen(false);
+  }, [isRoutesSearchOpen]);
   const fullName = `${profileName.firstName} ${profileName.lastName}`.trim();
   const isQuickActionsOpen = openTopbarMenu === "quick-actions";
   const isProfileOpen = openTopbarMenu === "user-profile";
@@ -266,7 +274,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
       const target = event.target as Node;
-      if (!routesSearchRef.current?.contains(target) && !globalSearchPanelRef.current?.contains(target)) setIsRoutesSearchOpen(false);
+      if (!routesSearchRef.current?.contains(target) && !globalSearchPanelRef.current?.contains(target)) closeGlobalSearch();
     }
     function handleKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
@@ -285,7 +293,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (event.key === "Escape") setIsRoutesSearchOpen(false);
+      if (event.key === "Escape") closeGlobalSearch();
     }
     document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
@@ -293,7 +301,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, []);
+  }, [closeGlobalSearch]);
 
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
@@ -360,7 +368,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
     } else {
       router.push(result.href);
     }
-    setIsRoutesSearchOpen(false);
+    closeGlobalSearch();
     setActiveRouteSearchIndex(-1);
   }
 
@@ -371,7 +379,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         dialogRef={globalSearchPanelRef}
         initialFocusRef={globalSearchInputRef}
         label="Global search"
-        onClose={() => setIsRoutesSearchOpen(false)}
+        onClose={closeGlobalSearch}
         open={isRoutesSearchOpen}
         placement="search"
         returnFocusRef={routesSearchTriggerRef}
@@ -401,7 +409,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                     selectRouteSearchResult(result);
                   }
                 } else if (event.key === "Escape") {
-                  setIsRoutesSearchOpen(false);
+                  closeGlobalSearch();
                 }
               }}
               placeholder="Search across DeliverEaze"
@@ -634,7 +642,14 @@ export function AdminShell({ children }: { children: ReactNode }) {
                 role="combobox"
                 className="h-10 w-full rounded-full border border-slate-200 bg-slate-50 pl-10 pr-10 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
                 onChange={(event) => { setRoutesSearch(event.target.value); setIsRoutesSearchOpen(true); if (isRoutesWorkspace) window.dispatchEvent(new CustomEvent("deliver-eaze:routes-search", { detail: event.target.value })); }}
-                onFocus={() => setIsRoutesSearchOpen(true)}
+                onFocus={() => {
+                  if (ignoreRestoredSearchFocusRef.current) {
+                    ignoreRestoredSearchFocusRef.current = false;
+                    return;
+                  }
+
+                  setIsRoutesSearchOpen(true);
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "ArrowDown") {
                     event.preventDefault();
@@ -650,7 +665,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                       selectRouteSearchResult(result);
                     }
                   } else if (event.key === "Escape") {
-                    setIsRoutesSearchOpen(false);
+                    closeGlobalSearch();
                   }
                 }}
                 placeholder="Search across DeliverEaze"
@@ -665,7 +680,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                   onClick={() => {
                     setRoutesSearch("");
                     setRoutesSearchResults([]);
-                    setIsRoutesSearchOpen(false);
+                    closeGlobalSearch();
                     if (isRoutesWorkspace) window.dispatchEvent(new CustomEvent("deliver-eaze:routes-search", { detail: "" }));
                   }}
                   type="button"

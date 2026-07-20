@@ -1,4 +1,4 @@
-import { apiError, authorizeAdministratorRequest } from "@/lib/server/administrator-api";
+import { apiError, authorizeAdministratorRequest, authorizeOperationsRequest } from "@/lib/server/administrator-api";
 import { findRelevantAssignment, isVehicleOperational } from "@/lib/operations";
 import { notificationPaths, notifyOperationalEvent } from "@/lib/server/notification-service";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -133,23 +133,24 @@ function routeMatchesDelivery(route: RouteInput, delivery: MappedDelivery) {
 }
 
 export async function GET(request: Request) {
-  const authorization = await authorizeAdministratorRequest(request);
+  const authorization = await authorizeOperationsRequest(request);
   if (!authorization.client) return authorization.response;
-  const [routesResponse, deliveriesResponse, driversResponse, vehiclesResponse, schedulesResponse, deliveryHistoryResponse] = await Promise.all([
-    authorization.client.from("routes").select("route_id, delivery_id, origin, destination, origin_name, origin_address, origin_latitude, origin_longitude, destination_name, destination_address, destination_latitude, destination_longitude, estimated_distance_km, estimated_duration_minutes, actual_distance_km, actual_duration_minutes, route_polyline, maps_url, route_provider, route_generated_at, sequence_order, created_at").order("created_at", { ascending: false }),
+  const [routesResponse, deliveriesResponse, driversResponse, vehiclesResponse, schedulesResponse, deliveryHistoryResponse, routeStopsResponse] = await Promise.all([
+    authorization.client.from("routes").select("route_id, delivery_id, origin, destination, origin_name, origin_address, origin_latitude, origin_longitude, destination_name, destination_address, destination_latitude, destination_longitude, estimated_distance_km, estimated_duration_minutes, actual_distance_km, actual_duration_minutes, route_polyline, maps_url, route_provider, route_generated_at, sequence_order, created_at, route_number, route_date, driver_id, vehicle_id, schedule_id, start_location_name, start_address, start_place_id, start_latitude, start_longitude, end_location_name, end_address, end_place_id, end_latitude, end_longitude, return_to_depot, departure_time, shift_end_time, estimated_completion_time, total_distance_meters, total_duration_seconds, encoded_polyline, optimization_status, optimized_at, status").order("created_at", { ascending: false }),
     authorization.client.from("deliveries").select("delivery_id, delivery_number, customer_name, customer_phone, pickup_address, pickup_place_id, pickup_latitude, pickup_longitude, delivery_address, delivery_place_id, delivery_latitude, delivery_longitude, assigned_driver_id, assigned_vehicle_id, status, priority, updated_at").order("delivery_number", { ascending: true }),
     authorization.client.from("drivers").select("driver_id, user_id, availability"),
     authorization.client.from("vehicles").select("vehicle_id, vehicle_number, license_plate, make, model, vehicle_type, status"),
-    authorization.client.from("schedules").select("schedule_id, driver_id, vehicle_id, shift_name, start_time, end_time, status").neq("status", "cancelled"),
+    authorization.client.from("schedules").select("schedule_id, driver_id, vehicle_id, shift_date, shift_type, shift_name, start_time, end_time, status").neq("status", "cancelled"),
     authorization.client.from("delivery_status_history").select("delivery_id, status, created_at").in("status", ["delivered", "failed", "returned"]).order("created_at", { ascending: false }),
+    authorization.client.from("route_stops").select("route_id, delivery_id, stop_sequence, original_sequence, estimated_arrival_time, estimated_departure_time, service_duration_seconds, distance_from_previous_meters, duration_from_previous_seconds, stop_status").order("stop_sequence", { ascending: true }),
   ]);
-  const error = routesResponse.error ?? deliveriesResponse.error ?? driversResponse.error ?? vehiclesResponse.error ?? schedulesResponse.error ?? deliveryHistoryResponse.error;
+  const error = routesResponse.error ?? deliveriesResponse.error ?? driversResponse.error ?? vehiclesResponse.error ?? schedulesResponse.error ?? deliveryHistoryResponse.error ?? routeStopsResponse.error;
   if (error) return apiError(error.message, 400);
   const drivers = driversResponse.data ?? [];
   const profileIds = drivers.map((driver) => driver.user_id).filter((id): id is string => Boolean(id));
   const profilesResponse = profileIds.length ? await authorization.client.from("profiles").select("profile_id, first_name, last_name, email, phone, is_active").in("profile_id", profileIds) : { data: [], error: null };
   if (profilesResponse.error) return apiError(profilesResponse.error.message, 400);
-  return Response.json({ routes: routesResponse.data ?? [], deliveries: deliveriesResponse.data ?? [], deliveryHistory: deliveryHistoryResponse.data ?? [], drivers, profiles: profilesResponse.data ?? [], vehicles: vehiclesResponse.data ?? [], schedules: schedulesResponse.data ?? [] });
+  return Response.json({ routes: routesResponse.data ?? [], routeStops: routeStopsResponse.data ?? [], deliveries: deliveriesResponse.data ?? [], deliveryHistory: deliveryHistoryResponse.data ?? [], drivers, profiles: profilesResponse.data ?? [], vehicles: vehiclesResponse.data ?? [], schedules: schedulesResponse.data ?? [] });
 }
 
 export async function POST(request: Request) {

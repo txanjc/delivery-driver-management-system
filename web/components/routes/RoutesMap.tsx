@@ -34,12 +34,31 @@ export type RoutesMapRoute = {
   polyline: string;
 };
 
+export type RoutesMapPreview = {
+  encodedPolyline: string;
+  returnToDepot: boolean;
+  start: { latitude: number; longitude: number; label: string };
+  stops: Array<{ deliveryId: string; sequence: number; latitude: number; longitude: number; label: string }>;
+};
+
+export type RoutesMapCompanyLocation = {
+  name: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+};
+
 type RoutesMapProps = {
+  companyLocation?: RoutesMapCompanyLocation | null;
   routes: RoutesMapRoute[];
   selectedId: string;
   panelOpen?: boolean;
   layer: RoutesMapLayer;
   loading: boolean;
+  preview?: RoutesMapPreview | null;
+  selectedPreviewStopId?: string;
+  onPreviewGeometryWarning?: (message: string | null) => void;
+  onPreviewStopSelect?: (deliveryId: string) => void;
   onReadyChange?: (ready: boolean) => void;
   onSelect: (route: RoutesMapRoute) => void;
 };
@@ -116,6 +135,55 @@ function makeUserMarkerNode() {
   return node;
 }
 
+function makePreviewStartMarkerNode(returnToDepot: boolean) {
+  const node = document.createElement("div");
+  node.className = "grid h-9 w-9 place-items-center rounded-full border-2 border-white bg-slate-900 text-[9px] font-black text-white shadow-xl ring-4 ring-purple-200/70";
+  node.setAttribute("aria-label", returnToDepot ? "Route start and return depot" : "Route start");
+  node.textContent = returnToDepot ? "DEPOT" : "START";
+  return node;
+}
+
+function makePreviewStopMarkerNode(sequence: number, selected: boolean) {
+  const node = document.createElement("div");
+  node.className = `grid h-9 w-9 place-items-center rounded-full border-2 border-white bg-purple-600 text-xs font-black text-white shadow-xl transition ${selected ? "ring-4 ring-purple-200" : ""}`;
+  node.setAttribute("aria-label", `Optimized stop ${sequence}`);
+  node.textContent = String(sequence);
+  return node;
+}
+
+function makeWarehouseMarkerNode() {
+  const node = document.createElement("div");
+  node.className = "deliver-eaze-warehouse-marker";
+  node.setAttribute("aria-label", "DeliverEaze Warehouse");
+  node.innerHTML = '<span class="deliver-eaze-warehouse-marker__pulse"></span><span class="deliver-eaze-warehouse-marker__pin"><span class="deliver-eaze-warehouse-marker__label">W</span></span>';
+  return node;
+}
+
+function warehouseInfoContent(location: RoutesMapCompanyLocation) {
+  const content = document.createElement("div");
+  content.style.cssText = "max-width:220px;padding:2px 4px;color:#1e293b;font-family:Arial,sans-serif;";
+  const title = document.createElement("p");
+  title.style.cssText = "margin:0;font-size:13px;font-weight:700;";
+  title.textContent = location.name || "DeliverEaze Warehouse";
+  const address = document.createElement("p");
+  address.style.cssText = "margin:5px 0 0;font-size:12px;line-height:1.45;color:#475569;";
+  address.textContent = location.address;
+  const note = document.createElement("p");
+  note.style.cssText = "margin:7px 0 0;font-size:11px;font-weight:600;color:#7c3aed;";
+  note.textContent = "Default operating location";
+  content.append(title, address, note);
+  return content;
+}
+
+function sameCoordinates(
+  latitude: number,
+  longitude: number,
+  location: RoutesMapCompanyLocation | null,
+) {
+  const tolerance = 0.00005;
+  return Boolean(location && Math.abs(latitude - location.latitude) <= tolerance && Math.abs(longitude - location.longitude) <= tolerance);
+}
+
 function routeHasCoordinates(route: RoutesMapRoute) {
   return (
     route.originLat !== null &&
@@ -145,12 +213,26 @@ function fitRoutes(map: google.maps.Map, routes: RoutesMapRoute[], panelOpen: bo
   });
 }
 
+function fitPreview(map: google.maps.Map, preview: RoutesMapPreview, path: google.maps.LatLng[], panelOpen: boolean) {
+  const bounds = new google.maps.LatLngBounds();
+  bounds.extend({ lat: preview.start.latitude, lng: preview.start.longitude });
+  preview.stops.forEach((stop) => bounds.extend({ lat: stop.latitude, lng: stop.longitude }));
+  path.forEach((point) => bounds.extend(point));
+  if (bounds.isEmpty()) return;
+  map.fitBounds(bounds, { bottom: 96, left: panelOpen ? 430 : 80, right: 116, top: 108 });
+}
+
 export const RoutesMap = forwardRef<RoutesMapHandle, RoutesMapProps>(function RoutesMap({
+  companyLocation = null,
   routes,
   selectedId,
   panelOpen = true,
   layer,
   loading,
+  preview = null,
+  selectedPreviewStopId = "",
+  onPreviewGeometryWarning,
+  onPreviewStopSelect,
   onReadyChange,
   onSelect,
 }, ref) {
@@ -319,7 +401,92 @@ export const RoutesMap = forwardRef<RoutesMapHandle, RoutesMapProps>(function Ro
       return;
     }
 
+    const warehouse = companyLocation && Number.isFinite(companyLocation.latitude) && Number.isFinite(companyLocation.longitude)
+      ? companyLocation
+      : null;
+    if (warehouse) {
+      const marker = new libraries.marker.AdvancedMarkerElement({
+        content: makeWarehouseMarkerNode(),
+        map,
+        position: { lat: warehouse.latitude, lng: warehouse.longitude },
+        title: `${warehouse.name || "DeliverEaze Warehouse"} — default operating location`,
+        zIndex: 115,
+      });
+      const infoWindow = new libraries.maps.InfoWindow({ content: warehouseInfoContent(warehouse) });
+      overlaysRef.current.markers.push(marker);
+      overlaysRef.current.listeners.push(marker.addListener("click", () => infoWindow.open({ map, anchor: marker })));
+    }
+
+    if (preview) {
+      queueMicrotask(() => {
+        setState("ready");
+        setMessage("");
+      });
+      let path: google.maps.LatLng[] = [];
+      let geometryWarning: string | null = null;
+      if (!preview.encodedPolyline) {
+        geometryWarning = "The optimized route geometry is unavailable. Stop markers are still shown.";
+      } else {
+        try {
+          path = libraries.geometry.encoding.decodePath(preview.encodedPolyline);
+          if (!path.length) geometryWarning = "The optimized route geometry is empty. Stop markers are still shown.";
+        } catch {
+          geometryWarning = "The optimized route geometry could not be read. Stop markers are still shown.";
+          path = [];
+        }
+      }
+      onPreviewGeometryWarning?.(geometryWarning);
+
+      if (path.length) {
+        const casing = new google.maps.Polyline({ map, path, strokeColor: layer === "satellite" || layer === "terrain" ? "rgba(15,23,42,.76)" : "#ffffff", strokeOpacity: 0.92, strokeWeight: 10, zIndex: 70 });
+        const inner = new google.maps.Polyline({ map, path, strokeColor: "#7c3aed", strokeOpacity: 1, strokeWeight: 6, zIndex: 80 });
+        overlaysRef.current.polylines.push(casing, inner);
+      }
+
+      if (!sameCoordinates(preview.start.latitude, preview.start.longitude, warehouse)) {
+      const startMarker = new libraries.marker.AdvancedMarkerElement({
+        content: makePreviewStartMarkerNode(preview.returnToDepot),
+        map,
+        position: { lat: preview.start.latitude, lng: preview.start.longitude },
+        title: preview.returnToDepot ? `${preview.start.label} — start and return depot` : `${preview.start.label} — route start`,
+        zIndex: 120,
+      });
+      overlaysRef.current.markers.push(startMarker);
+      }
+
+      preview.stops.forEach((stop) => {
+        const selected = stop.deliveryId === selectedPreviewStopId;
+        const marker = new libraries.marker.AdvancedMarkerElement({
+          content: makePreviewStopMarkerNode(stop.sequence, selected),
+          map,
+          position: { lat: stop.latitude, lng: stop.longitude },
+          title: `Stop ${stop.sequence}: ${stop.label}`,
+          zIndex: selected ? 140 : 130,
+        });
+        overlaysRef.current.markers.push(marker);
+        if (onPreviewStopSelect) overlaysRef.current.listeners.push(marker.addListener("click", () => onPreviewStopSelect(stop.deliveryId)));
+      });
+
+      const fitKey = `preview:${panelOpen}:${preview.encodedPolyline}:${preview.start.latitude}:${preview.start.longitude}:${preview.stops.map((stop) => `${stop.deliveryId}:${stop.sequence}`).join(",")}`;
+      if (fitKey !== lastFitKeyRef.current) {
+        fitPreview(map, preview, path, panelOpen);
+        lastFitKeyRef.current = fitKey;
+      }
+      return;
+    }
+
+    onPreviewGeometryWarning?.(null);
+
     if (!positionedRoutes.length && !currentPosition) {
+      if (warehouse) {
+        map.setCenter({ lat: warehouse.latitude, lng: warehouse.longitude });
+        map.setZoom(USER_LOCATION_ZOOM);
+        queueMicrotask(() => {
+          setState("ready");
+          setMessage("");
+        });
+        return;
+      }
       map.setCenter(WESTCHESTER_DEFAULT_CENTER);
       map.setZoom(WESTCHESTER_DEFAULT_ZOOM);
       queueMicrotask(() => {
@@ -403,13 +570,15 @@ export const RoutesMap = forwardRef<RoutesMapHandle, RoutesMapProps>(function Ro
         continue;
       }
 
-      const originMarker = new libraries.marker.AdvancedMarkerElement({
-        content: makeOriginMarkerNode(color, selected),
-        map,
-        position: origin,
-        title: markerTooltip(route, "Origin"),
-        zIndex: selected ? 80 : dimmed ? 4 : 20,
-      });
+      const originMarker = sameCoordinates(origin.lat, origin.lng, warehouse)
+        ? null
+        : new libraries.marker.AdvancedMarkerElement({
+          content: makeOriginMarkerNode(color, selected),
+          map,
+          position: origin,
+          title: markerTooltip(route, "Origin"),
+          zIndex: selected ? 80 : dimmed ? 4 : 20,
+        });
       const destinationMarker = new libraries.marker.AdvancedMarkerElement({
         content: makeDestinationMarkerNode(color, selected),
         map,
@@ -417,11 +586,12 @@ export const RoutesMap = forwardRef<RoutesMapHandle, RoutesMapProps>(function Ro
         title: markerTooltip(route, "Destination"),
         zIndex: selected ? 81 : dimmed ? 5 : 21,
       });
-      overlaysRef.current.markers.push(originMarker, destinationMarker);
+      if (originMarker) overlaysRef.current.markers.push(originMarker);
+      overlaysRef.current.markers.push(destinationMarker);
       overlaysRef.current.listeners.push(
-        originMarker.addListener("click", () => onSelect(route)),
         destinationMarker.addListener("click", () => onSelect(route)),
       );
+      if (originMarker) overlaysRef.current.listeners.push(originMarker.addListener("click", () => onSelect(route)));
     }
 
     if (clusterable) {
@@ -470,7 +640,7 @@ export const RoutesMap = forwardRef<RoutesMapHandle, RoutesMapProps>(function Ro
       fitRoutes(map, routesToFit, panelOpen);
       lastFitKeyRef.current = fitKey;
     }
-  }, [currentPosition, layer, loading, onSelect, panelOpen, positionedRoutes, selectedId, selectedRoute, zoomLevel]);
+  }, [companyLocation, currentPosition, layer, loading, onPreviewGeometryWarning, onPreviewStopSelect, onSelect, panelOpen, positionedRoutes, preview, selectedId, selectedPreviewStopId, selectedRoute, zoomLevel]);
 
   const showSkeleton = state === "initializing";
   const showMessage =
@@ -478,6 +648,14 @@ export const RoutesMap = forwardRef<RoutesMapHandle, RoutesMapProps>(function Ro
 
   return (
     <div aria-busy={state === "initializing" || state === "loading_routes"} className="absolute inset-0 bg-[#edf4f3]">
+      <style>{`
+        .deliver-eaze-warehouse-marker { position: relative; display: grid; height: 38px; width: 38px; place-items: center; }
+        .deliver-eaze-warehouse-marker__pulse { position: absolute; inset: 1px; border-radius: 999px; background: rgba(124, 58, 237, .34); animation: deliver-eaze-warehouse-pulse 2.8s ease-out infinite; }
+        .deliver-eaze-warehouse-marker__pin { position: relative; display: grid; height: 28px; width: 28px; place-items: center; border: 2px solid #ffffff; border-radius: 999px 999px 999px 3px; background: #7c3aed; color: #ffffff; font: 800 11px/1 Arial, sans-serif; box-shadow: 0 6px 16px rgba(91, 33, 182, .34); transform: rotate(-45deg); }
+        .deliver-eaze-warehouse-marker__label { transform: rotate(45deg); }
+        @keyframes deliver-eaze-warehouse-pulse { 0% { opacity: .7; transform: scale(.72); } 72%, 100% { opacity: 0; transform: scale(1.72); } }
+        @media (prefers-reduced-motion: reduce) { .deliver-eaze-warehouse-marker__pulse { animation: none; opacity: .42; transform: scale(1.12); } }
+      `}</style>
       {showSkeleton ? <SkeletonMapPanel className="absolute inset-0 h-full w-full rounded-none" /> : null}
       <div className="absolute inset-0 h-full w-full" ref={containerRef} />
       {state === "loading_routes" ? (
