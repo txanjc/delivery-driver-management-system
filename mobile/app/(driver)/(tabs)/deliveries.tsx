@@ -954,6 +954,8 @@ export default function DeliveriesScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.dashboardBackground }]}>
       <AnimatedFlatList
+        alwaysBounceVertical
+        bounces
         ListEmptyComponent={
           showInitialLoading ? (
             <LoadingSkeleton colors={colors} width={width} />
@@ -962,6 +964,7 @@ export default function DeliveriesScreen() {
           )
         }
         contentContainerStyle={{
+          flexGrow: 1,
           gap: sectionGap,
           paddingBottom: getScrollContentBottomPadding(width, insets.bottom) + 36,
           paddingHorizontal: getScreenHorizontalPadding(width),
@@ -1000,6 +1003,7 @@ export default function DeliveriesScreen() {
           )
         }
         onScroll={handleScroll}
+        overScrollMode="always"
         renderItem={renderFeaturedDelivery}
         scrollEventThrottle={16}
         style={[styles.list, { backgroundColor: colors.dashboardBackground }]}

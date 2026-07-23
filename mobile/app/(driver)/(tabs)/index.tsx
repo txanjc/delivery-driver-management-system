@@ -21,6 +21,8 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ActiveDeliveryCard } from "@/components/dashboard/ActiveDeliveryCard";
+import { DeliverEazeAmbientGlow } from "@/components/dashboard/DeliverEazeAmbientGlow";
+import type { AmbientGlowMode } from "@/components/dashboard/DeliverEazeAmbientGlow";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DashboardScrollEdge } from "@/components/dashboard/DashboardScrollEdge";
 import { DeliverySummaryCard } from "@/components/dashboard/DeliverySummaryCard";
@@ -401,6 +403,8 @@ export default function DashboardScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
+  const [showAmbientSuccess, setShowAmbientSuccess] = useState(false);
+  const ambientSuccessTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
@@ -422,6 +426,7 @@ export default function DashboardScreen() {
       arrowOpacity.value = 0;
       readyArrowOpacity.value = 0;
       spinnerOpacity.value = 0;
+      if (ambientSuccessTimeoutRef.current) clearTimeout(ambientSuccessTimeoutRef.current);
     };
   }, [
     arrowOpacity,
@@ -498,6 +503,7 @@ export default function DashboardScreen() {
         setUnavailable(Boolean(scheduleResponse.error || deliveryResponse.error));
         void refreshUnreadCount();
         didLoadRef.current = true;
+        return background && !scheduleResponse.error && !deliveryResponse.error;
       } finally {
         requestInFlightRef.current = false;
 
@@ -549,6 +555,7 @@ export default function DashboardScreen() {
     () => getActiveDelivery(state.deliveries),
     [state.deliveries],
   );
+  const ambientGlowMode: AmbientGlowMode = showAmbientSuccess ? "success" : refreshing ? "refreshing" : activeDelivery ? "active" : "idle";
 
   const scheduleDetails = useMemo(
     () => getScheduleOverviewDetails(state.schedule, state.vehicle),
@@ -620,7 +627,14 @@ export default function DashboardScreen() {
       return;
     }
 
-    void loadDashboard({ background: true });
+    void loadDashboard({ background: true }).then((didRefreshSucceed) => {
+      if (!didRefreshSucceed || !mountedRef.current) return;
+      if (ambientSuccessTimeoutRef.current) clearTimeout(ambientSuccessTimeoutRef.current);
+      setShowAmbientSuccess(true);
+      ambientSuccessTimeoutRef.current = setTimeout(() => {
+        if (mountedRef.current) setShowAmbientSuccess(false);
+      }, 1_140);
+    });
   }, [driver, loadDashboard, profileLoading, refreshing, resetRefreshVisuals]);
 
   useEffect(() => {
@@ -797,8 +811,9 @@ export default function DashboardScreen() {
   void preservedDashboardState;
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar backgroundColor={colors.background} style={colorScheme === "dark" ? "light" : "dark"} translucent />
+    <View style={styles.container}>
+      <DeliverEazeAmbientGlow mode={ambientGlowMode} />
+      <StatusBar backgroundColor="transparent" style={colorScheme === "dark" ? "light" : "dark"} translucent />
       <Animated.ScrollView
         contentContainerStyle={[
           styles.content,
@@ -813,7 +828,7 @@ export default function DashboardScreen() {
         ]}
         onScroll={handleScroll}
         scrollEventThrottle={16}
-        style={[styles.scroller, { backgroundColor: colors.background }]}
+        style={styles.scroller}
       >
         <DashboardHeader driverName={driverName} greeting={getGreeting()} roleLabel={roleLabel} />
         <DeliverySummaryCard counts={summaryCounts} selectedDayLabel="My Deliveries" />

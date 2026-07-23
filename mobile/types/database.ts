@@ -8,6 +8,7 @@ type TableDefinition<Row> = {
   Row: Row;
   Insert: Partial<Row>;
   Update: Partial<Row>;
+  Relationships: [];
 };
 
 export type Database = {
@@ -21,5 +22,7 @@ export type Database = {
       routes: TableDefinition<Route>;
       notifications: TableDefinition<DriverNotification>;
     };
+    Views: {};
+    Functions: {};
   };
 };

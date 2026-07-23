@@ -15,9 +15,10 @@ import { triggerButtonHaptic } from "@/utils/haptics";
 
 type ProfileButtonProps = {
   dashboardIcon?: boolean;
+  surface?: "default" | "onPurple";
 };
 
-export function ProfileButton({ dashboardIcon = false }: ProfileButtonProps) {
+export function ProfileButton({ dashboardIcon = false, surface = "default" }: ProfileButtonProps) {
   const { profile } = useAuth();
   const colorScheme = useColorScheme();
   const { fontScale, width } = useWindowDimensions();
@@ -26,11 +27,12 @@ export function ProfileButton({ dashboardIcon = false }: ProfileButtonProps) {
   const buttonSize = getAvatarSize(width) + (dashboardIcon ? 10 : 0);
   const touchSize = Math.max(getMinimumTouchTarget(width), buttonSize);
   const initialsFontSize = fontScale > 1.08 ? 15 : 16;
-  const tintColor = colorScheme === "dark" ? "rgba(109, 74, 255, 0.16)" : "rgba(109, 74, 255, 0.2)";
-  const fallbackColor = colorScheme === "dark" ? "rgba(109, 74, 255, 0.24)" : "rgba(109, 74, 255, 0.14)";
-  const borderColor = colorScheme === "dark" ? "rgba(167, 139, 250, 0.3)" : "rgba(109, 74, 255, 0.22)";
-  const iconColor = colorScheme === "dark" ? "#a78bfa" : colors.primary;
-  const textColor = dashboardIcon ? iconColor : colorScheme === "dark" ? "#f8fafc" : colors.primary;
+  const onPurple = surface === "onPurple";
+  const tintColor = onPurple ? "rgba(255, 255, 255, 0.2)" : colorScheme === "dark" ? "rgba(109, 74, 255, 0.16)" : "rgba(109, 74, 255, 0.2)";
+  const fallbackColor = onPurple ? "rgba(255, 255, 255, 0.18)" : colorScheme === "dark" ? "rgba(109, 74, 255, 0.24)" : "rgba(109, 74, 255, 0.14)";
+  const borderColor = onPurple ? "rgba(255, 255, 255, 0.42)" : colorScheme === "dark" ? "rgba(167, 139, 250, 0.3)" : "rgba(109, 74, 255, 0.22)";
+  const iconColor = onPurple ? "#FFFFFF" : colorScheme === "dark" ? "#a78bfa" : colors.primary;
+  const textColor = onPurple ? "#FFFFFF" : dashboardIcon ? iconColor : colorScheme === "dark" ? "#f8fafc" : colors.primary;
 
   return (
     <Link asChild href="/(driver)/profile">
