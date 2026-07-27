@@ -108,7 +108,7 @@ function AuthImageSlideshow({ compact = false }: { compact?: boolean }) {
           fill
           key={slide.src}
           priority={index === 0}
-          sizes={compact ? "100vw" : "66vw"}
+          sizes={compact ? "100vw" : "(max-width: 1535px) 58vw, 68vw"}
           src={slide.src}
           style={{
             objectPosition: slide.objectPosition,
@@ -120,8 +120,8 @@ function AuthImageSlideshow({ compact = false }: { compact?: boolean }) {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_82%,rgba(109,74,255,0.3),transparent_34%),linear-gradient(115deg,rgba(2,6,23,0.76)_0%,rgba(44,18,82,0.44)_42%,rgba(2,6,23,0.2)_100%)]" />
       {!compact ? (
         <>
-          <div className="absolute bottom-[clamp(5.25rem,9vh,7.5rem)] left-10 max-w-[620px] text-white xl:left-16">
-            <p className="text-[clamp(2.25rem,4vw,4rem)] font-black leading-[1.02] tracking-[-0.045em] drop-shadow-sm">
+          <div className="absolute bottom-[clamp(5.5rem,11vh,8.5rem)] left-[clamp(2rem,4vw,4.5rem)] right-8 max-w-[34rem] text-white">
+            <p className="text-[clamp(2.25rem,4.25vw,4rem)] font-black leading-[1.02] tracking-[-0.045em] drop-shadow-sm">
               {authSlides[activeIndex].headline}
             </p>
             <p className="mt-4 max-w-md text-[clamp(0.9rem,1.2vw,1.05rem)] leading-7 text-white/84">
@@ -326,13 +326,13 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="relative h-dvh min-h-dvh overflow-hidden bg-slate-950 text-slate-950 md:grid md:grid-cols-[minmax(400px,34vw)_1fr]">
+    <main className="relative min-h-dvh bg-[#fcfbff] text-slate-950 xl:grid xl:h-dvh xl:grid-cols-[clamp(26rem,34vw,34rem)_minmax(0,1fr)] xl:overflow-hidden xl:bg-slate-950">
       <div className="absolute inset-0 md:hidden">
         <AuthImageSlideshow compact />
         <div className="absolute inset-0 bg-[#faf8ff]/90 backdrop-blur-sm" />
       </div>
 
-      <section className="relative z-10 flex h-dvh min-h-0 flex-col overflow-hidden bg-[#fcfbff]/96 px-6 py-[clamp(1rem,3vh,2rem)] backdrop-blur md:min-w-[400px] md:max-w-[520px] md:bg-[linear-gradient(180deg,#ffffff_0%,#fbfaff_58%,#f7f4ff_100%)] md:px-12 lg:px-16">
+      <section className="relative z-10 flex min-h-dvh flex-col bg-[#fcfbff]/96 px-6 py-[clamp(1rem,3vh,2rem)] backdrop-blur md:px-12 lg:px-16 xl:h-dvh xl:min-h-0 xl:min-w-[26rem] xl:max-w-[34rem] xl:overflow-hidden xl:bg-[linear-gradient(180deg,#ffffff_0%,#fbfaff_58%,#f7f4ff_100%)]">
         <header className="pt-[10%]">
           <DeliverEazeLogo centered />
         </header>
@@ -431,7 +431,7 @@ export default function LoginPage() {
         </footer>
       </section>
 
-      <aside className="relative hidden h-dvh min-h-0 overflow-hidden md:block">
+      <aside className="relative hidden h-dvh min-h-0 min-w-0 overflow-hidden xl:block">
         <AuthImageSlideshow />
       </aside>
     </main>
