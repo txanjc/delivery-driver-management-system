@@ -390,7 +390,7 @@ export function RoutesWorkspace() {
     null,
   );
   const [mode, setMode] = useState<MapMode>("all");
-  const [showCompleted, setShowCompleted] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(true);
   const [cardsVisible, setCardsVisible] = useState(() =>
     typeof window === "undefined"
       ? true

@@ -11,6 +11,7 @@ import {
 } from "../_components/admin-design-system";
 import { AppIcons } from "@/config/icons";
 import { useNotify } from "@/components/ui/ToastProvider";
+import { fetchAdministratorJson } from "@/lib/admin-api-client";
 import { supabase } from "@/lib/supabase";
 import {
   getUserRoleLabel,
@@ -48,6 +49,8 @@ type UserRecord = {
   createdAt: string | null;
   updatedAt: string | null;
   lastLoginAt: string | null;
+  mfaEnabled: boolean | null;
+  verifiedMfaFactorCount: number | null;
 };
 
 type UserFormState = {
@@ -95,6 +98,8 @@ function toUserRecord(profile: ProfileRow): UserRecord {
     createdAt: profile.created_at,
     updatedAt: profile.updated_at,
     lastLoginAt: null,
+    mfaEnabled: null,
+    verifiedMfaFactorCount: null,
   };
 }
 
@@ -386,6 +391,7 @@ function UserModal({
               <div className="mt-5 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2 lg:grid-cols-1">
                 <DetailField label="Created" value={formatDateTime(user?.createdAt ?? null)} />
                 <DetailField label="Updated" value={isLoadingDetails ? <Skeleton className="h-3 w-28" rounded="rounded-full" /> : formatDateTime(user?.updatedAt ?? null)} />
+                <DetailField label="Multi-factor authentication" value={isLoadingDetails ? <Skeleton className="h-3 w-24" rounded="rounded-full" /> : user?.mfaEnabled === true ? `Enabled${user.verifiedMfaFactorCount && user.verifiedMfaFactorCount > 1 ? ` (${user.verifiedMfaFactorCount} verified factors)` : ""}` : user?.mfaEnabled === false ? "Not enabled" : "Not available"} />
               </div>
               <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left">
                 <summary className="cursor-pointer text-sm font-semibold text-slate-600">Technical details</summary>
@@ -584,50 +590,13 @@ export default function AdminUsersPage() {
     setErrorMessage("");
 
     try {
-      const { data: sessionData, error: sessionError } =
-        await supabase.auth.getSession();
-      if (sessionError || !sessionData.session) {
-        setErrorMessage("You must be signed in as an Administrator to view users.");
-        setUsers([]);
-        return false;
-      }
-
-      const response = await fetch("/api/admin/users", {
-        headers: {
-          Authorization: `Bearer ${sessionData.session.access_token}`,
-        },
-      });
-      const contentType = response.headers.get("content-type") ?? "";
-
-      if (!contentType.toLowerCase().includes("application/json")) {
-        setErrorMessage(
-          "Unable to load user profiles because the server returned an unexpected response.",
-        );
-        setUsers([]);
-        return false;
-      }
-
-      const body: unknown = await response.json();
-      if (!response.ok) {
-        setErrorMessage(`Unable to load user profiles: ${readApiError(body)}`);
-        setUsers([]);
-        return false;
-      }
-
-      const profiles =
-        typeof body === "object" &&
-        body !== null &&
-        "profiles" in body &&
-        Array.isArray(body.profiles)
-          ? body.profiles.filter(isProfileRow)
-          : [];
+      const data = await fetchAdministratorJson<{ profiles?: unknown }>("/api/admin/users");
+      const profiles = Array.isArray(data.profiles) ? data.profiles.filter(isProfileRow) : [];
 
       setUsers(profiles.map(toUserRecord));
       return true;
-    } catch {
-      setErrorMessage(
-        "Unable to load user profiles. Please refresh the page and try again.",
-      );
+    } catch (caught) {
+      setErrorMessage(caught instanceof Error ? caught.message : "Unable to load user profiles. Please refresh the page and try again.");
       setUsers([]);
       return false;
     } finally {
@@ -720,11 +689,16 @@ export default function AdminUsersPage() {
       const details = body.authDetails;
       if (typeof details === "object" && details !== null) {
         const readDate = (key: string) => key in details && typeof (details as Record<string, unknown>)[key] === "string" ? (details as Record<string, string>)[key] : null;
+        const mfa = "mfa" in details && typeof details.mfa === "object" && details.mfa !== null ? details.mfa as Record<string, unknown> : null;
+        const mfaEnabled = typeof mfa?.enabled === "boolean" ? mfa.enabled : null;
+        const verifiedMfaFactorCount = typeof mfa?.verifiedFactorCount === "number" && Number.isFinite(mfa.verifiedFactorCount) ? mfa.verifiedFactorCount : null;
         setEditingUser((current) => current ? {
           ...current,
           createdAt: readDate("createdAt") ?? current.createdAt,
           updatedAt: readDate("updatedAt"),
           lastLoginAt: readDate("lastLoginAt"),
+          mfaEnabled,
+          verifiedMfaFactorCount,
         } : current);
       }
     }

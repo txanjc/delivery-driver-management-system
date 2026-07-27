@@ -52,7 +52,7 @@ const variantClasses: Record<ButtonVariant, string> = {
   mapControl:
     "border border-white/80 bg-white/88 text-slate-700 shadow-[0_18px_48px_-28px_rgba(15,23,42,.35)] backdrop-blur-xl hover:bg-white focus-visible:ring-purple-200 disabled:text-slate-400",
   pagination:
-    "border border-transparent bg-transparent text-slate-600 hover:bg-purple-50 hover:text-purple-700 focus-visible:ring-purple-300 disabled:text-slate-300",
+    "border border-slate-200 bg-white text-slate-600 shadow-sm hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700 focus-visible:ring-purple-300 disabled:border-slate-100 disabled:bg-slate-50 disabled:text-slate-300",
 };
 
 const activeClasses: Partial<Record<ButtonVariant, string>> = {
@@ -60,7 +60,7 @@ const activeClasses: Partial<Record<ButtonVariant, string>> = {
     "border-purple-300 bg-purple-50 text-purple-700 ring-2 ring-purple-100 hover:border-purple-300 hover:bg-purple-50",
   toggle:
     "border-purple-300 bg-purple-50 text-purple-700 ring-2 ring-purple-100 hover:border-purple-300 hover:bg-purple-50",
-  pagination: "bg-[#6d4aff] text-white shadow-sm hover:bg-[#6d4aff] hover:text-white",
+  pagination: "!border-[#6d4aff] !bg-[#6d4aff] !text-white shadow-sm hover:!bg-[#5d3ee8] hover:!text-white",
   mapControl: "border-purple-300 bg-purple-50 text-purple-700 ring-2 ring-purple-100",
 };
 

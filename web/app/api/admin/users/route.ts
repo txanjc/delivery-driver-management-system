@@ -61,6 +61,18 @@ function readString(body: Record<string, unknown>, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function mfaDetailsForUser(user: unknown) {
+  if (!isRecord(user) || !Array.isArray(user.factors)) {
+    return { enabled: false, verifiedFactorCount: 0 };
+  }
+
+  const verifiedFactorCount = user.factors.filter((factor) =>
+    isRecord(factor) && factor.status === "verified",
+  ).length;
+
+  return { enabled: verifiedFactorCount > 0, verifiedFactorCount };
+}
+
 function parseCreateUserRequest(body: unknown): CreateUserRequest | null {
   if (!isRecord(body)) {
     return null;
@@ -203,6 +215,7 @@ export async function GET(request: Request) {
       createdAt: data.user.created_at,
       updatedAt: data.user.updated_at ?? null,
       lastLoginAt: data.user.last_sign_in_at ?? null,
+      mfa: mfaDetailsForUser(data.user),
     },
   });
 }
@@ -281,6 +294,7 @@ export async function PATCH(request: Request) {
       createdAt: data.user?.created_at ?? null,
       updatedAt: data.user?.updated_at ?? null,
       lastLoginAt: data.user?.last_sign_in_at ?? null,
+      mfa: mfaDetailsForUser(data.user),
     },
   });
 }

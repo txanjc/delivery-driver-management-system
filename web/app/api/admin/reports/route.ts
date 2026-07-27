@@ -37,7 +37,7 @@ export async function GET(request: Request) {
     authorization.client.from("expenses").select("expense_id, delivery_id, vehicle_id, driver_id, expense_type, description, amount, expense_date"),
     authorization.client.from("delivery_revenue").select("revenue_id, delivery_id, revenue_amount, tax_amount, discount_amount, net_revenue, invoice_number, revenue_date"),
     authorization.client.from("vehicle_maintenance").select("maintenance_id, vehicle_id, maintenance_type, cost, maintenance_date"),
-    authorization.client.from("delivery_status_history").select("delivery_id, status, changed_by, created_at").order("created_at", { ascending: false }),
+    authorization.client.from("delivery_status_history").select("delivery_id, status, updated_by, created_at").order("created_at", { ascending: false }),
   ]);
   const error = category === "delivery"
     ? deliveriesResult.error ?? driversResult.error ?? vehiclesResult.error ?? routesResult.error
@@ -60,7 +60,7 @@ export async function GET(request: Request) {
   const appliedFilters = Object.entries(filters).filter(([, value]) => value).map(([key, value]) => ({ label: label(key.replace(/Id$/, "")), value: key === "driverId" ? driverNames.get(value) ?? value : key === "vehicleId" ? vehicleNames.get(value) ?? value : key === "deliveryId" ? deliveryNames.get(value) ?? value : key === "changedBy" ? profileNames.get(value) ?? value : label(value) }));
   let rows: Row[] = []; let columns: ReportColumn[] = []; let summary: ReportSummaryItem[] = []; let chart: ReportChart | undefined;
   const deliveryScope = deliveries.filter((row) => inPeriod(row.created_at, dateFrom, dateTo) && (!filters.driverId || row.assigned_driver_id === filters.driverId) && (!filters.vehicleId || row.assigned_vehicle_id === filters.vehicleId) && (!filters.status || row.status === filters.status) && (!filters.priority || row.priority === filters.priority) && (!filters.deliveryId || row.delivery_id === filters.deliveryId));
-  const historyScope = history.filter((row) => inPeriod(row.created_at, dateFrom, dateTo) && (!filters.deliveryId || row.delivery_id === filters.deliveryId) && (!filters.changedBy || row.changed_by === filters.changedBy) && (!filters.status || row.status === filters.status));
+  const historyScope = history.filter((row) => inPeriod(row.created_at, dateFrom, dateTo) && (!filters.deliveryId || row.delivery_id === filters.deliveryId) && (!filters.changedBy || row.updated_by === filters.changedBy) && (!filters.status || row.status === filters.status));
   const completedIds = new Set(historyScope.filter((row) => row.status === "delivered").map((row) => text(row, "delivery_id")));
 
   if (category === "delivery") {
@@ -109,12 +109,12 @@ export async function GET(request: Request) {
   }
 
   if (category === "history") {
-    const changes = historyScope.map((row) => ({ delivery: deliveryNames.get(text(row, "delivery_id")) ?? "Unknown delivery", status: label(row.status), changedBy: profileNames.get(text(row, "changed_by")) ?? "Not recorded", changedAt: row.created_at }));
+    const changes = historyScope.map((row) => ({ delivery: deliveryNames.get(text(row, "delivery_id")) ?? "Unknown delivery", status: label(row.status), changedBy: profileNames.get(text(row, "updated_by")) ?? "Not recorded", changedAt: row.created_at }));
     if (reportType === "by_delivery") { const grouped = countBy(historyScope, (row) => deliveryNames.get(text(row, "delivery_id")) ?? "Unknown delivery"); rows = [...grouped].map(([delivery, changesCount]) => ({ delivery, changes: changesCount })); }
-    else if (reportType === "by_user") { const grouped = countBy(historyScope, (row) => profileNames.get(text(row, "changed_by")) ?? "Not recorded"); rows = [...grouped].map(([user, changesCount]) => ({ user, changes: changesCount })); }
+    else if (reportType === "by_user") { const grouped = countBy(historyScope, (row) => profileNames.get(text(row, "updated_by")) ?? "Not recorded"); rows = [...grouped].map(([user, changesCount]) => ({ user, changes: changesCount })); }
     else if (reportType === "by_date") { const grouped = countBy(historyScope, (row) => dateKey(row.created_at)); rows = [...grouped].map(([date, changesCount]) => ({ date, changes: changesCount })); }
     else rows = changes;
-    columns = Object.keys(rows[0] ?? { delivery: "", status: "", changedBy: "", changedAt: "" }).map((key) => ({ key, label: label(key) })); const statusMap = countBy(historyScope, (row) => label(row.status)); chart = chartFromMap(statusMap, "Status changes"); summary = [{ label: "Status Changes", value: historyScope.length }, { label: "Deliveries Affected", value: new Set(historyScope.map((row) => row.delivery_id)).size }, { label: "Users Recorded", value: new Set(historyScope.map((row) => row.changed_by).filter(Boolean)).size }, { label: "Terminal Changes", value: historyScope.filter((row) => terminalStatuses.has(text(row, "status"))).length }, { label: "Exception Changes", value: historyScope.filter((row) => exceptionStatuses.has(text(row, "status"))).length }];
+    columns = Object.keys(rows[0] ?? { delivery: "", status: "", changedBy: "", changedAt: "" }).map((key) => ({ key, label: label(key) })); const statusMap = countBy(historyScope, (row) => label(row.status)); chart = chartFromMap(statusMap, "Status changes"); summary = [{ label: "Status Changes", value: historyScope.length }, { label: "Deliveries Affected", value: new Set(historyScope.map((row) => row.delivery_id)).size }, { label: "Users Recorded", value: new Set(historyScope.map((row) => row.updated_by).filter(Boolean)).size }, { label: "Terminal Changes", value: historyScope.filter((row) => terminalStatuses.has(text(row, "status"))).length }, { label: "Exception Changes", value: historyScope.filter((row) => exceptionStatuses.has(text(row, "status"))).length }];
   }
 
   const title = reportTypes[category].find((option) => option.value === reportType)?.label ?? "Report";

@@ -27,7 +27,7 @@ type DeliveryStatus = "pending" | "assigned" | "in_transit" | "delivered" | "del
 type DashboardFilter = "all" | "active" | "in_transit" | "completed" | "exceptions" | "drivers_on_shift" | "vehicles_in_use" | DeliveryStatus;
 type DeliveryRow = { delivery_id: string; delivery_number: string | null; customer_name: string | null; customer_phone: string | null; pickup_address: string | null; pickup_latitude: number | string | null; pickup_longitude: number | string | null; delivery_address: string | null; delivery_latitude: number | string | null; delivery_longitude: number | string | null; assigned_driver_id: string | null; assigned_vehicle_id: string | null; status: string | null; priority: string | null; updated_at: string | null };
 type RouteRow = { route_id: string; delivery_id: string | null; origin: string | null; destination: string | null; origin_address: string | null; origin_latitude: number | string | null; origin_longitude: number | string | null; destination_address: string | null; destination_latitude: number | string | null; destination_longitude: number | string | null; estimated_distance_km: number | string | null; estimated_duration_minutes: number | string | null; route_polyline: string | null; maps_url: string | null; route_provider: string | null; created_at: string | null };
-type DriverRow = { driver_id: string; user_id: string | null; availability: string | null };
+type DriverRow = { driver_id: string; user_id: string | null; availability: string | null; performance_score: number | null };
 type ProfileRow = { profile_id: string; first_name: string | null; last_name: string | null; email: string | null; phone: string | null; is_active: boolean | null };
 type VehicleRow = { vehicle_id: string; vehicle_number: string | null; license_plate: string | null; make: string | null; model: string | null; vehicle_type: string | null; status: string | null };
 type ScheduleRow = { schedule_id: string; driver_id: string | null; vehicle_id: string | null; shift_name: string | null; start_time: string | null; end_time: string | null; status: string | null };
@@ -303,7 +303,7 @@ function DriverPerformanceCard({ drivers }: { drivers: DriverPerformanceRow[] })
       <div className="flex items-start justify-between gap-4 px-5 py-4">
         <div>
           <h2 className="text-lg font-semibold">Driver Performance</h2>
-          <p className="mt-1 text-xs text-slate-400">Top-performing drivers based on current delivery activity</p>
+          <p className="mt-1 text-xs text-slate-400">Top-performing drivers based on their current driver score</p>
         </div>
         <Link className="shrink-0 text-xs font-semibold text-purple-700 hover:text-purple-900" href="/admin/drivers">View all drivers</Link>
       </div>
@@ -844,11 +844,11 @@ export default function AdminPage() {
     });
     const driverPerformance = data.drivers.flatMap((driver): DriverPerformanceRow[] => {
       const activity = performanceDeliveries.filter((delivery) => delivery.assigned_driver_id === driver.driver_id);
-      if (!activity.length) return [];
       const completed = activity.filter((delivery) => normalizeStatus(delivery.status) === "delivered").length;
       const exceptions = activity.filter((delivery) => ["failed", "returned"].includes(normalizeStatus(delivery.status))).length;
-      const completionScore = Math.min(completed / 10, 1) * 100;
-      const score = Math.max(0, Math.min(100, Math.round(completionScore - exceptions * 10)));
+      const score = typeof driver.performance_score === "number" && Number.isFinite(driver.performance_score)
+        ? Math.max(0, Math.min(100, Math.round(driver.performance_score)))
+        : 0;
       const profile = driver.user_id ? profileMap.get(driver.user_id) : undefined;
       const name = profileName(profile);
       const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part.charAt(0).toUpperCase()).join("") || "DR";

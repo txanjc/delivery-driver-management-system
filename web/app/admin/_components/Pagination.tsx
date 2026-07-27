@@ -72,7 +72,7 @@ export function Pagination({
         Page {safeCurrentPage} of {safeTotalPages}, showing up to {pageSize} of {totalRecords} records
       </span>
 
-      <div className={`flex min-w-0 items-center justify-center gap-1 rounded-full border px-1.5 py-1.5 sm:col-start-2 ${isPurple ? "border-white/80 bg-white/70 shadow-[0_10px_30px_-16px_rgba(109,74,255,0.45),inset_0_1px_0_rgba(255,255,255,0.9)] ring-1 ring-purple-100/70 backdrop-blur-xl" : tone === "blue" ? "border-slate-200 bg-white shadow-sm" : "border-transparent bg-slate-100"}`}>
+      {safeTotalPages > 1 ? <div className={`flex min-w-0 items-center justify-center gap-1 rounded-full border px-1.5 py-1.5 sm:col-start-2 ${isPurple ? "border-purple-100 bg-white shadow-[0_10px_30px_-16px_rgba(109,74,255,0.28)]" : tone === "blue" ? "border-slate-200 bg-white shadow-sm" : "border-slate-200 bg-slate-50"}`}>
         <AppButton
           className={`h-8 min-h-8 px-2 text-xs disabled:opacity-100 ${isPurple ? "focus-visible:ring-purple-400" : "focus-visible:ring-blue-400"}`}
           disabled={safeCurrentPage === 1}
@@ -124,9 +124,9 @@ export function Pagination({
         >
           <span className="hidden sm:inline">Next</span>
         </AppButton>
-      </div>
+      </div> : null}
 
-      <p className="text-center text-xs font-medium text-slate-500 sm:col-start-3 sm:row-start-1 sm:justify-self-end sm:text-right">
+      <p className={`text-center text-xs font-medium text-slate-500 ${safeTotalPages === 1 ? "sm:col-span-3 sm:justify-self-center" : "sm:col-start-3 sm:row-start-1 sm:justify-self-end sm:text-right"}`}>
         {safeTotalPages === 1
           ? `Showing ${totalRecords.toLocaleString()} Results`
           : `Showing ${firstVisibleRecord}–${lastVisibleRecord} of ${totalRecords.toLocaleString()} Results`}

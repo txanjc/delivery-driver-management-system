@@ -142,10 +142,10 @@ async function resolveAssignment(client: SupabaseClient, input: DeliveryInput) {
   return { error: null, input: { ...input, assigned_driver_id: driverId, assigned_vehicle_id: vehicleId }, scheduleId };
 }
 
-async function recordStatusHistory(client: SupabaseClient, deliveryId: string, status: DeliveryStatus, changedBy: string) {
+async function recordStatusHistory(client: SupabaseClient, deliveryId: string, status: DeliveryStatus, updatedBy: string) {
   const { error: tableError } = await client.from("delivery_status_history").select("*").limit(1);
   if (tableError) return;
-  await client.from("delivery_status_history").insert({ delivery_id: deliveryId, status, changed_by: changedBy });
+  await client.from("delivery_status_history").insert({ delivery_id: deliveryId, status, updated_by: updatedBy });
 }
 
 export async function GET(request: Request) {
