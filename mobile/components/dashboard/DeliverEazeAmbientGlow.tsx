@@ -1,12 +1,11 @@
-import { Canvas, Circle, Group, RadialGradient, Rect } from "@shopify/react-native-skia";
 import { LinearGradient } from "expo-linear-gradient";
 import { AppState, StyleSheet, useColorScheme, useWindowDimensions, View } from "react-native";
 import { useEffect, useState } from "react";
-import {
+import Animated, {
   cancelAnimation,
   Easing,
   interpolate,
-  useDerivedValue,
+  useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
   withRepeat,
@@ -20,7 +19,8 @@ type DeliverEazeAmbientGlowProps = {
   mode: AmbientGlowMode;
 };
 
-const breathingDuration = 18_000;
+const breathingDuration = 7_200;
+const swayDuration = 9_400;
 const modeTransitionDuration = 520;
 
 function getModeValue(mode: AmbientGlowMode) {
@@ -37,10 +37,14 @@ export function DeliverEazeAmbientGlow({ mode }: DeliverEazeAmbientGlowProps) {
   const [appIsActive, setAppIsActive] = useState(AppState.currentState === "active");
   const darkMode = colorScheme === "dark";
   const breath = useSharedValue(0);
+  const sway = useSharedValue(0);
   const modeValue = useSharedValue(getModeValue(mode));
   const successPulse = useSharedValue(0);
-  const glowRadius = Math.max(width * 1.16, height * 0.76);
-  const upperGlowRadius = Math.max(width * 0.88, height * 0.45);
+  const bottomGlowWidth = Math.max(width * 2.45, 760);
+  const bottomGlowHeight = Math.max(height * 0.72, 560);
+  const secondaryGlowWidth = Math.max(width * 2.1, 660);
+  const secondaryGlowHeight = Math.max(height * 0.46, 390);
+  const topGlowSize = Math.max(width * 1.48, 540);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextState) => {
@@ -66,10 +70,15 @@ export function DeliverEazeAmbientGlow({ mode }: DeliverEazeAmbientGlowProps) {
 
   useEffect(() => {
     cancelAnimation(breath);
+    cancelAnimation(sway);
 
     if (reduceMotionEnabled || !appIsActive) {
       breath.value = 0;
-      return () => cancelAnimation(breath);
+      sway.value = 0;
+      return () => {
+        cancelAnimation(breath);
+        cancelAnimation(sway);
+      };
     }
 
     breath.value = withRepeat(
@@ -77,66 +86,105 @@ export function DeliverEazeAmbientGlow({ mode }: DeliverEazeAmbientGlowProps) {
       -1,
       true,
     );
+    sway.value = withRepeat(
+      withTiming(1, { duration: swayDuration, easing: Easing.inOut(Easing.sin) }),
+      -1,
+      true,
+    );
 
-    return () => cancelAnimation(breath);
-  }, [appIsActive, breath, reduceMotionEnabled]);
+    return () => {
+      cancelAnimation(breath);
+      cancelAnimation(sway);
+    };
+  }, [appIsActive, breath, reduceMotionEnabled, sway]);
 
-  const bottomCenter = useDerivedValue(() => ({
-    x: width * interpolate(breath.value, [0, 1], [0.43, 0.57]),
-    y: height * interpolate(breath.value, [0, 1], [1.2, 1.13]),
+  const bottomGlowStyle = useAnimatedStyle(() => {
+    const modeBoost = interpolate(modeValue.value, [0, 1, 2, 3], [0, 0.09, 0.055, 0.12]);
+    return {
+      opacity: (darkMode ? 0.62 : 0.26) + modeBoost + interpolate(breath.value, [0, 1], [0, 0.09]),
+      transform: [
+        { translateX: interpolate(breath.value, [0, 1], [-48, 44]) },
+        { translateY: interpolate(breath.value, [0, 1], [28, -34]) },
+        { scale: interpolate(breath.value, [0, 1], [0.96, 1.1]) },
+      ],
+    };
+  }, [darkMode]);
+  const secondaryGlowStyle = useAnimatedStyle(() => {
+    const modeBoost = interpolate(modeValue.value, [0, 1, 2, 3], [0, 0.055, 0.035, 0.075]);
+    return {
+      opacity: (darkMode ? 0.42 : 0.17) + modeBoost,
+      transform: [
+        { translateX: interpolate(sway.value, [0, 1], [-72, 66]) },
+        { translateY: interpolate(sway.value, [0, 1], [22, -18]) },
+        { scale: interpolate(sway.value, [0, 1], [1, 1.16]) },
+      ],
+    };
+  }, [darkMode]);
+  const topGlowStyle = useAnimatedStyle(() => {
+    const modeOpacity = interpolate(modeValue.value, [0, 1, 2, 3], [0, 0.28, 0.035, 0.075]);
+    return {
+      opacity: (darkMode ? 1 : 0.48) * modeOpacity,
+      transform: [
+        { translateX: interpolate(breath.value, [0, 1], [30, -42]) },
+        { translateY: interpolate(breath.value, [0, 1], [-26, 16]) },
+        { rotate: `${interpolate(breath.value, [0, 1], [8, -6])}deg` },
+        { scale: interpolate(breath.value, [0, 1], [0.98, 1.06]) },
+      ],
+    };
+  }, [darkMode]);
+  const successGlowStyle = useAnimatedStyle(() => ({
+    opacity: successPulse.value * (darkMode ? 0.24 : 0.08),
+    transform: [{ scale: interpolate(successPulse.value, [0, 1], [0.86, 1.08]) }],
   }));
-  const upperCenter = useDerivedValue(() => ({
-    x: width * interpolate(breath.value, [0, 1], [1.08, 0.84]),
-    y: height * interpolate(breath.value, [0, 1], [-0.12, 0.06]),
-  }));
-  const bottomOpacity = useDerivedValue(() => {
-    const modeBoost = interpolate(modeValue.value, [0, 1, 2, 3], [0, 0.08, 0.05, 0.12]);
-    return (darkMode ? 0.36 : 0.12) + modeBoost + interpolate(breath.value, [0, 1], [0, 0.045]);
-  });
-  const upperOpacity = useDerivedValue(() => {
-    const modeBoost = interpolate(modeValue.value, [0, 1, 2, 3], [0, 0.24, 0.035, 0.08]);
-    return (darkMode ? 0.035 : 0.012) + modeBoost;
-  });
-  const pulseOpacity = useDerivedValue(() => successPulse.value * (darkMode ? 0.3 : 0.1));
-  const pulseRadius = useDerivedValue(() => glowRadius * interpolate(successPulse.value, [0, 1], [0.72, 1.06]));
 
   const palette = darkMode
     ? {
       base: "#09090B",
-      bottomColors: ["rgba(124, 58, 237, 0.84)", "rgba(109, 74, 255, 0.32)", "rgba(9, 9, 11, 0)"],
-      fallback: ["#09090B", "#140F2C", "#09090B"] as [string, string, string],
-      pulseColors: ["rgba(196, 181, 253, 0.88)", "rgba(124, 58, 237, 0.22)", "rgba(9, 9, 11, 0)"],
-      upperColors: ["rgba(139, 92, 246, 0.68)", "rgba(79, 70, 229, 0.2)", "rgba(9, 9, 11, 0)"],
+      bottom: ["rgba(9, 9, 11, 0)", "rgba(124, 58, 237, 0.96)", "rgba(109, 74, 255, 0.52)", "rgba(9, 9, 11, 0)"] as [string, string, string, string],
+      secondary: ["rgba(9, 9, 11, 0)", "rgba(109, 74, 255, 0.76)", "rgba(124, 58, 237, 0.32)", "rgba(9, 9, 11, 0)"] as [string, string, string, string],
+      fallback: ["#09090B", "#17102F", "#09090B"] as [string, string, string],
+      pulse: ["rgba(196, 181, 253, 0)", "rgba(196, 181, 253, 0.86)", "rgba(124, 58, 237, 0)"] as [string, string, string],
+      top: ["rgba(139, 92, 246, 0.48)", "rgba(124, 58, 237, 0.18)", "rgba(9, 9, 11, 0)"] as [string, string, string],
     }
     : {
       base: "#FAFAFC",
-      bottomColors: ["rgba(196, 181, 253, 0.52)", "rgba(221, 214, 254, 0.18)", "rgba(250, 250, 252, 0)"],
-      fallback: ["#FAFAFC", "#F7F4FF", "#FAFAFC"] as [string, string, string],
-      pulseColors: ["rgba(221, 214, 254, 0.68)", "rgba(196, 181, 253, 0.16)", "rgba(250, 250, 252, 0)"],
-      upperColors: ["rgba(167, 139, 250, 0.34)", "rgba(221, 214, 254, 0.12)", "rgba(250, 250, 252, 0)"],
+      bottom: ["rgba(250, 250, 252, 0)", "rgba(167, 139, 250, 0.74)", "rgba(196, 181, 253, 0.3)", "rgba(250, 250, 252, 0)"] as [string, string, string, string],
+      secondary: ["rgba(250, 250, 252, 0)", "rgba(196, 181, 253, 0.56)", "rgba(221, 214, 254, 0.18)", "rgba(250, 250, 252, 0)"] as [string, string, string, string],
+      fallback: ["#FAFAFC", "#F1ECFF", "#FAFAFC"] as [string, string, string],
+      pulse: ["rgba(250, 250, 252, 0)", "rgba(221, 214, 254, 0.64)", "rgba(250, 250, 252, 0)"] as [string, string, string],
+      top: ["rgba(167, 139, 250, 0.32)", "rgba(221, 214, 254, 0.1)", "rgba(250, 250, 252, 0)"] as [string, string, string],
     };
 
   return (
     <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: palette.base, overflow: "hidden" }]}>
       <LinearGradient colors={palette.fallback} end={{ x: 0.5, y: 1 }} start={{ x: 0.5, y: 0 }} style={StyleSheet.absoluteFill} />
-      <Canvas pointerEvents="none" style={StyleSheet.absoluteFill}>
-        <Rect color={palette.base} height={height} width={width} x={0} y={0} />
-        <Group opacity={bottomOpacity}>
-          <Circle c={bottomCenter} r={glowRadius}>
-            <RadialGradient c={bottomCenter} colors={palette.bottomColors} positions={[0, 0.48, 1]} r={glowRadius} />
-          </Circle>
-        </Group>
-        <Group opacity={upperOpacity}>
-          <Circle c={upperCenter} r={upperGlowRadius}>
-            <RadialGradient c={upperCenter} colors={palette.upperColors} positions={[0, 0.5, 1]} r={upperGlowRadius} />
-          </Circle>
-        </Group>
-        <Group opacity={pulseOpacity}>
-          <Circle c={bottomCenter} r={pulseRadius}>
-            <RadialGradient c={bottomCenter} colors={palette.pulseColors} positions={[0, 0.42, 1]} r={pulseRadius} />
-          </Circle>
-        </Group>
-      </Canvas>
+      <Animated.View style={[styles.bottomGlow, bottomGlowStyle, { bottom: -bottomGlowHeight * 0.64, height: bottomGlowHeight, left: (width - bottomGlowWidth) / 2, width: bottomGlowWidth }]}>
+        <LinearGradient colors={palette.bottom} end={{ x: 0.5, y: 1 }} start={{ x: 0.5, y: 0 }} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={["transparent", darkMode ? "rgba(167, 139, 250, 0.26)" : "rgba(196, 181, 253, 0.16)", "transparent"]} end={{ x: 1, y: 0.5 }} start={{ x: 0, y: 0.5 }} style={StyleSheet.absoluteFill} />
+      </Animated.View>
+      <Animated.View style={[styles.bottomGlow, secondaryGlowStyle, { bottom: -secondaryGlowHeight * 0.25, height: secondaryGlowHeight, left: (width - secondaryGlowWidth) / 2, width: secondaryGlowWidth }]}>
+        <LinearGradient colors={palette.secondary} end={{ x: 0.5, y: 1 }} start={{ x: 0.5, y: 0 }} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={["transparent", darkMode ? "rgba(139, 92, 246, 0.2)" : "rgba(196, 181, 253, 0.12)", "transparent"]} end={{ x: 1, y: 0.7 }} start={{ x: 0, y: 0.7 }} style={StyleSheet.absoluteFill} />
+      </Animated.View>
+      <Animated.View style={[styles.topGlow, topGlowStyle, { height: topGlowSize, right: -topGlowSize * 0.56, top: -topGlowSize * 0.64, width: topGlowSize }]}>
+        <LinearGradient colors={palette.top} end={{ x: 0.92, y: 0.9 }} start={{ x: 0.08, y: 0.08 }} style={StyleSheet.absoluteFill} />
+      </Animated.View>
+      <Animated.View style={[styles.bottomGlow, successGlowStyle, { bottom: -bottomGlowHeight * 0.58, height: bottomGlowHeight * 0.86, left: (width - bottomGlowWidth * 0.84) / 2, width: bottomGlowWidth * 0.84 }]}>
+        <LinearGradient colors={palette.pulse} end={{ x: 0.5, y: 1 }} start={{ x: 0.5, y: 0 }} style={StyleSheet.absoluteFill} />
+      </Animated.View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  bottomGlow: {
+    borderRadius: 9999,
+    overflow: "hidden",
+    position: "absolute",
+  },
+  topGlow: {
+    borderRadius: 9999,
+    overflow: "hidden",
+    position: "absolute",
+  },
+});

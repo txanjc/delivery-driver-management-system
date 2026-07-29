@@ -2,7 +2,7 @@ import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, useColorScheme, useWindowDimensions, View } from "react-native";
+import { RefreshControl, ScrollView, StyleSheet, useColorScheme, useWindowDimensions, View } from "react-native";
 import Animated, {
   cancelAnimation,
   Easing,
@@ -21,12 +21,12 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ActiveDeliveryCard } from "@/components/dashboard/ActiveDeliveryCard";
-import { DeliverEazeAmbientGlow } from "@/components/dashboard/DeliverEazeAmbientGlow";
-import type { AmbientGlowMode } from "@/components/dashboard/DeliverEazeAmbientGlow";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DashboardScrollEdge } from "@/components/dashboard/DashboardScrollEdge";
 import { DeliverySummaryCard } from "@/components/dashboard/DeliverySummaryCard";
 import type { DeliverySummaryCounts } from "@/components/dashboard/DeliverySummaryCard";
+import { PullToRefreshIndicator, usePullToRefreshCue } from "@/components/shared/PullToRefreshIndicator";
+import { DeliveryDetailsSheet } from "@/components/deliveries/DeliveryDetailsSheet";
 import { RecentAlertsSection } from "@/components/dashboard/RecentAlertsSection";
 import { ScheduleOverviewCard } from "@/components/dashboard/ScheduleOverviewCard";
 import type { DashboardAlert } from "@/components/dashboard/AlertRow";
@@ -77,6 +77,14 @@ const refreshStateSettling = 4;
 type CanonicalDeliveryStatus = "pending" | "assigned" | "in_transit" | "delivered" | "delayed" | "failed" | "returned";
 type ActiveDeliveryStatus = "in_transit" | "delayed" | "assigned";
 type CanonicalScheduleStatus = "scheduled" | "completed" | "cancelled" | "conflict";
+type ShiftTone = "morning" | "evening" | "custom";
+
+const shiftToneColors: Record<ShiftTone, string> = {
+  custom: "#14B8A6",
+  evening: "#3B82F6",
+  morning: "#F6C344",
+};
+const upcomingShiftColor = "#7C3AED";
 
 const activeDeliveryStatusPriority: Record<ActiveDeliveryStatus, number> = {
   in_transit: 0,
@@ -204,9 +212,9 @@ function isActiveScheduledShift(schedule: Schedule, now: Date) {
 
   const start = parseScheduleDate(schedule.start_time);
   const end = parseScheduleDate(schedule.end_time);
-  if (!start || !end) return false;
+  if (!start) return false;
 
-  return start <= now && now < end;
+  return start <= now && (!end || now < end);
 }
 
 function getRelevantSchedule(schedules: Schedule[]) {
@@ -349,9 +357,24 @@ function getScheduleOverviewDetails(schedule: Schedule | null, vehicle: VehicleS
 
 function getGreeting() {
   const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 17) return "Good afternoon";
-  return "Good evening";
+  if (hour < 12) return "Good Morning";
+  if (hour < 17) return "Good Afternoon";
+  return "Good Evening";
+}
+
+function getScheduleToneColor(schedule: Schedule) {
+  const label = `${schedule.shift_type ?? ""} ${schedule.shift_name ?? ""}`.toLowerCase();
+  if (label.includes("morning") || label.includes("am")) return shiftToneColors.morning;
+  if (label.includes("evening") || label.includes("pm") || label.includes("night")) return shiftToneColors.evening;
+  return shiftToneColors.custom;
+}
+
+function getGreetingShiftColor(schedule: Schedule | null) {
+  if (!schedule || getScheduleStatus(schedule.status) !== "scheduled") return undefined;
+
+  const now = new Date();
+  if (isActiveScheduledShift(schedule, now)) return getScheduleToneColor(schedule);
+  return getScheduleStartTime(schedule) > now.getTime() ? upcomingShiftColor : undefined;
 }
 
 function formatRoleLabel(role: string | null | undefined) {
@@ -402,9 +425,8 @@ export default function DashboardScreen() {
   });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedDelivery, setSelectedDelivery] = useState<Delivery | null>(null);
   const [unavailable, setUnavailable] = useState(false);
-  const [showAmbientSuccess, setShowAmbientSuccess] = useState(false);
-  const ambientSuccessTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
@@ -426,7 +448,6 @@ export default function DashboardScreen() {
       arrowOpacity.value = 0;
       readyArrowOpacity.value = 0;
       spinnerOpacity.value = 0;
-      if (ambientSuccessTimeoutRef.current) clearTimeout(ambientSuccessTimeoutRef.current);
     };
   }, [
     arrowOpacity,
@@ -454,6 +475,7 @@ export default function DashboardScreen() {
 
       requestInFlightRef.current = true;
       const shouldShowInitialLoading = !background || !didLoadRef.current;
+      const refreshStartedAt = shouldShowInitialLoading ? null : Date.now();
 
       if (shouldShowInitialLoading) {
         setLoading(true);
@@ -507,6 +529,13 @@ export default function DashboardScreen() {
       } finally {
         requestInFlightRef.current = false;
 
+        if (refreshStartedAt !== null) {
+          const remainingSpinnerTime = Math.max(0, 450 - (Date.now() - refreshStartedAt));
+          if (remainingSpinnerTime > 0) {
+            await new Promise<void>((resolve) => setTimeout(resolve, remainingSpinnerTime));
+          }
+        }
+
         if (mountedRef.current) {
           setLoading(false);
           setRefreshing(false);
@@ -515,6 +544,37 @@ export default function DashboardScreen() {
     },
     [driver, profileLoading, refreshUnreadCount, user],
   );
+
+  const handleNativeRefresh = useCallback(() => {
+    if (refreshing || requestInFlightRef.current || profileLoading || !driver) return;
+
+    setRefreshing(true);
+    void loadDashboard({ background: true });
+  }, [driver, loadDashboard, profileLoading, refreshing]);
+
+  const {
+    onScroll: handleNativeRefreshScroll,
+    onScrollEndDrag: handleNativeRefreshEndDrag,
+    showPullHint,
+  } = usePullToRefreshCue(refreshing, handleNativeRefresh);
+
+  useEffect(() => {
+    if (!state.schedule) return;
+
+    const transitionTimes = [state.schedule.start_time, state.schedule.end_time]
+      .map(parseScheduleDate)
+      .filter((value): value is Date => Boolean(value))
+      .map((value) => value.getTime())
+      .filter((value) => value > Date.now());
+    const nextTransition = Math.min(...transitionTimes);
+    if (!Number.isFinite(nextTransition)) return;
+
+    const timer = setTimeout(() => {
+      void loadDashboard({ background: true });
+    }, Math.max(0, nextTransition - Date.now() + 250));
+
+    return () => clearTimeout(timer);
+  }, [loadDashboard, state.schedule]);
 
   useEffect(() => {
     void loadDashboard();
@@ -555,7 +615,6 @@ export default function DashboardScreen() {
     () => getActiveDelivery(state.deliveries),
     [state.deliveries],
   );
-  const ambientGlowMode: AmbientGlowMode = showAmbientSuccess ? "success" : refreshing ? "refreshing" : activeDelivery ? "active" : "idle";
 
   const scheduleDetails = useMemo(
     () => getScheduleOverviewDetails(state.schedule, state.vehicle),
@@ -571,18 +630,24 @@ export default function DashboardScreen() {
     if (!activeDelivery) return null;
 
     return () => {
-      router.push({ pathname: "/(driver)/delivery/[deliveryId]", params: { deliveryId: activeDelivery.delivery_id } });
+      setSelectedDelivery(activeDelivery);
     };
-  }, [activeDelivery, router]);
+  }, [activeDelivery]);
+
+  const closeDeliveryDetailsSheet = useCallback(() => {
+    setSelectedDelivery(null);
+  }, []);
 
   const openRoute = useMemo(() => {
-    const route = state.activeRoute;
-    if (!route) return null;
+    if (!activeDelivery || !state.activeRoute) return null;
 
     return () => {
-      router.push({ pathname: "/(driver)/route/[routeId]", params: { routeId: route.route_id } });
+      router.push({
+        pathname: "/(driver)/(tabs)/deliveries",
+        params: { openRouteDeliveryId: activeDelivery.delivery_id },
+      });
     };
-  }, [router, state.activeRoute]);
+  }, [activeDelivery, router, state.activeRoute]);
 
   const openSchedule = useCallback(() => {
     router.push("/(driver)/(tabs)/schedule");
@@ -627,14 +692,7 @@ export default function DashboardScreen() {
       return;
     }
 
-    void loadDashboard({ background: true }).then((didRefreshSucceed) => {
-      if (!didRefreshSucceed || !mountedRef.current) return;
-      if (ambientSuccessTimeoutRef.current) clearTimeout(ambientSuccessTimeoutRef.current);
-      setShowAmbientSuccess(true);
-      ambientSuccessTimeoutRef.current = setTimeout(() => {
-        if (mountedRef.current) setShowAmbientSuccess(false);
-      }, 1_140);
-    });
+    void loadDashboard({ background: true });
   }, [driver, loadDashboard, profileLoading, refreshing, resetRefreshVisuals]);
 
   useEffect(() => {
@@ -811,10 +869,11 @@ export default function DashboardScreen() {
   void preservedDashboardState;
 
   return (
-    <View style={styles.container}>
-      <DeliverEazeAmbientGlow mode={ambientGlowMode} />
+    <View style={[styles.container, { backgroundColor: colors.dashboardBackground }]}>
       <StatusBar backgroundColor="transparent" style={colorScheme === "dark" ? "light" : "dark"} translucent />
-      <Animated.ScrollView
+      <ScrollView
+        alwaysBounceVertical
+        bounces
         contentContainerStyle={[
           styles.content,
           {
@@ -826,11 +885,22 @@ export default function DashboardScreen() {
             paddingTop: getSafeAreaTopSpacing(insets.top) + getContentTopSpacing(width),
           },
         ]}
-        onScroll={handleScroll}
+        overScrollMode="always"
+        refreshControl={
+          <RefreshControl
+            colors={[colors.accent]}
+            onRefresh={handleNativeRefresh}
+            progressViewOffset={insets.top + 8}
+            refreshing={refreshing}
+            tintColor={colors.accent}
+          />
+        }
+        onScroll={handleNativeRefreshScroll}
+        onScrollEndDrag={handleNativeRefreshEndDrag}
         scrollEventThrottle={16}
         style={styles.scroller}
       >
-        <DashboardHeader driverName={driverName} greeting={getGreeting()} roleLabel={roleLabel} />
+        <DashboardHeader driverName={driverName} greeting={getGreeting()} roleLabel={roleLabel} shiftColor={getGreetingShiftColor(state.schedule)} />
         <DeliverySummaryCard counts={summaryCounts} selectedDayLabel="My Deliveries" />
         <ActiveDeliveryCard
           delivery={activeDelivery}
@@ -854,30 +924,15 @@ export default function DashboardScreen() {
           notificationUnavailable={state.notificationUnavailable}
           onViewAll={openAlerts}
         />
-      </Animated.ScrollView>
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.refreshHeader,
-          {
-            top: getSafeAreaTopSpacing(insets.top) + 8,
-          },
-          refreshHeaderAnimatedStyle,
-        ]}
-      >
-        <View pointerEvents="none" style={styles.refreshIconStack}>
-          <Animated.View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" pointerEvents="none" style={[styles.refreshIconLayer, refreshArrowAnimatedStyle]}>
-            <SymbolView fallback={null} name="arrow.down" size={refreshIndicatorSize} tintColor={colors.accent} type="hierarchical" />
-          </Animated.View>
-          <Animated.View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" pointerEvents="none" style={[styles.refreshIconLayer, refreshReleaseArrowAnimatedStyle]}>
-            <SymbolView fallback={null} name="arrow.up" size={refreshIndicatorSize} tintColor={colors.accent} type="hierarchical" />
-          </Animated.View>
-          <Animated.View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" pointerEvents="none" style={[styles.refreshIconLayer, spinnerAnimatedStyle]}>
-            <SymbolView fallback={null} name="arrow.clockwise" size={refreshIndicatorSize - 4} tintColor={colors.refreshTint} type="hierarchical" />
-          </Animated.View>
-        </View>
-      </Animated.View>
-      <DashboardScrollEdge topInset={insets.top} />
+      </ScrollView>
+      <DeliveryDetailsSheet
+        delivery={selectedDelivery}
+        onClose={closeDeliveryDetailsSheet}
+        route={selectedDelivery ? state.activeRoute : null}
+        visible={Boolean(selectedDelivery)}
+      />
+      <PullToRefreshIndicator color={colors.accent} showPullHint={showPullHint} topInset={insets.top} visible={refreshing} />
+      {!refreshing ? <DashboardScrollEdge topInset={insets.top} /> : null}
     </View>
   );
 }

@@ -63,11 +63,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [driver, setDriver] = useState<Driver | null>(null);
   const [loading, setLoading] = useState(true);
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const clearDriverState = useCallback(() => {
     setProfile(null);
     setDriver(null);
+    setMfaRequired(false);
+    setMfaFactorId(null);
   }, []);
 
   const refreshProfileForSession = useCallback(
@@ -76,22 +80,56 @@ export function AuthProvider({ children }: PropsWithChildren) {
         setSession(null);
         setUser(null);
         clearDriverState();
-        return;
+        return { requiresMfa: false };
       }
 
       setSession(currentSession);
       setUser(currentSession.user);
 
       try {
+        const factorsResponse = await supabase.auth.mfa.listFactors();
+        if (factorsResponse.error) {
+          throw new Error(factorsResponse.error.message);
+        }
+
+        const verifiedTotpFactor = factorsResponse.data.totp.find(
+          (factor) => factor.status === "verified",
+        );
+
+        if (verifiedTotpFactor) {
+          const assuranceResponse =
+            await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+
+          if (assuranceResponse.error) {
+            throw new Error(assuranceResponse.error.message);
+          }
+
+          if (assuranceResponse.data.currentLevel !== "aal2") {
+            clearDriverState();
+            setMfaFactorId(verifiedTotpFactor.id);
+            setMfaRequired(true);
+            setError(null);
+            setSession(currentSession);
+            setUser(currentSession.user);
+            return { requiresMfa: true };
+          }
+        }
+
         const authorized = await loadAuthorizedDriver(currentSession.user.id);
         setProfile(authorized.profile);
         setDriver(authorized.driver);
+        // Keep the MFA screen mounted until the driver record is ready. Clearing
+        // this earlier briefly rendered the sign-in form before dashboard routing.
+        setMfaRequired(false);
+        setMfaFactorId(null);
         setError(null);
+        return { requiresMfa: false };
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : "Unable to authorize this mobile user.";
         setError(message);
         clearDriverState();
         await signOutDriver();
+        return { requiresMfa: false };
       }
     },
     [clearDriverState],
@@ -160,6 +198,27 @@ export function AuthProvider({ children }: PropsWithChildren) {
     };
   }, [refreshProfileForSession]);
 
+  useEffect(() => {
+    if (!profile?.profile_id) return;
+
+    const channel = supabase
+      .channel(`driver-score:${profile.profile_id}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "drivers", filter: `user_id=eq.${profile.profile_id}` },
+        () => {
+          void getDriverForProfile(profile.profile_id).then((response) => {
+            if (!response.error && response.data) setDriver(response.data);
+          });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [profile?.profile_id]);
+
   const signIn = useCallback(async (email: string, password: string) => {
     setLoading(true);
     setError(null);
@@ -171,9 +230,39 @@ export function AuthProvider({ children }: PropsWithChildren) {
       throw new Error(response.error.message);
     }
 
-    await refreshProfileForSession(response.data.session);
+    const result = await refreshProfileForSession(response.data.session);
     setLoading(false);
+    return result;
   }, [refreshProfileForSession]);
+
+  const verifyMfa = useCallback(async (code: string) => {
+    if (!mfaFactorId) {
+      throw new Error("Your MFA challenge has expired. Sign in again.");
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await supabase.auth.mfa.challengeAndVerify({
+        factorId: mfaFactorId,
+        code: code.trim(),
+      });
+
+      if (response.error) {
+        throw new Error("That verification code didn’t work. Try again.");
+      }
+
+      const { data, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !data.session) {
+        throw new Error("We couldn’t finish signing you in. Please try again.");
+      }
+
+      await refreshProfileForSession(data.session);
+    } finally {
+      setLoading(false);
+    }
+  }, [mfaFactorId, refreshProfileForSession]);
 
   const signOut = useCallback(async () => {
     setLoading(true);
@@ -191,12 +280,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
       profile,
       driver,
       loading,
+      mfaRequired,
       error,
       signIn,
       signOut,
+      verifyMfa,
       refreshProfile,
     }),
-    [driver, error, loading, profile, refreshProfile, session, signIn, signOut, user],
+    [driver, error, loading, mfaRequired, profile, refreshProfile, session, signIn, signOut, user, verifyMfa],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

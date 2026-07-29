@@ -32,7 +32,7 @@ function getStatus(schedule: Schedule) {
   if (normalized === "completed") return { color: "#3D9B7F", label: "Completed" };
   if (normalized === "conflict") return { color: "#D45A5A", label: "Conflict" };
   if (schedule.start_time && schedule.end_time && new Date(schedule.start_time).getTime() <= Date.now() && new Date(schedule.end_time).getTime() >= Date.now()) {
-    return { color: "#4D9A89", label: "Active" };
+    return { color: "#4D9A89", label: "Assigned" };
   }
   return { color: "#4D9A89", label: "Scheduled" };
 }
@@ -71,7 +71,7 @@ export function DailyScheduleCard({ schedule, vehicle }: DailyScheduleCardProps)
   return (
     <View accessible accessibilityLabel={`${formatShiftTitle(schedule)}, ${status.label}, ${formatTime(schedule.start_time)} to ${formatTime(schedule.end_time)}.`} style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <View style={styles.topRow}>
-        <Text maxFontSizeMultiplier={1.1} style={[styles.sectionLabel, { color: colors.text }]}>{"Today's workshift"}</Text>
+        <Text maxFontSizeMultiplier={1.1} style={[styles.sectionLabel, { color: colors.text }]}>{"Today's Workshift"}</Text>
         <View style={[styles.statusChip, { backgroundColor: `${status.color}1C` }]}>
           <View accessibilityElementsHidden style={[styles.statusDot, { backgroundColor: status.color }]} />
           <Text maxFontSizeMultiplier={1.1} style={[styles.statusText, { color: status.color }]}>{status.label}</Text>
@@ -135,7 +135,7 @@ const styles = StyleSheet.create({
   shiftCopy: { flex: 1, minWidth: 0 },
   shiftDetails: { borderRadius: 16, borderWidth: 1, gap: 9, padding: 12 },
   shiftHeader: { alignItems: "center", flexDirection: "row", gap: 9 },
-  shiftIcon: { alignItems: "center", borderRadius: 14, height: 42, justifyContent: "center", width: 42 },
+  shiftIcon: { alignItems: "center", borderRadius: 999, height: 42, justifyContent: "center", width: 42 },
   shiftTitle: { fontSize: 16, fontWeight: "700", lineHeight: 21 },
   statusChip: { alignItems: "center", borderRadius: 999, flexDirection: "row", gap: 6, paddingHorizontal: 9, paddingVertical: 6 },
   statusDot: { borderRadius: 999, height: 7, width: 7 },

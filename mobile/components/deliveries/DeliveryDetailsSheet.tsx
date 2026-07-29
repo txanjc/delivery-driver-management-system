@@ -1,8 +1,9 @@
 import { SymbolView } from "expo-symbols";
 import { BlurView } from "expo-blur";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ComponentProps } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, useColorScheme, useWindowDimensions, View } from "react-native";
-import type { GestureResponderEvent } from "react-native";
+import type { LayoutChangeEvent, ViewStyle } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Easing,
@@ -26,13 +27,12 @@ import {
   getDashboardColors,
   getScreenHorizontalPadding,
 } from "@/components/dashboard/dashboardDesignSpec";
-import { DeliveryDetailsMap } from "@/components/deliveries/DeliveryDetailsMap";
-import type { DeliveryMapCoordinate } from "@/components/deliveries/DeliveryDetailsMap";
+import { getDeliveryProofForDriver } from "@/services/proof-of-delivery.service";
 import type { Delivery } from "@/types/delivery";
+import type { DeliveryProof, SignaturePoint, SignatureStroke } from "@/types/proofOfDelivery";
 import type { Route } from "@/types/route";
 
 type DeliveryDetailsSheetProps = {
-  coordinatesLoading?: boolean;
   delivery: Delivery | null;
   onClose: () => void;
   route: Route | null;
@@ -40,31 +40,14 @@ type DeliveryDetailsSheetProps = {
 };
 
 type DetailRow = {
+  icon: ComponentProps<typeof SymbolView>["name"];
   label: string;
   value: string | null;
 };
 
 const hiddenOffset = 720;
 const dismissThreshold = 110;
-
-function getStoredCoordinate(latitude: number | null | undefined, longitude: number | null | undefined): DeliveryMapCoordinate | null {
-  if (
-    latitude === null ||
-    latitude === undefined ||
-    longitude === null ||
-    longitude === undefined ||
-    !Number.isFinite(latitude) ||
-    !Number.isFinite(longitude) ||
-    latitude < -90 ||
-    latitude > 90 ||
-    longitude < -180 ||
-    longitude > 180
-  ) {
-    return null;
-  }
-
-  return { latitude, longitude };
-}
+const signaturePreviewHeight = 104;
 
 function formatStatus(value: string | null) {
   if (!value) return "Status unavailable";
@@ -81,17 +64,6 @@ function formatPriority(value: string | null) {
   if (!value) return "Priority unavailable";
   const normalized = value.trim();
   return normalized ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1).toLowerCase()}` : "Priority unavailable";
-}
-
-function formatDate(value: string | null) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
 }
 
 function formatDistance(route: Route | null) {
@@ -113,11 +85,67 @@ function getDeliveryLabel(delivery: Delivery) {
   return delivery.delivery_number ? `#${delivery.delivery_number}` : delivery.delivery_id;
 }
 
-function stopPropagation(event: GestureResponderEvent) {
-  event.stopPropagation();
+function formatSignedAt(value: string) {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
-export function DeliveryDetailsSheet({ coordinatesLoading = false, delivery, onClose, route, visible }: DeliveryDetailsSheetProps) {
+function getSegmentStyle(first: SignaturePoint, second: SignaturePoint, scale: number, offsetX: number, offsetY: number): ViewStyle {
+  const x = (first.x * scale) + offsetX;
+  const y = (first.y * scale) + offsetY;
+  const length = Math.hypot(second.x - first.x, second.y - first.y) * scale;
+  const angle = Math.atan2(second.y - first.y, second.x - first.x) * (180 / Math.PI);
+
+  return {
+    left: x,
+    top: y - 1.25,
+    transform: [{ rotate: String(angle) + "deg" }],
+    width: Math.max(length, 2),
+  };
+}
+
+function CapturedSignaturePreview({ signatureData, tintColor }: { signatureData: DeliveryProof["signature_data"]; tintColor: string }) {
+  const [width, setWidth] = useState(0);
+  const strokes = signatureData?.strokes ?? [];
+  const bounds = useMemo(() => {
+    const points = strokes.flat();
+    return {
+      height: Math.max(1, ...points.map((point) => point.y)),
+      width: Math.max(1, ...points.map((point) => point.x)),
+    };
+  }, [strokes]);
+  const availableWidth = Math.max(1, width - 28);
+  const scale = Math.min(availableWidth / bounds.width, (signaturePreviewHeight - 28) / bounds.height, 1);
+  const offsetX = (width - (bounds.width * scale)) / 2;
+  const offsetY = (signaturePreviewHeight - (bounds.height * scale)) / 2;
+
+  return (
+    <View
+      accessibilityLabel="Captured customer signature"
+      accessibilityRole="image"
+      onLayout={(event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width)}
+      style={styles.signaturePreview}
+    >
+      {strokes.map((stroke: SignatureStroke, strokeIndex: number) => (
+        <View key={"signature-stroke-" + strokeIndex} pointerEvents="none" style={StyleSheet.absoluteFill}>
+          {stroke.map((point, pointIndex) => (
+            <View
+              key={"signature-point-" + strokeIndex + "-" + pointIndex}
+              style={[styles.signaturePoint, { backgroundColor: tintColor, left: (point.x * scale) + offsetX - 2, top: (point.y * scale) + offsetY - 2 }]}
+            />
+          ))}
+          {stroke.slice(1).map((point, pointIndex) => (
+            <View
+              key={"signature-segment-" + strokeIndex + "-" + pointIndex}
+              style={[styles.signatureSegment, { backgroundColor: tintColor }, getSegmentStyle(stroke[pointIndex], point, scale, offsetX, offsetY)]}
+            />
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+export function DeliveryDetailsSheet({ delivery, onClose, route, visible }: DeliveryDetailsSheetProps) {
   const colorScheme = useColorScheme();
   const reduceMotionEnabled = useReducedMotion();
   const insets = useSafeAreaInsets();
@@ -125,6 +153,7 @@ export function DeliveryDetailsSheet({ coordinatesLoading = false, delivery, onC
   const colors = getDashboardColors(colorScheme);
   const translateY = useSharedValue(hiddenOffset);
   const backdropOpacity = useSharedValue(0);
+  const [proof, setProof] = useState<DeliveryProof | null>(null);
   const sheetRadius = Math.max(28, getCardRadius(width) + 10);
   const horizontalPadding = getScreenHorizontalPadding(width);
   const sheetMaxHeight = Math.max(420, height * 0.82);
@@ -136,50 +165,38 @@ export function DeliveryDetailsSheet({ coordinatesLoading = false, delivery, onC
   const priorityText = delivery ? formatPriority(delivery.priority) : "";
   const distanceText = formatDistance(route);
   const durationText = formatDuration(route);
-  const pickupCoordinate = delivery
-    ? getStoredCoordinate(delivery.pickup_latitude, delivery.pickup_longitude) ?? getStoredCoordinate(route?.origin_latitude, route?.origin_longitude)
-    : null;
-  const dropoffCoordinate = delivery
-    ? getStoredCoordinate(delivery.delivery_latitude, delivery.delivery_longitude) ?? getStoredCoordinate(route?.destination_latitude, route?.destination_longitude)
-    : null;
+  const isCompletedDelivery = delivery?.status?.trim().toLowerCase() === "delivered";
 
   const overviewRows = useMemo<DetailRow[]>(
     () => [
-      { label: "Status", value: statusText },
-      { label: "Priority", value: priorityText },
-      { label: "Travel Time", value: durationText },
-      { label: "Distance", value: distanceText },
-      { label: "Route", value: route ? "Confirmed route available" : null },
+      { icon: "arrow.triangle.2.circlepath", label: "Status", value: statusText },
+      { icon: "exclamationmark.circle", label: "Priority", value: priorityText },
+      { icon: "clock", label: "Travel Time", value: durationText },
+      { icon: "location", label: "Distance", value: distanceText },
     ],
-    [distanceText, durationText, priorityText, route, statusText],
+    [distanceText, durationText, priorityText, statusText],
   );
 
-  const deliveryRows = useMemo<DetailRow[]>(
+  const contactRows = useMemo<DetailRow[]>(
     () =>
       delivery
         ? [
-            { label: "Customer", value: delivery.customer_name },
-            { label: "Phone", value: delivery.customer_phone ?? "No phone number" },
-            { label: "Pickup", value: delivery.pickup_address },
-            { label: "Drop-off", value: delivery.delivery_address },
-            { label: "Created", value: formatDate(delivery.created_at) },
-            { label: "Updated", value: formatDate(delivery.updated_at) },
+            { icon: "person", label: "Customer", value: delivery.customer_name },
+            { icon: "phone", label: "Phone", value: delivery.customer_phone ?? "No phone number" },
           ]
         : [],
     [delivery],
   );
 
-  const assignmentRows = useMemo<DetailRow[]>(
+  const locationRows = useMemo<DetailRow[]>(
     () =>
       delivery
         ? [
-            { label: "Assigned Vehicle", value: delivery.assigned_vehicle_id ? `Vehicle ${delivery.assigned_vehicle_id}` : "No vehicle assigned" },
-            { label: "Route ID", value: route?.route_id ?? null },
-            { label: "Origin", value: route?.origin_address ?? null },
-            { label: "Destination", value: route?.destination_address ?? null },
+            { icon: "shippingbox", label: "Pickup", value: delivery.pickup_address },
+            { icon: "mappin.and.ellipse", label: "Deliver To", value: delivery.delivery_address },
           ]
         : [],
-    [delivery, route],
+    [delivery],
   );
 
   const closeSheet = useCallback(() => {
@@ -203,6 +220,27 @@ export function DeliveryDetailsSheet({ coordinatesLoading = false, delivery, onC
       : withSpring(0, { damping: 24, mass: 0.9, stiffness: 220 });
     backdropOpacity.value = withTiming(1, { duration: reduceMotionEnabled ? 100 : 220, easing: Easing.out(Easing.cubic) });
   }, [backdropOpacity, reduceMotionEnabled, translateY, visible]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!visible || !delivery || !isCompletedDelivery) {
+      setProof(null);
+      return () => { active = false; };
+    }
+
+    void getDeliveryProofForDriver(delivery.delivery_id).then((response) => {
+      if (!active) return;
+      if (response.error) {
+        console.error("Unable to load delivery signature", response.error);
+        setProof(null);
+        return;
+      }
+      setProof(response.data);
+    });
+
+    return () => { active = false; };
+  }, [delivery, isCompletedDelivery, visible]);
 
   const panGesture = useMemo(
     () =>
@@ -247,8 +285,6 @@ export function DeliveryDetailsSheet({ coordinatesLoading = false, delivery, onC
         <Animated.View
           accessibilityLabel={`Delivery details for ${getDeliveryLabel(delivery)}`}
           accessibilityRole="summary"
-          onStartShouldSetResponder={() => true}
-          onResponderRelease={stopPropagation}
           style={[
             styles.sheet,
             dashboardShadows.elevatedCard,
@@ -259,22 +295,24 @@ export function DeliveryDetailsSheet({ coordinatesLoading = false, delivery, onC
               borderTopRightRadius: sheetRadius,
               maxHeight: sheetMaxHeight,
               paddingBottom: Math.max(insets.bottom, dashboardSpacing.scale.md),
-              paddingHorizontal: horizontalPadding,
             },
             sheetAnimatedStyle,
           ]}
         >
           <BlurView intensity={42} pointerEvents="none" style={StyleSheet.absoluteFill} tint={blurTint} />
           <GestureDetector gesture={panGesture}>
-            <View style={styles.handleWrap}>
+            <View style={[styles.handleWrap, { paddingHorizontal: horizontalPadding }]}>
               <View style={[styles.handle, { backgroundColor: colors.textTertiary }]} />
             </View>
           </GestureDetector>
           <ScrollView
+            alwaysBounceVertical
             bounces
-            contentContainerStyle={styles.content}
+            contentContainerStyle={[styles.content, { paddingHorizontal: horizontalPadding }]}
+            directionalLockEnabled
             keyboardShouldPersistTaps="handled"
             nestedScrollEnabled
+            scrollEventThrottle={16}
             showsVerticalScrollIndicator
             style={styles.scroll}
           >
@@ -287,22 +325,11 @@ export function DeliveryDetailsSheet({ coordinatesLoading = false, delivery, onC
                     {delivery.customer_name}
                   </Text>
                 ) : null}
-                <View style={styles.chipRow}>
-                  <DetailChip color={colors.accent} label={statusText} />
-                  <DetailChip color={colors.textSecondary} label={priorityText} />
-                </View>
               </View>
 
-              <DeliveryDetailsMap
-                deliveryLabel={getDeliveryLabel(delivery)}
-                dropoff={dropoffCoordinate}
-                loading={coordinatesLoading}
-                pickup={pickupCoordinate}
-              />
-
               <DetailSection borderColor={sectionBorder} rows={overviewRows} surfaceColor={sectionBackground} title="Delivery Overview" />
-              <DetailSection borderColor={sectionBorder} rows={deliveryRows} surfaceColor={sectionBackground} title="Delivery Information" />
-              <DetailSection borderColor={sectionBorder} rows={assignmentRows} surfaceColor={sectionBackground} title="Assignment Information" />
+              <DetailSection borderColor={sectionBorder} rows={contactRows} surfaceColor={sectionBackground} title="Customer" />
+              <DetailSection borderColor={sectionBorder} rows={locationRows} surfaceColor={sectionBackground} title="Locations" />
               {delivery.notes ? (
                 <View style={[styles.section, { backgroundColor: sectionBackground, borderColor: sectionBorder }]}>
                   <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.caption} style={[styles.sectionTitle, { color: colors.textSecondary }]}>
@@ -313,6 +340,30 @@ export function DeliveryDetailsSheet({ coordinatesLoading = false, delivery, onC
                   </Text>
                 </View>
               ) : null}
+              {proof ? (
+                <View style={[styles.section, { backgroundColor: sectionBackground, borderColor: sectionBorder }]}>
+                  <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.caption} style={[styles.sectionTitle, { color: colors.textSecondary }]}>
+                    Signature Captured
+                  </Text>
+                  <View style={styles.proofMeta}>
+                    <View style={[styles.rowIcon, { backgroundColor: colorScheme === "dark" ? "rgba(124, 58, 237, 0.2)" : "rgba(124, 58, 237, 0.11)" }]}>
+                      <SymbolView fallback={null} name="signature" size={16} tintColor={colors.accent} type="hierarchical" />
+                    </View>
+                    <View style={styles.rowCopy}>
+                      <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.caption} style={[styles.rowLabel, { color: colors.textSecondary }]}>
+                        Signed By
+                      </Text>
+                      <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.secondary} style={[styles.rowValue, { color: colors.textPrimary }]}>
+                        {proof.signed_by_name}
+                      </Text>
+                      <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.tertiary} style={[styles.signatureTimestamp, { color: colors.textSecondary }]}>
+                        {formatSignedAt(proof.signed_at)}
+                      </Text>
+                    </View>
+                  </View>
+                  <CapturedSignaturePreview signatureData={proof.signature_data} tintColor={colors.accent} />
+                </View>
+              ) : null}
           </ScrollView>
         </Animated.View>
       </View>
@@ -320,24 +371,11 @@ export function DeliveryDetailsSheet({ coordinatesLoading = false, delivery, onC
   );
 }
 
-function DetailChip({ color, label }: { color: string; label: string }) {
-  const colorScheme = useColorScheme();
-  const colors = getDashboardColors(colorScheme);
-
-  return (
-    <View style={[styles.chip, { backgroundColor: colors.surfaceMuted, borderColor: colors.subtleBorder }]}>
-      <View style={[styles.chipDot, { backgroundColor: color }]} />
-      <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.caption} style={[styles.chipText, { color: colors.textPrimary }]}>
-        {label}
-      </Text>
-    </View>
-  );
-}
-
 function DetailSection({ borderColor, rows, surfaceColor, title }: { borderColor: string; rows: DetailRow[]; surfaceColor: string; title: string }) {
   const colorScheme = useColorScheme();
   const colors = getDashboardColors(colorScheme);
   const visibleRows = rows.filter((row) => row.value);
+  const iconSurface = colorScheme === "dark" ? "rgba(124, 58, 237, 0.2)" : "rgba(124, 58, 237, 0.11)";
 
   if (visibleRows.length === 0) return null;
 
@@ -349,8 +387,8 @@ function DetailSection({ borderColor, rows, surfaceColor, title }: { borderColor
       <View style={styles.rowStack}>
         {visibleRows.map((row) => (
           <View key={`${title}-${row.label}`} style={styles.detailRow}>
-            <View style={[styles.rowIcon, { backgroundColor: colors.surfaceMuted }]}>
-              <SymbolView fallback={null} name="info.circle" size={14} tintColor={colors.textSecondary} type="hierarchical" />
+            <View style={[styles.rowIcon, { backgroundColor: iconSurface }]}>
+              <SymbolView fallback={null} name={row.icon} size={16} tintColor={colors.accent} type="hierarchical" />
             </View>
             <View style={styles.rowCopy}>
               <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.caption} style={[styles.rowLabel, { color: colors.textSecondary }]}>
@@ -371,30 +409,6 @@ const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0, 0, 0, 0.48)",
-  },
-  chip: {
-    alignItems: "center",
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    gap: dashboardSpacing.scale.xs,
-    paddingHorizontal: dashboardSpacing.scale.md,
-    paddingVertical: dashboardSpacing.scale.xs,
-  },
-  chipDot: {
-    borderRadius: 999,
-    height: 7,
-    width: 7,
-  },
-  chipRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: dashboardSpacing.scale.sm,
-  },
-  chipText: {
-    fontSize: dashboardTypography.caption.fontSize,
-    fontWeight: "700",
-    lineHeight: dashboardTypography.caption.lineHeight,
   },
   content: {
     gap: dashboardSpacing.scale.md,
@@ -429,6 +443,11 @@ const styles = StyleSheet.create({
     fontWeight: dashboardTypography.secondary.fontWeight,
     lineHeight: dashboardTypography.secondary.lineHeight,
   },
+  proofMeta: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: dashboardSpacing.scale.sm,
+  },
   rowCopy: {
     flex: 1,
     gap: 2,
@@ -456,7 +475,9 @@ const styles = StyleSheet.create({
     lineHeight: dashboardTypography.secondary.lineHeight,
   },
   scroll: {
-    flexGrow: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    minHeight: 0,
   },
   section: {
     borderRadius: 22,
@@ -474,7 +495,33 @@ const styles = StyleSheet.create({
   },
   sheet: {
     borderTopWidth: StyleSheet.hairlineWidth,
+    flexShrink: 1,
     overflow: "hidden",
+  },
+  signaturePoint: {
+    borderRadius: 999,
+    height: 4,
+    position: "absolute",
+    width: 4,
+  },
+  signaturePreview: {
+    backgroundColor: "rgba(124, 58, 237, 0.06)",
+    borderColor: "rgba(124, 58, 237, 0.14)",
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: signaturePreviewHeight,
+    overflow: "hidden",
+    position: "relative",
+  },
+  signatureSegment: {
+    borderRadius: 999,
+    height: 2.5,
+    position: "absolute",
+    transformOrigin: "left center",
+  },
+  signatureTimestamp: {
+    fontSize: dashboardTypography.tertiary.fontSize,
+    lineHeight: dashboardTypography.tertiary.lineHeight,
   },
   subtitle: {
     fontSize: dashboardTypography.secondary.fontSize,

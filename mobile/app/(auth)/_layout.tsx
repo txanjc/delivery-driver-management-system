@@ -1,13 +1,15 @@
 import { Redirect, Stack } from "expo-router";
 
-import { LoadingState } from "@/components/shared/Screen";
+import { SessionRestoreScreen } from "@/components/auth/SessionRestoreScreen";
 import { useAuth } from "@/hooks/useAuth";
 
 export default function AuthLayout() {
   const { driver, loading, session } = useAuth();
 
+  // Hold the auth stack until session restoration completes so Splash is never
+  // shown during a returning driver's authenticated launch.
   if (loading) {
-    return <LoadingState label="Checking access..." />;
+    return <SessionRestoreScreen />;
   }
 
   if (session && driver) {
@@ -15,7 +17,8 @@ export default function AuthLayout() {
   }
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={{ contentStyle: { backgroundColor: "#26065A" }, headerShown: false }}>
+      <Stack.Screen name="splash" />
       <Stack.Screen name="login" />
     </Stack>
   );

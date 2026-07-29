@@ -26,7 +26,7 @@ type DateScope = "today" | "week" | "month";
 type DeliveryStatus = "pending" | "assigned" | "in_transit" | "delivered" | "delayed" | "failed" | "returned";
 type DashboardFilter = "all" | "active" | "in_transit" | "completed" | "exceptions" | "drivers_on_shift" | "vehicles_in_use" | DeliveryStatus;
 type DeliveryRow = { delivery_id: string; delivery_number: string | null; customer_name: string | null; customer_phone: string | null; pickup_address: string | null; pickup_latitude: number | string | null; pickup_longitude: number | string | null; delivery_address: string | null; delivery_latitude: number | string | null; delivery_longitude: number | string | null; assigned_driver_id: string | null; assigned_vehicle_id: string | null; status: string | null; priority: string | null; updated_at: string | null };
-type RouteRow = { route_id: string; delivery_id: string | null; origin: string | null; destination: string | null; origin_address: string | null; origin_latitude: number | string | null; origin_longitude: number | string | null; destination_address: string | null; destination_latitude: number | string | null; destination_longitude: number | string | null; estimated_distance_km: number | string | null; estimated_duration_minutes: number | string | null; route_polyline: string | null; maps_url: string | null; route_provider: string | null; created_at: string | null };
+type RouteRow = { route_id: string; delivery_id: string | null; origin: string | null; destination: string | null; origin_address: string | null; origin_latitude: number | string | null; origin_longitude: number | string | null; destination_address: string | null; destination_latitude: number | string | null; destination_longitude: number | string | null; estimated_distance_km: number | string | null; estimated_duration_minutes: number | string | null; actual_duration_minutes: number | string | null; route_polyline: string | null; maps_url: string | null; route_provider: string | null; created_at: string | null };
 type DriverRow = { driver_id: string; user_id: string | null; availability: string | null; performance_score: number | null };
 type ProfileRow = { profile_id: string; first_name: string | null; last_name: string | null; email: string | null; phone: string | null; is_active: boolean | null };
 type VehicleRow = { vehicle_id: string; vehicle_number: string | null; license_plate: string | null; make: string | null; model: string | null; vehicle_type: string | null; status: string | null };
@@ -834,18 +834,43 @@ export default function AdminPage() {
     const activeDeliveries = scopedDeliveries.filter((delivery) => isActiveStatus(delivery.statusValue));
     const activeShiftDriverIds = new Set(activeSchedules.map((schedule) => schedule.driver_id).filter((id): id is string => Boolean(id)));
     const assignedDriverIds = new Set(activeDeliveries.map((delivery) => delivery.assigned_driver_id).filter((id): id is string => Boolean(id)));
-    const terminalTimestampByDelivery = new Map<string, string>();
+    const inTransitTimestampByDelivery = new Map<string, string>();
+    const deliveredTimestampByDelivery = new Map<string, string>();
     data.deliveryHistory.forEach((event) => {
-      if (event.created_at && !terminalTimestampByDelivery.has(event.delivery_id)) terminalTimestampByDelivery.set(event.delivery_id, event.created_at);
+      if (!event.created_at) return;
+      const timestamp = Date.parse(event.created_at);
+      if (Number.isNaN(timestamp)) return;
+      const status = normalizeStatus(event.status);
+      if (status === "in_transit") {
+        const current = inTransitTimestampByDelivery.get(event.delivery_id);
+        if (!current || timestamp < Date.parse(current)) inTransitTimestampByDelivery.set(event.delivery_id, event.created_at);
+      }
+      if (status === "delivered") {
+        const current = deliveredTimestampByDelivery.get(event.delivery_id);
+        if (!current || timestamp > Date.parse(current)) deliveredTimestampByDelivery.set(event.delivery_id, event.created_at);
+      }
     });
     const performanceDeliveries = data.deliveries.filter((delivery) => {
-      if (!delivery.assigned_driver_id || !["delivered", "failed", "returned"].includes(normalizeStatus(delivery.status))) return false;
-      return inRange(terminalTimestampByDelivery.get(delivery.delivery_id) ?? delivery.updated_at, scope);
+      if (!delivery.assigned_driver_id || normalizeStatus(delivery.status) !== "delivered") return false;
+      return inRange(deliveredTimestampByDelivery.get(delivery.delivery_id) ?? delivery.updated_at, scope);
     });
     const driverPerformance = data.drivers.flatMap((driver): DriverPerformanceRow[] => {
       const activity = performanceDeliveries.filter((delivery) => delivery.assigned_driver_id === driver.driver_id);
-      const completed = activity.filter((delivery) => normalizeStatus(delivery.status) === "delivered").length;
-      const exceptions = activity.filter((delivery) => ["failed", "returned"].includes(normalizeStatus(delivery.status))).length;
+      const completed = activity.length;
+      const onTimeMeasurements = activity.flatMap((delivery) => {
+        const route = routeMap.get(delivery.delivery_id);
+        const estimatedMinutes = numberValue(route?.estimated_duration_minutes ?? null);
+        const actualMinutes = numberValue(route?.actual_duration_minutes ?? null);
+        const inTransitAt = inTransitTimestampByDelivery.get(delivery.delivery_id);
+        const deliveredAt = deliveredTimestampByDelivery.get(delivery.delivery_id);
+        const elapsedMinutes = inTransitAt && deliveredAt ? (Date.parse(deliveredAt) - Date.parse(inTransitAt)) / 60000 : null;
+        const measuredMinutes = actualMinutes ?? elapsedMinutes;
+        if (estimatedMinutes === null || measuredMinutes === null || measuredMinutes < 0) return [];
+        return [measuredMinutes <= estimatedMinutes];
+      });
+      const onTimeRate = onTimeMeasurements.length
+        ? Math.round(onTimeMeasurements.filter(Boolean).length / onTimeMeasurements.length * 100)
+        : null;
       const score = typeof driver.performance_score === "number" && Number.isFinite(driver.performance_score)
         ? Math.max(0, Math.min(100, Math.round(driver.performance_score)))
         : 0;
@@ -859,7 +884,7 @@ export default function AdminPage() {
           : profile?.is_active === true && driver.availability === "available"
             ? "Available"
             : "Off Shift";
-      return [{ completed, driverId: driver.driver_id, initials, name, onTimeRate: null, score, status }];
+      return [{ completed, driverId: driver.driver_id, initials, name, onTimeRate, score, status }];
     }).sort((left, right) => right.score - left.score || right.completed - left.completed || left.name.localeCompare(right.name)).slice(0, 5);
     const vehiclesInUse = new Set<string>([...scopedSchedules.map((schedule) => schedule.vehicle_id).filter((id): id is string => Boolean(id)), ...activeDeliveries.map((delivery) => delivery.assigned_vehicle_id).filter((id): id is string => Boolean(id))]);
     const driversOnShift = new Set<string>((scope === "today" ? activeSchedules : scopedSchedules).map((schedule) => schedule.driver_id).filter((id): id is string => Boolean(id)));

@@ -8,8 +8,10 @@ export type AuthState = {
   profile: Profile | null;
   driver: Driver | null;
   loading: boolean;
+  mfaRequired: boolean;
   error: string | null;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<{ requiresMfa: boolean }>;
   signOut: () => Promise<void>;
+  verifyMfa: (code: string) => Promise<void>;
   refreshProfile: () => Promise<void>;
 };

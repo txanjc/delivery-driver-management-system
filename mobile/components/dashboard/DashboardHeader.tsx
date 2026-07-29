@@ -14,9 +14,10 @@ type DashboardHeaderProps = {
   driverName: string;
   greeting: string;
   roleLabel: string;
+  shiftColor?: string;
 };
 
-export function DashboardHeader({ driverName, greeting, roleLabel }: DashboardHeaderProps) {
+export function DashboardHeader({ driverName, greeting, roleLabel, shiftColor }: DashboardHeaderProps) {
   const colorScheme = useColorScheme();
   const { width } = useWindowDimensions();
   const colors = getDashboardColors(colorScheme);
@@ -27,20 +28,23 @@ export function DashboardHeader({ driverName, greeting, roleLabel }: DashboardHe
   return (
     <View accessibilityRole="header" style={[styles.container, { columnGap: sectionGap }]}>
       <View style={styles.copy}>
-        <Text
-          maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.secondary}
-          style={[
-            styles.greeting,
-            {
-              color: colors.textSecondary,
-              fontSize: dashboardTypography.secondary.fontSize,
-              fontWeight: dashboardTypography.secondary.fontWeight,
-              lineHeight: dashboardTypography.secondary.lineHeight,
-            },
-          ]}
-        >
-          {formattedGreeting}
-        </Text>
+        <View style={styles.greetingRow}>
+          {shiftColor ? <View accessibilityElementsHidden style={[styles.shiftDot, { backgroundColor: shiftColor }]} /> : null}
+          <Text
+            maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.secondary}
+            style={[
+              styles.greeting,
+              {
+                color: colors.textSecondary,
+                fontSize: dashboardTypography.secondary.fontSize,
+                fontWeight: dashboardTypography.secondary.fontWeight,
+                lineHeight: dashboardTypography.secondary.lineHeight,
+              },
+            ]}
+          >
+            {formattedGreeting}
+          </Text>
+        </View>
         <Text
           maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.pageTitle}
           style={[
@@ -94,6 +98,11 @@ const styles = StyleSheet.create({
   greeting: {
     letterSpacing: 0,
   },
+  greetingRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: dashboardSpacing.scale.xs,
+  },
   name: {
     letterSpacing: 0,
   },
@@ -103,6 +112,11 @@ const styles = StyleSheet.create({
   },
   role: {
     letterSpacing: 0,
+  },
+  shiftDot: {
+    borderRadius: 999,
+    height: 9,
+    width: 9,
   },
   rolePill: {
     alignSelf: "flex-start",

@@ -1,6 +1,6 @@
 import * as Location from "expo-location";
 import { SymbolView } from "expo-symbols";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
 import type { MapViewProps } from "react-native-maps";
@@ -17,12 +17,16 @@ export type LocationPermissionState = "idle" | "loading" | "granted" | "denied" 
 
 type DeliveryRouteMapProps = {
   delivery: Delivery;
+  focusRequest?: number;
   onDriverLocationChange: (coordinate: RouteCoordinate | null) => void;
   onLocationPermissionChange: (state: LocationPermissionState) => void;
   panelHeight: number;
+  routePolyline?: string | null;
   route: Route | null;
   routeActive: boolean;
   visible: boolean;
+  zoomDelta?: number;
+  zoomRequest?: number;
 };
 
 const defaultLatitudeDelta = 0.055;
@@ -131,17 +135,24 @@ function getInitialRegion(coordinates: RouteCoordinate[]): MapViewProps["initial
 
 export function DeliveryRouteMap({
   delivery,
+  focusRequest = 0,
   onDriverLocationChange,
   onLocationPermissionChange,
   panelHeight,
+  routePolyline,
   route,
   routeActive,
   visible,
+  zoomDelta = 1,
+  zoomRequest = 0,
 }: DeliveryRouteMapProps) {
   const mapRef = useRef<MapView>(null);
+  const cameraZoomRef = useRef(17);
+  const cameraAltitudeRef = useRef(720);
   const [mapReady, setMapReady] = useState(false);
   const [driverCoordinate, setDriverCoordinate] = useState<RouteCoordinate | null>(null);
-  const routeCoordinates = useMemo(() => decodeGooglePolyline(route?.route_polyline), [route?.route_polyline]);
+  const [driverHeading, setDriverHeading] = useState(0);
+  const routeCoordinates = useMemo(() => decodeGooglePolyline(routePolyline ?? route?.route_polyline), [route?.route_polyline, routePolyline]);
   const pickupCoordinate = useMemo(
     () => storedCoordinate(delivery.pickup_latitude, delivery.pickup_longitude) ?? storedCoordinate(route?.origin_latitude, route?.origin_longitude),
     [delivery.pickup_latitude, delivery.pickup_longitude, route?.origin_latitude, route?.origin_longitude],
@@ -153,20 +164,32 @@ export function DeliveryRouteMap({
   const endpointCoordinates = useMemo(() => [pickupCoordinate, dropoffCoordinate].filter(isCoordinate), [dropoffCoordinate, pickupCoordinate]);
   const fitCoordinates = routeCoordinates.length > 0 ? routeCoordinates : endpointCoordinates;
   const initialRegion = useMemo(() => getInitialRegion(fitCoordinates), [fitCoordinates]);
+  const updateDriverCoordinate = useCallback(
+    (coordinate: RouteCoordinate | null, heading: number | null = null) => {
+      setDriverCoordinate(coordinate);
+      setDriverHeading(typeof heading === "number" && Number.isFinite(heading) ? heading : 0);
+      onDriverLocationChange(coordinate);
+    },
+    [onDriverLocationChange],
+  );
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadLocation() {
-      if (!visible || Platform.OS === "web") return;
+    async function startForegroundTracking() {
+      if (!visible || !routeActive || Platform.OS === "web") {
+        updateDriverCoordinate(null);
+        onLocationPermissionChange("idle");
+        return;
+      }
+
       onLocationPermissionChange("loading");
 
       const permission = await Location.requestForegroundPermissionsAsync();
       if (cancelled) return;
 
       if (permission.status !== Location.PermissionStatus.GRANTED) {
-        setDriverCoordinate(null);
-        onDriverLocationChange(null);
+        updateDriverCoordinate(null);
         onLocationPermissionChange("denied");
         return;
       }
@@ -178,32 +201,149 @@ export function DeliveryRouteMap({
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
         };
-        setDriverCoordinate(coordinate);
-        onDriverLocationChange(coordinate);
+        updateDriverCoordinate(coordinate, position.coords.heading);
         onLocationPermissionChange("granted");
+
+        const subscription = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            distanceInterval: 10,
+            timeInterval: 10_000,
+          },
+          (nextPosition) => {
+            if (cancelled) return;
+            const nextCoordinate = {
+              latitude: nextPosition.coords.latitude,
+              longitude: nextPosition.coords.longitude,
+            };
+            updateDriverCoordinate(nextCoordinate, nextPosition.coords.heading);
+          },
+        );
+
+        if (cancelled) {
+          subscription.remove();
+          return;
+        }
+
+        locationSubscription = subscription;
       } catch {
         if (cancelled) return;
-        setDriverCoordinate(null);
-        onDriverLocationChange(null);
+        updateDriverCoordinate(null);
         onLocationPermissionChange("unavailable");
       }
     }
 
-    void loadLocation();
+    let locationSubscription: Location.LocationSubscription | null = null;
+    void startForegroundTracking();
 
     return () => {
       cancelled = true;
+      locationSubscription?.remove();
     };
-  }, [onDriverLocationChange, onLocationPermissionChange, visible]);
+  }, [onLocationPermissionChange, routeActive, updateDriverCoordinate, visible]);
 
   useEffect(() => {
-    if (!mapReady || fitCoordinates.length === 0) return;
+    if (!mapReady || fitCoordinates.length === 0 || routeActive) return;
 
     mapRef.current?.fitToCoordinates(fitCoordinates, {
       animated: false,
       edgePadding: { bottom: panelHeight + 44, left: 48, right: 48, top: 110 },
     });
-  }, [fitCoordinates, mapReady, panelHeight]);
+  }, [fitCoordinates, mapReady, panelHeight, routeActive]);
+
+  useEffect(() => {
+    if (!mapReady || !routeActive || !driverCoordinate) return;
+
+    mapRef.current?.animateCamera(
+      Platform.OS === "ios"
+        ? {
+            altitude: cameraAltitudeRef.current,
+            center: driverCoordinate,
+            heading: driverHeading,
+            pitch: 54,
+          }
+        : {
+            center: driverCoordinate,
+            heading: driverHeading,
+            pitch: 54,
+            zoom: cameraZoomRef.current,
+          },
+      { duration: 520 },
+    );
+  }, [driverCoordinate, driverHeading, mapReady, routeActive]);
+
+  useEffect(() => {
+    if (!mapReady || focusRequest === 0) return;
+
+    if (routeActive && driverCoordinate) {
+      if (Platform.OS === "ios") {
+        cameraAltitudeRef.current = Math.min(cameraAltitudeRef.current, 480);
+      } else {
+        cameraZoomRef.current = Math.max(cameraZoomRef.current, 18);
+      }
+      mapRef.current?.animateCamera(
+        Platform.OS === "ios"
+          ? {
+              altitude: cameraAltitudeRef.current,
+              center: driverCoordinate,
+              heading: driverHeading,
+              pitch: 54,
+            }
+          : {
+              center: driverCoordinate,
+              heading: driverHeading,
+              pitch: 54,
+              zoom: cameraZoomRef.current,
+            },
+        { duration: 360 },
+      );
+      return;
+    }
+
+    if (fitCoordinates.length > 0) {
+      mapRef.current?.fitToCoordinates(fitCoordinates, {
+        animated: true,
+        edgePadding: { bottom: panelHeight + 44, left: 48, right: 48, top: 110 },
+      });
+    }
+  }, [driverCoordinate, driverHeading, fitCoordinates, focusRequest, mapReady, panelHeight, routeActive]);
+
+  useEffect(() => {
+    if (!mapReady || zoomRequest === 0 || !routeActive || !driverCoordinate) return;
+
+    let cancelled = false;
+    void mapRef.current?.getCamera().then((camera) => {
+      if (cancelled) return;
+
+      if (Platform.OS === "ios") {
+        const currentAltitude = typeof camera.altitude === "number" && Number.isFinite(camera.altitude) ? camera.altitude : cameraAltitudeRef.current;
+        cameraAltitudeRef.current = Math.min(9_000, Math.max(140, currentAltitude * (zoomDelta > 0 ? 0.46 : 2.15)));
+      } else {
+        const currentZoom = typeof camera.zoom === "number" && Number.isFinite(camera.zoom) ? camera.zoom : cameraZoomRef.current;
+        cameraZoomRef.current = Math.min(20, Math.max(12, currentZoom + zoomDelta * 2));
+      }
+      mapRef.current?.animateCamera(
+        Platform.OS === "ios"
+          ? {
+              altitude: cameraAltitudeRef.current,
+              center: driverCoordinate,
+              heading: driverHeading,
+              pitch: 54,
+            }
+          : {
+              center: driverCoordinate,
+              heading: driverHeading,
+              pitch: 54,
+              zoom: cameraZoomRef.current,
+            },
+        { duration: 260 },
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [driverCoordinate, driverHeading, mapReady, routeActive, zoomDelta, zoomRequest]);
 
   return (
     <MapView

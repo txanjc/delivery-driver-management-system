@@ -141,7 +141,7 @@ export async function GET(request: Request) {
     authorization.client.from("drivers").select("driver_id, user_id, availability, performance_score"),
     authorization.client.from("vehicles").select("vehicle_id, vehicle_number, license_plate, make, model, vehicle_type, status"),
     authorization.client.from("schedules").select("schedule_id, driver_id, vehicle_id, shift_date, shift_type, shift_name, start_time, end_time, status").neq("status", "cancelled"),
-    authorization.client.from("delivery_status_history").select("delivery_id, status, created_at").in("status", ["delivered", "failed", "returned"]).order("created_at", { ascending: false }),
+    authorization.client.from("delivery_status_history").select("delivery_id, status, created_at").in("status", ["in_transit", "delivered", "failed", "returned"]).order("created_at", { ascending: false }),
     authorization.client.from("route_stops").select("route_id, delivery_id, stop_sequence, original_sequence, estimated_arrival_time, estimated_departure_time, service_duration_seconds, distance_from_previous_meters, duration_from_previous_seconds, stop_status").order("stop_sequence", { ascending: true }),
   ]);
   const error = routesResponse.error ?? deliveriesResponse.error ?? driversResponse.error ?? vehiclesResponse.error ?? schedulesResponse.error ?? deliveryHistoryResponse.error ?? routeStopsResponse.error;

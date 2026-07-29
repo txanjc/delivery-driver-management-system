@@ -15,9 +15,11 @@ export type LiquidGlassButtonProps = {
   accentColor?: string;
   capsule?: boolean;
   children?: React.ReactNode;
+  borderless?: boolean;
   disabled?: boolean | null;
   disableHighlightEffect?: boolean;
   disableScaleAnimation?: boolean;
+  emphasized?: boolean;
   glassEffectStyle?: "clear" | "regular";
   hitSlop?: number;
   onPress?: () => void;
@@ -42,7 +44,7 @@ function alpha(hex: string, opacity: number) {
   return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
 }
 
-function getVariantStyles(variant: LiquidGlassButtonVariant, accentColor: string, disabled: boolean) {
+function getVariantStyles(variant: LiquidGlassButtonVariant, accentColor: string, disabled: boolean, emphasized: boolean) {
   if (variant === "primaryAccent") {
     return {
       backgroundColor: disabled ? alpha(accentColor, 0.14) : alpha(accentColor, 0.24),
@@ -64,7 +66,7 @@ function getVariantStyles(variant: LiquidGlassButtonVariant, accentColor: string
   }
 
   return {
-    backgroundColor: "rgba(255, 255, 255, 0.38)",
+    backgroundColor: emphasized ? "rgba(255, 255, 255, 0.62)" : "rgba(255, 255, 255, 0.38)",
     borderColor: "rgba(148, 163, 184, 0.42)",
     pressedBackgroundColor: alpha(accentColor, 0.08),
     pressedBorderColor: alpha(accentColor, 0.24),
@@ -76,9 +78,11 @@ export function LiquidGlassButton({
   accessibilityRole = "button",
   accessibilityState,
   accentColor = colors.primary,
+  borderless = false,
   capsule = false,
   children,
   disabled = false,
+  emphasized = false,
   hitSlop,
   onPress,
   radius,
@@ -86,7 +90,7 @@ export function LiquidGlassButton({
   variant = "secondaryNeutral",
 }: LiquidGlassButtonProps) {
   const isDisabled = Boolean(disabled);
-  const variantStyles = getVariantStyles(variant, accentColor, isDisabled);
+  const variantStyles = getVariantStyles(variant, accentColor, isDisabled, emphasized);
   const [height, setHeight] = useState<number | null>(null);
   const visualRadius = capsule && height ? getCapsuleRadiusFromHeight(height) : radius;
 
@@ -114,7 +118,8 @@ export function LiquidGlassButton({
         style,
         {
           backgroundColor: pressed && !isDisabled ? variantStyles.pressedBackgroundColor : variantStyles.backgroundColor,
-          borderColor: pressed && !isDisabled ? variantStyles.pressedBorderColor : variantStyles.borderColor,
+          borderColor: borderless ? "transparent" : pressed && !isDisabled ? variantStyles.pressedBorderColor : variantStyles.borderColor,
+          borderWidth: borderless ? 0 : StyleSheet.hairlineWidth,
           borderRadius: visualRadius,
         },
       ]}

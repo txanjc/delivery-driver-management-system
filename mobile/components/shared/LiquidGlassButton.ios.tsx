@@ -19,9 +19,11 @@ export type LiquidGlassButtonProps = {
   accentColor?: string;
   capsule?: boolean;
   children?: React.ReactNode;
+  borderless?: boolean;
   disabled?: boolean | null;
   disableHighlightEffect?: boolean;
   disableScaleAnimation?: boolean;
+  emphasized?: boolean;
   glassEffectStyle?: "clear" | "regular";
   hitSlop?: number;
   onPress?: () => void;
@@ -124,7 +126,7 @@ function splitStyles(style: StyleProp<ViewStyle>, radius: number) {
   };
 }
 
-function getVariantStyles(variant: LiquidGlassButtonVariant, accentColor: string, disabled: boolean, dark: boolean) {
+function getVariantStyles(variant: LiquidGlassButtonVariant, accentColor: string, disabled: boolean, dark: boolean, emphasized: boolean) {
   if (variant === "primaryAccent") {
     return {
       blurTint: "systemMaterial" as const,
@@ -156,12 +158,12 @@ function getVariantStyles(variant: LiquidGlassButtonVariant, accentColor: string
   return {
     blurTint: dark ? ("systemMaterialDark" as const) : ("systemMaterialLight" as const),
     borderColor: dark ? "rgba(255, 255, 255, 0.32)" : alpha(accentColor, 0.34),
-    fallbackColor: dark ? "rgba(255, 255, 255, 0.2)" : alpha(accentColor, 0.12),
-    fillColor: dark ? "rgba(255, 255, 255, 0.2)" : alpha(accentColor, 0.12),
+    fallbackColor: dark ? (emphasized ? "rgba(255, 255, 255, 0.38)" : "rgba(255, 255, 255, 0.2)") : alpha(accentColor, emphasized ? 0.24 : 0.12),
+    fillColor: dark ? (emphasized ? "rgba(255, 255, 255, 0.38)" : "rgba(255, 255, 255, 0.2)") : alpha(accentColor, emphasized ? 0.24 : 0.12),
     highlightColor: dark ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.14)",
     iconColor: dark ? "#F5F5F7" : colors.text,
     textColor: dark ? "#F5F5F7" : colors.text,
-    tintColor: dark ? "rgba(255, 255, 255, 0.22)" : alpha(accentColor, 0.18),
+    tintColor: dark ? (emphasized ? "rgba(255, 255, 255, 0.42)" : "rgba(255, 255, 255, 0.22)") : alpha(accentColor, emphasized ? 0.32 : 0.18),
   };
 }
 
@@ -195,9 +197,11 @@ export const LiquidGlassButton = forwardRef<View, LiquidGlassButtonProps>(
       accessibilityRole = "button",
       accessibilityState,
       accentColor = colors.primary,
+      borderless = false,
       capsule = false,
       children,
       disabled = false,
+      emphasized = false,
       disableHighlightEffect = false,
       disableScaleAnimation = false,
       glassEffectStyle = "regular",
@@ -220,7 +224,7 @@ export const LiquidGlassButton = forwardRef<View, LiquidGlassButtonProps>(
     const translateY = useSharedValue(0);
     const highlightOpacity = useSharedValue(0);
     const zIndex = useSharedValue(0);
-    const variantStyles = getVariantStyles(variant, accentColor, isDisabled, dark);
+    const variantStyles = getVariantStyles(variant, accentColor, isDisabled, dark, emphasized);
     const canRenderGlass = reduceTransparencyEnabled === false && isLiquidGlassAvailable() && isGlassEffectAPIAvailable();
     const shouldRenderBlur = reduceTransparencyEnabled === false && !canRenderGlass;
     const wideButton = (buttonSize?.width ?? 0) > wideButtonThreshold;
@@ -344,7 +348,7 @@ export const LiquidGlassButton = forwardRef<View, LiquidGlassButtonProps>(
     );
 
     const composedGesture = useMemo(() => Gesture.Exclusive(tapGesture, panGesture), [panGesture, tapGesture]);
-    const materialStyle = [styles.material, innerStyle, { backgroundColor: variantStyles.fillColor, borderColor: variantStyles.borderColor, borderRadius: visualRadius }];
+    const materialStyle = [styles.material, innerStyle, { backgroundColor: variantStyles.fillColor, borderColor: borderless ? "transparent" : variantStyles.borderColor, borderRadius: visualRadius, borderWidth: borderless ? 0 : StyleSheet.hairlineWidth }];
     const highlightStyle = [styles.highlight, { backgroundColor: variantStyles.highlightColor, borderRadius: visualRadius }, animatedHighlightStyle];
 
     return (

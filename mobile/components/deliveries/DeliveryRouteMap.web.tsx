@@ -12,12 +12,16 @@ export type LocationPermissionState = "idle" | "loading" | "granted" | "denied" 
 
 type DeliveryRouteMapProps = {
   delivery: Delivery;
+  focusRequest?: number;
   onDriverLocationChange: (coordinate: RouteCoordinate | null) => void;
   onLocationPermissionChange: (state: LocationPermissionState) => void;
   panelHeight: number;
+  routePolyline?: string | null;
   route: Route | null;
   routeActive: boolean;
   visible: boolean;
+  zoomDelta?: number;
+  zoomRequest?: number;
 };
 
 export function DeliveryRouteMap(_props: DeliveryRouteMapProps) {

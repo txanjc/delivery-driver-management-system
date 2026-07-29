@@ -1,7 +1,7 @@
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, useColorScheme, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, useColorScheme, useWindowDimensions, View } from "react-native";
 import type { DimensionValue, ListRenderItem } from "react-native";
 import Animated, {
   cancelAnimation,
@@ -24,6 +24,7 @@ import { DashboardScrollEdge } from "@/components/dashboard/DashboardScrollEdge"
 import { DeliveryCardStack } from "@/components/deliveries/DeliveryCardStack";
 import { DeliveryDetailsSheet } from "@/components/deliveries/DeliveryDetailsSheet";
 import { DeliveryWorkflowSheet } from "@/components/deliveries/DeliveryWorkflowSheet";
+import { PullToRefreshIndicator, usePullToRefreshCue } from "@/components/shared/PullToRefreshIndicator";
 import { GlassActionButton } from "@/components/shared/GlassActionButton";
 import { ProfileButton } from "@/components/shared/ProfileButton";
 import {
@@ -61,7 +62,6 @@ type DeliveryCardProps = {
   width: number;
 };
 
-const AnimatedFlatList = Animated.createAnimatedComponent(FlatList<Delivery>);
 const refreshHeaderMaxHeight = 52;
 const refreshIndicatorSize = 36;
 const refreshStateIdle = 0;
@@ -145,6 +145,16 @@ function getOrderedDeliveries(deliveries: Delivery[], routesByDeliveryId: Record
   return [...deliveries].sort((left, right) => compareDeliveriesForDisplay(left, right, routesByDeliveryId));
 }
 
+function getMostRecentDelivery(deliveries: Delivery[], filter: DeliveryFilter) {
+  const mostRecentTimestamp = (delivery: Delivery) =>
+    filter === "completed" ? delivery.updated_at ?? delivery.created_at ?? "" : delivery.created_at ?? "";
+
+  return [...deliveries].sort((left, right) => {
+    const timestampComparison = mostRecentTimestamp(right).localeCompare(mostRecentTimestamp(left));
+    return timestampComparison || right.delivery_id.localeCompare(left.delivery_id);
+  })[0] ?? null;
+}
+
 function deliveryMatchesFilter(delivery: Delivery, filter: DeliveryFilter) {
   const normalized = normalizeStatus(delivery.status);
 
@@ -157,7 +167,7 @@ function deliveryMatchesFilter(delivery: Delivery, filter: DeliveryFilter) {
   }
 
   if (filter === "exceptions") {
-    return normalized === "delayed" || normalized === "failed" || normalized === "returned";
+    return normalized === "failed" || normalized === "returned";
   }
 
   return true;
@@ -204,8 +214,10 @@ function getFilteredEmptyCopy(error: boolean, filter: DeliveryFilter, query: str
   };
 }
 
-function getStackContextCopy(count: number) {
+function getStackContextCopy(count: number, filter: DeliveryFilter) {
   if (count <= 0) return "";
+  if (filter === "all") return "More Deliveries";
+  if (filter === "completed") return "Other Completed Deliveries";
   if (count === 1) return "1 Upcoming Delivery";
   if (count <= 6) return `${count} Upcoming Deliveries`;
 
@@ -242,7 +254,7 @@ function getProgressInfo(status: string | null) {
   return { fillPercent: 0, stateLabel: "Status unavailable", step: 0 };
 }
 
-function AnimatedProgressFill({ fillPercent }: { fillPercent: number }) {
+function AnimatedProgressFill({ color, fillPercent }: { color: string; fillPercent: number }) {
   const reduceMotionEnabled = useReducedMotion();
   const glowProgress = useSharedValue(0);
   const fillWidth = `${fillPercent}%` as DimensionValue;
@@ -267,7 +279,7 @@ function AnimatedProgressFill({ fillPercent }: { fillPercent: number }) {
   }));
 
   return (
-    <View style={[styles.progressFill, { width: fillWidth }]}>
+    <View style={[styles.progressFill, { backgroundColor: color, shadowColor: color, width: fillWidth }]}>
       <Animated.View pointerEvents="none" style={[styles.progressGlow, glowAnimatedStyle]} />
     </View>
   );
@@ -284,11 +296,27 @@ function getStatusTone(status: string | null, colors: ReturnType<typeof getDashb
     };
   }
 
-  if (normalized === "delayed" || normalized === "failed" || normalized === "returned") {
+  if (normalized === "delayed") {
     return {
       backgroundColor: "rgba(251, 191, 36, 0.14)",
       borderColor: "rgba(251, 191, 36, 0.26)",
       color: colors.warning,
+    };
+  }
+
+  if (normalized === "failed") {
+    return {
+      backgroundColor: "rgba(248, 113, 113, 0.14)",
+      borderColor: "rgba(248, 113, 113, 0.28)",
+      color: colors.danger,
+    };
+  }
+
+  if (normalized === "returned") {
+    return {
+      backgroundColor: "rgba(74, 222, 128, 0.14)",
+      borderColor: "rgba(74, 222, 128, 0.28)",
+      color: colors.success,
     };
   }
 
@@ -388,6 +416,9 @@ const DeliveryCard = memo(function DeliveryCard({ colors, delivery, emphasized, 
   const statusTone = getStatusTone(delivery.status, colors);
   const cardPadding = getCardPadding(width);
   const progressInfo = getProgressInfo(delivery.status);
+  const detailsOnly = ["delivered", "failed", "returned"].includes(normalizeStatus(delivery.status) ?? "");
+  const exceptionDelivery = normalizeStatus(delivery.status) === "failed" || normalizeStatus(delivery.status) === "returned";
+  const statusAccent = normalizeStatus(delivery.status) === "failed" || normalizeStatus(delivery.status) === "returned" ? statusTone.color : colors.accent;
 
   if (!emphasized) {
     const secondaryPadding = Math.max(9, cardPadding - 10);
@@ -421,9 +452,10 @@ const DeliveryCard = memo(function DeliveryCard({ colors, delivery, emphasized, 
           </View>
           <View style={styles.secondaryPillCluster}>
             {priority ? (
-              <View style={[styles.secondaryMetaPill, { backgroundColor: colors.surfaceMuted, borderColor: colors.subtleBorder }]}>
-                <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.caption} style={[styles.secondaryPriorityText, { color: colors.textSecondary }]}>
-                  {priority}
+            <View style={[styles.secondaryMetaPill, { backgroundColor: colors.surfaceMuted, borderColor: colors.subtleBorder }]}>
+              <SymbolView accessibilityElementsHidden fallback={null} importantForAccessibility="no" name="tag" size={12} tintColor={colors.textSecondary} type="hierarchical" />
+              <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.caption} style={[styles.secondaryPriorityText, { color: colors.textSecondary }]}>
+                {priority}
                 </Text>
               </View>
             ) : null}
@@ -475,8 +507,8 @@ const DeliveryCard = memo(function DeliveryCard({ colors, delivery, emphasized, 
   const action = getDeliveryAction(delivery.status);
   const cardSurface = emphasized
     ? {
-        backgroundColor: alpha(colors.accent, 0.16),
-        borderColor: alpha(colors.accent, 0.42),
+        backgroundColor: alpha(statusAccent, 0.16),
+        borderColor: alpha(statusAccent, 0.42),
       }
     : {
         backgroundColor: colors.surfaceElevated,
@@ -512,6 +544,7 @@ const DeliveryCard = memo(function DeliveryCard({ colors, delivery, emphasized, 
         {priority ? (
           <View style={styles.featuredPillStack}>
             <View style={[styles.featuredPriorityPill, { backgroundColor: colors.surfaceMuted }]}>
+              <SymbolView accessibilityElementsHidden fallback={null} importantForAccessibility="no" name="tag" size={13} tintColor={colors.textSecondary} type="hierarchical" />
               <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.caption} style={[styles.featuredPriorityText, { color: colors.textSecondary }]}>
                 {priority}
               </Text>
@@ -543,12 +576,12 @@ const DeliveryCard = memo(function DeliveryCard({ colors, delivery, emphasized, 
 
       <View
         accessible
-        accessibilityLabel={`Delivery progress: ${progressInfo.stateLabel}. Stages are Assigned, In Transit, Delivered.`}
+        accessibilityLabel={`Delivery Progress: ${progressInfo.stateLabel}. Stages are Assigned, In Transit, Delivered.`}
         style={styles.progressSection}
       >
         <View style={styles.progressFooter}>
           <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.secondary} style={[styles.progressTimestamp, { color: colors.textSecondary }]}>
-            Delivery progress
+            Delivery Progress
           </Text>
           <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.compactTitle} style={[styles.progressState, { color: colors.textSecondary }]}>
             {progressInfo.stateLabel}
@@ -556,7 +589,7 @@ const DeliveryCard = memo(function DeliveryCard({ colors, delivery, emphasized, 
         </View>
         <View style={styles.progressTrackRow}>
           <View style={[styles.progressTrack, { backgroundColor: colors.surfaceMuted }]}>
-            <AnimatedProgressFill fillPercent={progressInfo.fillPercent} />
+            <AnimatedProgressFill color={statusAccent} fillPercent={progressInfo.fillPercent} />
           </View>
         </View>
         <View style={styles.progressLabels}>
@@ -573,29 +606,48 @@ const DeliveryCard = memo(function DeliveryCard({ colors, delivery, emphasized, 
       </View>
 
       <View style={[styles.cardFooter, { borderTopColor: colors.divider }]}>
-        <GlassActionButton
-          accessibilityLabel={`View details for ${deliveryLabel}`}
-          capsule
-          iconName="doc.text"
-          iconPosition="left"
-          label="View Details"
-          onPress={() => onOpen(delivery)}
-          radius={radius}
-          style={[styles.cardAction, { minHeight: getButtonHeight(width) }]}
-          variant="secondaryNeutral"
-        />
-        <GlassActionButton
-          accessibilityLabel={`${action.label} for ${deliveryLabel}`}
-          capsule
-          disabled={action.disabled}
-          iconName={action.icon}
-          iconPosition="left"
-          label={action.label}
-          onPress={() => onAction(delivery)}
-          radius={radius}
-          style={[styles.cardAction, { minHeight: getButtonHeight(width) }]}
-          variant="primaryAccent"
-        />
+        {detailsOnly ? (
+          <GlassActionButton
+            accessibilityLabel={`View details for ${deliveryLabel}`}
+            capsule
+            iconName="doc.text"
+            iconPosition="left"
+            label="View Details"
+            labelStyle={styles.deliveryActionLabel}
+            onPress={() => onOpen(delivery)}
+            radius={radius}
+            style={[styles.cardAction, { minHeight: getButtonHeight(width) }]}
+            variant={exceptionDelivery ? "neutralGrey" : "primaryAccent"}
+          />
+        ) : (
+          <>
+            <GlassActionButton
+              accessibilityLabel={`View details for ${deliveryLabel}`}
+              capsule
+              iconName="doc.text"
+              iconPosition="left"
+              label="View Details"
+              labelStyle={styles.deliveryActionLabel}
+              onPress={() => onOpen(delivery)}
+              radius={radius}
+              style={[styles.cardAction, { minHeight: getButtonHeight(width) }]}
+              variant="secondaryNeutral"
+            />
+            <GlassActionButton
+              accessibilityLabel={`${action.label} for ${deliveryLabel}`}
+              capsule
+              disabled={action.disabled}
+              iconName={action.icon}
+              iconPosition="left"
+              label={action.label}
+              labelStyle={styles.deliveryActionLabel}
+              onPress={() => onAction(delivery)}
+              radius={radius}
+              style={[styles.cardAction, { minHeight: getButtonHeight(width) }]}
+              variant="primaryAccent"
+            />
+          </>
+        )}
       </View>
     </View>
   );
@@ -603,6 +655,7 @@ const DeliveryCard = memo(function DeliveryCard({ colors, delivery, emphasized, 
 
 export default function DeliveriesScreen() {
   const router = useRouter();
+  const { openRouteDeliveryId } = useLocalSearchParams<{ openRouteDeliveryId?: string | string[] }>();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const { width } = useWindowDimensions();
@@ -634,12 +687,22 @@ export default function DeliveriesScreen() {
   const sectionGap = getSectionGap(width);
   const filteredDeliveries = useMemo(() => getFilteredDeliveries(deliveries, deliveryFilter, searchQuery), [deliveries, deliveryFilter, searchQuery]);
   const orderedDeliveries = useMemo(() => getOrderedDeliveries(filteredDeliveries, routesByDeliveryId), [filteredDeliveries, routesByDeliveryId]);
-  const featuredDelivery = orderedDeliveries[0] ?? null;
-  const secondaryDeliveries = useMemo(() => orderedDeliveries.slice(1), [orderedDeliveries]);
+  const featuredDelivery = useMemo(
+    () => (deliveryFilter === "all" || deliveryFilter === "completed" ? getMostRecentDelivery(filteredDeliveries, deliveryFilter) : orderedDeliveries[0] ?? null),
+    [deliveryFilter, filteredDeliveries, orderedDeliveries],
+  );
+  const secondaryDeliveries = useMemo(
+    () => orderedDeliveries.filter((delivery) => delivery.delivery_id !== featuredDelivery?.delivery_id),
+    [featuredDelivery?.delivery_id, orderedDeliveries],
+  );
+  const exceptionDeliveries = useMemo(() => [
+    ...orderedDeliveries.filter((delivery) => normalizeStatus(delivery.status) === "failed"),
+    ...orderedDeliveries.filter((delivery) => normalizeStatus(delivery.status) === "returned"),
+  ], [orderedDeliveries]);
   const showInitialLoading = (loading || profileLoading) && deliveries.length === 0;
   const emptyCopy = getFilteredEmptyCopy(error, deliveryFilter, searchQuery);
   const stackResetKey = `${deliveryFilter}:${searchQuery.trim().toLowerCase()}`;
-  const stackContextCopy = getStackContextCopy(secondaryDeliveries.length);
+  const stackContextCopy = getStackContextCopy(secondaryDeliveries.length, deliveryFilter);
 
   const loadDeliveries = useCallback(
     async (mode: "initial" | "refresh" | "retry" = "initial") => {
@@ -655,6 +718,7 @@ export default function DeliveriesScreen() {
       }
 
       requestInFlightRef.current = true;
+      const refreshStartedAt = mode === "refresh" ? Date.now() : null;
       if (mode === "refresh") {
         setRefreshing(true);
       } else if (mode === "initial") {
@@ -688,14 +752,46 @@ export default function DeliveriesScreen() {
 
       requestInFlightRef.current = false;
       setLoading(false);
+      if (refreshStartedAt !== null) {
+        const remainingSpinnerTime = Math.max(0, 450 - (Date.now() - refreshStartedAt));
+        if (remainingSpinnerTime > 0) {
+          await new Promise<void>((resolve) => setTimeout(resolve, remainingSpinnerTime));
+        }
+      }
       setRefreshing(false);
     },
     [driver, profileLoading],
   );
 
+  const handleNativeRefresh = useCallback(() => {
+    if (refreshing || requestInFlightRef.current || profileLoading || !driver) return;
+
+    setRefreshing(true);
+    void loadDeliveries("refresh");
+  }, [driver, loadDeliveries, profileLoading, refreshing]);
+
+  const {
+    onScroll: handleNativeRefreshScroll,
+    onScrollEndDrag: handleNativeRefreshEndDrag,
+    showPullHint,
+  } = usePullToRefreshCue(refreshing, handleNativeRefresh);
+
   useEffect(() => {
     void loadDeliveries("initial");
   }, [loadDeliveries]);
+
+  useEffect(() => {
+    const deliveryId = Array.isArray(openRouteDeliveryId) ? openRouteDeliveryId[0] : openRouteDeliveryId;
+
+    if (!deliveryId || loading || profileLoading) return;
+
+    const requestedDelivery = deliveries.find((delivery) => delivery.delivery_id === deliveryId) ?? null;
+    router.setParams({ openRouteDeliveryId: undefined });
+
+    if (requestedDelivery) {
+      setWorkflowDelivery(requestedDelivery);
+    }
+  }, [deliveries, loading, openRouteDeliveryId, profileLoading, router]);
 
   useEffect(() => {
     return () => {
@@ -771,11 +867,18 @@ export default function DeliveriesScreen() {
     setWorkflowDelivery(null);
   }, []);
 
+  const updateWorkflowDelivery = useCallback((updatedDelivery: Delivery) => {
+    setDeliveries((currentDeliveries) =>
+      currentDeliveries.map((delivery) => (delivery.delivery_id === updatedDelivery.delivery_id ? updatedDelivery : delivery)),
+    );
+    setWorkflowDelivery(updatedDelivery);
+  }, []);
+
   const renderFeaturedDelivery = useCallback<ListRenderItem<Delivery>>(
     ({ item }) => (
       <View style={styles.featuredCardSection}>
         <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.caption} style={[styles.stackContextText, { color: colors.textSecondary }]}>
-          Current Delivery
+          {deliveryFilter === "completed" ? "Recent Completed Delivery" : deliveryFilter === "all" ? "Recent Deliveries" : "Current Delivery"}
         </Text>
         <DeliveryCard
           colors={colors}
@@ -788,7 +891,36 @@ export default function DeliveriesScreen() {
         />
       </View>
     ),
-    [colors, openDeliveryDetailsSheet, openDeliveryWorkflowSheet, routesByDeliveryId, width],
+    [colors, deliveryFilter, openDeliveryDetailsSheet, openDeliveryWorkflowSheet, routesByDeliveryId, width],
+  );
+
+  const renderExceptionDelivery = useCallback<ListRenderItem<Delivery>>(
+    ({ index, item }) => {
+      const status = normalizeStatus(item.status);
+      const priorStatus = index > 0 ? normalizeStatus(exceptionDeliveries[index - 1]?.status) : null;
+      const sectionTitle = status === "failed" ? "Failed Deliveries" : "Returned Deliveries";
+      const showSectionTitle = index === 0 || status !== priorStatus;
+
+      return (
+        <View style={styles.featuredCardSection}>
+          {showSectionTitle ? (
+            <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.caption} style={[styles.stackContextText, { color: colors.textSecondary }]}>
+              {sectionTitle}
+            </Text>
+          ) : null}
+          <DeliveryCard
+            colors={colors}
+            delivery={item}
+            emphasized
+            onAction={openDeliveryWorkflowSheet}
+            onOpen={openDeliveryDetailsSheet}
+            route={routesByDeliveryId[item.delivery_id] ?? null}
+            width={width}
+          />
+        </View>
+      );
+    },
+    [colors, exceptionDeliveries, openDeliveryDetailsSheet, openDeliveryWorkflowSheet, routesByDeliveryId, width],
   );
 
   const renderSecondaryDelivery = useCallback(
@@ -953,7 +1085,7 @@ export default function DeliveriesScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.dashboardBackground }]}>
-      <AnimatedFlatList
+      <FlatList
         alwaysBounceVertical
         bounces
         ListEmptyComponent={
@@ -970,7 +1102,7 @@ export default function DeliveriesScreen() {
           paddingHorizontal: getScreenHorizontalPadding(width),
           paddingTop: getSafeAreaTopSpacing(insets.top) + sectionGap,
         }}
-        data={showInitialLoading || !featuredDelivery ? [] : [featuredDelivery]}
+        data={showInitialLoading ? [] : deliveryFilter === "exceptions" ? exceptionDeliveries : featuredDelivery ? [featuredDelivery] : []}
         keyExtractor={(delivery) => delivery.delivery_id}
         ListHeaderComponent={
           <View style={styles.pageHeaderStack}>
@@ -986,7 +1118,25 @@ export default function DeliveriesScreen() {
           </View>
         }
         ListFooterComponent={
-          showInitialLoading || secondaryDeliveries.length === 0 ? null : (
+          showInitialLoading || deliveryFilter === "exceptions" || secondaryDeliveries.length === 0 ? null : deliveryFilter === "completed" ? (
+            <View style={styles.expandedDeliverySection}>
+              <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.caption} style={[styles.stackContextText, { color: colors.textSecondary }]}>
+                {stackContextCopy}
+              </Text>
+              {secondaryDeliveries.map((delivery) => (
+                <DeliveryCard
+                  colors={colors}
+                  delivery={delivery}
+                  emphasized
+                  key={delivery.delivery_id}
+                  onAction={openDelivery}
+                  onOpen={openDeliveryDetailsSheet}
+                  route={routesByDeliveryId[delivery.delivery_id] ?? null}
+                  width={width}
+                />
+              ))}
+            </View>
+          ) : (
             <View style={styles.secondaryStackSection}>
               <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.caption} style={[styles.stackContextText, { color: colors.textSecondary }]}>
                 {stackContextCopy}
@@ -1002,36 +1152,23 @@ export default function DeliveriesScreen() {
             </View>
           )
         }
-        onScroll={handleScroll}
         overScrollMode="always"
-        renderItem={renderFeaturedDelivery}
+        refreshControl={
+          <RefreshControl
+            colors={[colors.accent]}
+            onRefresh={handleNativeRefresh}
+            progressViewOffset={insets.top + 8}
+            refreshing={refreshing}
+            tintColor={colors.accent}
+          />
+        }
+        onScroll={handleNativeRefreshScroll}
+        onScrollEndDrag={handleNativeRefreshEndDrag}
+        renderItem={deliveryFilter === "exceptions" ? renderExceptionDelivery : renderFeaturedDelivery}
         scrollEventThrottle={16}
         style={[styles.list, { backgroundColor: colors.dashboardBackground }]}
       />
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.refreshHeader,
-          {
-            top: getSafeAreaTopSpacing(insets.top) + 8,
-          },
-          refreshHeaderAnimatedStyle,
-        ]}
-      >
-        <View pointerEvents="none" style={styles.refreshIconStack}>
-          <Animated.View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" pointerEvents="none" style={[styles.refreshIconLayer, refreshArrowAnimatedStyle]}>
-            <SymbolView fallback={null} name="arrow.down" size={refreshIndicatorSize} tintColor={colors.accent} type="hierarchical" />
-          </Animated.View>
-          <Animated.View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" pointerEvents="none" style={[styles.refreshIconLayer, refreshReleaseArrowAnimatedStyle]}>
-            <SymbolView fallback={null} name="arrow.up" size={refreshIndicatorSize} tintColor={colors.accent} type="hierarchical" />
-          </Animated.View>
-          <Animated.View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" pointerEvents="none" style={[styles.refreshIconLayer, spinnerAnimatedStyle]}>
-            <SymbolView fallback={null} name="arrow.clockwise" size={refreshIndicatorSize - 4} tintColor={colors.refreshTint} type="hierarchical" />
-          </Animated.View>
-        </View>
-      </Animated.View>
       <DeliveryDetailsSheet
-        coordinatesLoading={loading || profileLoading}
         delivery={selectedDelivery}
         onClose={closeDeliveryDetailsSheet}
         route={selectedDelivery ? (routesByDeliveryId[selectedDelivery.delivery_id] ?? null) : null}
@@ -1040,10 +1177,12 @@ export default function DeliveriesScreen() {
       <DeliveryWorkflowSheet
         delivery={workflowDelivery}
         onClose={closeDeliveryWorkflowSheet}
+        onDeliveryUpdated={updateWorkflowDelivery}
         route={workflowDelivery ? (routesByDeliveryId[workflowDelivery.delivery_id] ?? null) : null}
         visible={Boolean(workflowDelivery)}
       />
-      <DashboardScrollEdge topInset={insets.top} />
+      <PullToRefreshIndicator color={colors.accent} showPullHint={showPullHint} topInset={insets.top} visible={refreshing} />
+      {!refreshing ? <DashboardScrollEdge topInset={insets.top} /> : null}
     </View>
   );
 }
@@ -1074,6 +1213,9 @@ function DeliveriesHeading({ colors, width }: { colors: ReturnType<typeof getDas
             ]}
           >
             Deliveries
+          </Text>
+          <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.secondary} style={[styles.headingDescription, { color: colors.textSecondary }]}>
+            Track current, completed, and exception deliveries.
           </Text>
         </View>
         <View style={styles.profileButtonSlot}>
@@ -1276,7 +1418,7 @@ const styles = StyleSheet.create({
   },
   deliveryTitle: {
     fontSize: dashboardTypography.compactPageTitle.fontSize,
-    fontWeight: "800",
+    fontWeight: "600",
     lineHeight: dashboardTypography.compactPageTitle.lineHeight,
   },
   deliveryTitleGroup: {
@@ -1307,6 +1449,9 @@ const styles = StyleSheet.create({
     lineHeight: dashboardTypography.compactPageTitle.lineHeight,
     textAlign: "center",
   },
+  expandedDeliverySection: {
+    gap: dashboardSpacing.scale.md,
+  },
   endpointLabel: {
     fontSize: dashboardTypography.caption.fontSize,
     fontWeight: "700",
@@ -1314,7 +1459,7 @@ const styles = StyleSheet.create({
   },
   endpointPrimary: {
     fontSize: dashboardTypography.secondary.fontSize,
-    fontWeight: "800",
+    fontWeight: "600",
     lineHeight: dashboardTypography.secondary.lineHeight,
   },
   endpointValue: {
@@ -1338,8 +1483,11 @@ const styles = StyleSheet.create({
     gap: dashboardSpacing.scale.sm,
   },
   featuredPriorityPill: {
+    alignItems: "center",
     alignSelf: "flex-start",
     borderRadius: 999,
+    flexDirection: "row",
+    gap: dashboardSpacing.scale.xs,
     paddingHorizontal: dashboardSpacing.scale.md,
     paddingVertical: dashboardSpacing.scale.sm,
   },
@@ -1394,6 +1542,10 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     rowGap: dashboardSpacing.scale.xs,
+  },
+  headingDescription: {
+    fontSize: dashboardTypography.secondary.fontSize,
+    lineHeight: dashboardTypography.secondary.lineHeight,
   },
   headingTitle: {
     letterSpacing: 0,
@@ -1600,8 +1752,11 @@ const styles = StyleSheet.create({
   },
   secondaryActionLabel: {
     fontSize: dashboardTypography.caption.fontSize,
-    fontWeight: "700",
+    fontWeight: "800",
     lineHeight: dashboardTypography.caption.lineHeight,
+  },
+  deliveryActionLabel: {
+    fontWeight: "800",
   },
   secondaryCardAction: {
     paddingHorizontal: 10,
@@ -1657,9 +1812,12 @@ const styles = StyleSheet.create({
     width: 22,
   },
   secondaryMetaPill: {
+    alignItems: "center",
     alignSelf: "flex-start",
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: dashboardSpacing.scale.xs,
     paddingHorizontal: 7,
     paddingVertical: 2,
   },

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, useColorScheme, useWindowDimensions, View } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, useColorScheme, useWindowDimensions, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -18,6 +18,8 @@ import {
 import { DashboardScrollEdge } from "@/components/dashboard/DashboardScrollEdge";
 import { DailyScheduleCard } from "@/components/schedule/DailyScheduleCard";
 import { ScheduleWeekSelector, type ScheduleDayMarker } from "@/components/schedule/ScheduleWeekSelector";
+import { PullToRefreshIndicator, usePullToRefreshCue } from "@/components/shared/PullToRefreshIndicator";
+import { LiquidGlassButton } from "@/components/shared/LiquidGlassButton";
 import { ProfileButton } from "@/components/shared/ProfileButton";
 import { useDriverProfile } from "@/hooks/useDriverProfile";
 import { getSchedulesForDriver, getVehicle } from "@/services/schedule.service";
@@ -26,9 +28,9 @@ import type { Schedule, VehicleSummary } from "@/types/schedule";
 type ShiftTone = "morning" | "evening" | "custom";
 
 const shiftColors = {
-  custom: "#1A1424",
-  evening: "#8F75FF",
-  morning: "#57D7A4",
+  custom: "#14B8A6",
+  evening: "#3B82F6",
+  morning: "#F6C344",
 } as const;
 
 function startOfDay(date: Date) {
@@ -61,8 +63,7 @@ function getShiftTone(schedule: Schedule): ShiftTone {
 }
 
 function getWeekRange(date: Date) {
-  const weekdayOffset = (date.getDay() + 6) % 7;
-  const start = addDays(startOfDay(date), -weekdayOffset);
+  const start = addDays(startOfDay(date), -date.getDay());
   return { end: addDays(start, 6), start };
 }
 
@@ -102,8 +103,21 @@ export default function ScheduleScreen() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [vehiclesById, setVehiclesById] = useState<Record<string, VehicleSummary>>({});
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const dashboardColors = getDashboardColors(colorScheme);
+  const handleNativeRefresh = useCallback(() => {
+    if (refreshing) return;
+
+    setRefreshing(true);
+    setRefreshKey((current) => current + 1);
+  }, [refreshing]);
+  const {
+    onScroll: handleNativeRefreshScroll,
+    onScrollEndDrag: handleNativeRefreshEndDrag,
+    showPullHint,
+  } = usePullToRefreshCue(refreshing, handleNativeRefresh);
   const cardPadding = getCardPadding(width);
   const cardRadius = getCardRadius(width);
   const horizontalPadding = getScreenHorizontalPadding(width);
@@ -111,12 +125,14 @@ export default function ScheduleScreen() {
 
   useEffect(() => {
     let active = true;
+    const refreshStartedAt = refreshKey > 0 ? Date.now() : null;
 
     async function loadSchedules() {
       if (!driver) {
         if (active) {
           setSchedules([]);
           setLoading(false);
+          setRefreshing(false);
         }
         return;
       }
@@ -127,11 +143,19 @@ export default function ScheduleScreen() {
       setSchedules(response.data ?? []);
       setError(response.error?.message ?? null);
       setLoading(false);
+      if (refreshStartedAt !== null) {
+        const remainingSpinnerTime = Math.max(0, 450 - (Date.now() - refreshStartedAt));
+        if (remainingSpinnerTime > 0) {
+          await new Promise<void>((resolve) => setTimeout(resolve, remainingSpinnerTime));
+        }
+      }
+      if (!active) return;
+      setRefreshing(false);
     }
 
     void loadSchedules();
     return () => { active = false; };
-  }, [driver]);
+  }, [driver, refreshKey]);
 
   const selectedSchedules = useMemo(
     () => schedules.filter((schedule) => getScheduleDateKey(schedule) === getDateKey(selectedDate)),
@@ -182,41 +206,90 @@ export default function ScheduleScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: dashboardColors.background }]}>
-      <ScrollView contentContainerStyle={[styles.content, { gap: sectionGap, paddingBottom: getScrollContentBottomPadding(width, insets.bottom), paddingHorizontal: horizontalPadding, paddingTop: insets.top + dashboardSpacing.scale.md }]} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        alwaysBounceVertical
+        bounces
+        contentContainerStyle={[styles.content, { gap: sectionGap, paddingBottom: getScrollContentBottomPadding(width, insets.bottom), paddingHorizontal: horizontalPadding, paddingTop: insets.top + dashboardSpacing.scale.md }]}
+        overScrollMode="always"
+        refreshControl={
+          <RefreshControl
+            colors={[dashboardColors.accent]}
+            onRefresh={handleNativeRefresh}
+            progressViewOffset={insets.top + 8}
+            refreshing={refreshing}
+            tintColor={dashboardColors.accent}
+          />
+        }
+        onScroll={handleNativeRefreshScroll}
+        onScrollEndDrag={handleNativeRefreshEndDrag}
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator
+      >
         <View style={styles.header}>
-          <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.pageTitle} style={[styles.pageTitle, { color: dashboardColors.textPrimary, fontSize: dashboardTypography.largePageTitle.fontSize, fontWeight: dashboardTypography.largePageTitle.fontWeight, lineHeight: dashboardTypography.largePageTitle.lineHeight }]}>Schedule</Text>
+          <View style={styles.headerCopy}>
+            <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.pageTitle} style={[styles.pageTitle, { color: dashboardColors.textPrimary, fontSize: dashboardTypography.largePageTitle.fontSize, fontWeight: dashboardTypography.largePageTitle.fontWeight, lineHeight: dashboardTypography.largePageTitle.lineHeight }]}>Schedule</Text>
+            <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.secondary} style={[styles.pageDescription, { color: dashboardColors.textSecondary }]}>Review your weekly shifts and choose a day for details.</Text>
+          </View>
           <ProfileButton dashboardIcon />
         </View>
 
         <View style={styles.summaryRow}>
-          <ScheduleSummaryCard color={dashboardColors.accent} count={loading ? null : weeklySchedules.length} iconName="calendar" label="This week" textPrimary={dashboardColors.textPrimary} textSecondary={dashboardColors.textSecondary} title="Weekly schedule" width={width} />
-          <ScheduleSummaryCard color={conflictIds.size > 0 ? dashboardColors.danger : dashboardColors.success} count={loading ? null : conflictIds.size} iconName={conflictIds.size > 0 ? "exclamationmark.triangle" : "checkmark.circle"} label={conflictIds.size > 0 ? "Needs attention" : "All clear"} textPrimary={dashboardColors.textPrimary} textSecondary={dashboardColors.textSecondary} title="Schedule conflicts" width={width} />
+          <ScheduleSummaryCard color={dashboardColors.accent} count={loading ? null : weeklySchedules.length} iconName="calendar" label="This Week" textPrimary={dashboardColors.textPrimary} textSecondary={dashboardColors.textSecondary} title="Weekly Schedule" width={width} />
+          <ScheduleSummaryCard color={conflictIds.size > 0 ? dashboardColors.danger : dashboardColors.success} count={loading ? null : conflictIds.size} iconName={conflictIds.size > 0 ? "exclamationmark.triangle" : "checkmark.circle"} label={conflictIds.size > 0 ? "Needs Attention" : "All Clear"} textPrimary={dashboardColors.textPrimary} textSecondary={dashboardColors.textSecondary} title="Schedule Conflicts" width={width} />
         </View>
 
         <View style={[styles.calendarSection, dashboardShadows.subtleCard, { backgroundColor: dashboardColors.surfaceElevated, borderColor: dashboardColors.subtleBorder, borderRadius: cardRadius, padding: cardPadding + dashboardSpacing.scale.xs }]}>
-          <View style={styles.sectionHeader}>
-            <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.compactTitle} style={[styles.sectionTitle, { color: dashboardColors.textPrimary }]}>Week schedule</Text>
-            <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.caption} style={[styles.sectionCaption, { color: dashboardColors.textSecondary }]}>Select a day</Text>
+          <View style={[styles.sectionHeader, styles.calendarHeader]}>
+            <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.compactTitle} style={[styles.sectionTitle, { color: dashboardColors.textPrimary }]}>Week Schedule</Text>
+            <View style={styles.dayAction}>
+              <LiquidGlassButton accessibilityLabel="Return to today" capsule onPress={() => setSelectedDate(startOfDay(new Date()))} radius={999} style={styles.todayButton} variant="secondaryNeutral">
+                <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.caption} style={[styles.todayText, { color: dashboardColors.accent }]}>Today</Text>
+              </LiquidGlassButton>
+            </View>
           </View>
           <ScheduleWeekSelector markers={dayMarkers} onDateChange={setSelectedDate} selectedDate={selectedDate} textPrimary={dashboardColors.textPrimary} textSecondary={dashboardColors.textSecondary} />
         </View>
+        <CalendarLegendCard borderColor={dashboardColors.subtleBorder} cardRadius={cardRadius} colors={dashboardColors} />
 
         <View style={styles.dailySection}>
           <View style={styles.sectionHeader}>
             <View>
-              <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.compactTitle} style={[styles.sectionTitle, { color: dashboardColors.textPrimary }]}>Daily schedule</Text>
+              <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.compactTitle} style={[styles.sectionTitle, { color: dashboardColors.textPrimary }]}>Daily Schedule</Text>
               <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.caption} style={[styles.sectionCaption, { color: dashboardColors.textSecondary }]}>{formatSelectedDate(selectedDate)}</Text>
             </View>
             <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.caption} style={[styles.sectionCaption, { color: dashboardColors.textSecondary }]}>{selectedSchedules.length === 1 ? "1 shift" : `${selectedSchedules.length} shifts`}</Text>
           </View>
 
           {loading ? <View style={styles.loading}><ActivityIndicator color={dashboardColors.accent} /></View> : null}
-          {!loading && error ? <EmptyScheduleCard message={error} title="Schedule unavailable" textPrimary={dashboardColors.textPrimary} textSecondary={dashboardColors.textSecondary} /> : null}
-          {!loading && !error && selectedSchedules.length === 0 ? <EmptyScheduleCard message="No shifts are assigned for this day." title="No daily schedule" textPrimary={dashboardColors.textPrimary} textSecondary={dashboardColors.textSecondary} /> : null}
+          {!loading && error ? <EmptyScheduleCard message={error} title="Schedule Unavailable" textPrimary={dashboardColors.textPrimary} textSecondary={dashboardColors.textSecondary} /> : null}
+          {!loading && !error && selectedSchedules.length === 0 ? <EmptyScheduleCard message="No shifts are assigned for this day." title="No Daily Schedule" textPrimary={dashboardColors.textPrimary} textSecondary={dashboardColors.textSecondary} /> : null}
           {!loading && !error ? selectedSchedules.map((schedule) => <DailyScheduleCard key={schedule.schedule_id} schedule={schedule} vehicle={schedule.vehicle_id ? vehiclesById[schedule.vehicle_id] ?? null : null} />) : null}
         </View>
       </ScrollView>
-      <DashboardScrollEdge topInset={insets.top} />
+      <PullToRefreshIndicator color={dashboardColors.accent} showPullHint={showPullHint} topInset={insets.top} visible={refreshing} />
+      {!refreshing ? <DashboardScrollEdge topInset={insets.top} /> : null}
+    </View>
+  );
+}
+
+function CalendarLegendCard({ borderColor, cardRadius, colors }: { borderColor: string; cardRadius: number; colors: ReturnType<typeof getDashboardColors> }) {
+  const items = [
+    { color: shiftColors.morning, label: "Morning Shift" },
+    { color: shiftColors.evening, label: "Evening Shift" },
+    { color: shiftColors.custom, label: "Custom Shift" },
+  ];
+
+  return (
+    <View style={[styles.legendCard, dashboardShadows.subtleCard, { backgroundColor: colors.surfaceElevated, borderColor, borderRadius: cardRadius }]}>
+      <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.caption} style={[styles.legendTitle, { color: colors.textPrimary }]}>Calendar Legend</Text>
+      <View style={styles.legendItems}>
+        {items.map((item) => (
+          <View key={item.label} style={styles.legendItem}>
+            <View accessibilityElementsHidden style={[styles.legendDot, { backgroundColor: item.color }]} />
+            <Text maxFontSizeMultiplier={dashboardMaxFontSizeMultipliers.tertiary} style={[styles.legendLabel, { color: colors.textSecondary }]}>{item.label}</Text>
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
@@ -250,15 +323,25 @@ function EmptyScheduleCard({ message, textPrimary, textSecondary, title }: { mes
 
 const styles = StyleSheet.create({
   calendarSection: { borderWidth: StyleSheet.hairlineWidth, gap: dashboardSpacing.scale.lg },
+  calendarHeader: { alignItems: "flex-start" },
   container: { flex: 1 },
   content: { width: "100%" },
+  dayAction: { alignItems: "flex-end", gap: dashboardSpacing.scale.xs },
   dailySection: { gap: dashboardSpacing.scale.md },
   emptyCard: { borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, gap: 6, padding: 20 },
   emptyText: { fontSize: dashboardTypography.secondary.fontSize, lineHeight: dashboardTypography.secondary.lineHeight },
   emptyTitle: { fontSize: dashboardTypography.compactPageTitle.fontSize, fontWeight: "700", lineHeight: dashboardTypography.compactPageTitle.lineHeight },
-  header: { alignItems: "center", flexDirection: "row", gap: dashboardSpacing.scale.md, justifyContent: "space-between" },
+  header: { alignItems: "flex-start", flexDirection: "row", gap: dashboardSpacing.scale.md, justifyContent: "space-between" },
+  headerCopy: { flex: 1, gap: dashboardSpacing.scale.xxs },
+  legendCard: { borderWidth: StyleSheet.hairlineWidth, gap: dashboardSpacing.scale.sm, padding: 13 },
+  legendDot: { borderRadius: 999, height: 9, width: 9 },
+  legendItem: { alignItems: "center", flexDirection: "row", gap: dashboardSpacing.scale.xs, minWidth: 0 },
+  legendItems: { flexDirection: "row", gap: dashboardSpacing.scale.md, justifyContent: "center" },
+  legendLabel: { fontSize: dashboardTypography.tertiary.fontSize, lineHeight: dashboardTypography.tertiary.lineHeight },
+  legendTitle: { fontSize: dashboardTypography.caption.fontSize, fontWeight: "700", lineHeight: dashboardTypography.caption.lineHeight },
   loading: { alignItems: "center", minHeight: 160, justifyContent: "center" },
-  pageTitle: { flex: 1 },
+  pageDescription: { fontSize: dashboardTypography.secondary.fontSize, lineHeight: dashboardTypography.secondary.lineHeight },
+  pageTitle: {},
   sectionCaption: { fontSize: dashboardTypography.caption.fontSize, lineHeight: dashboardTypography.caption.lineHeight },
   sectionHeader: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" },
   sectionTitle: { fontSize: dashboardTypography.compactPageTitle.fontSize, fontWeight: dashboardTypography.compactPageTitle.fontWeight, lineHeight: dashboardTypography.compactPageTitle.lineHeight },
@@ -268,4 +351,6 @@ const styles = StyleSheet.create({
   summaryLabel: { fontSize: dashboardTypography.caption.fontSize, lineHeight: dashboardTypography.caption.lineHeight },
   summaryRow: { flexDirection: "row", gap: dashboardSpacing.scale.md },
   summaryTitle: { fontSize: dashboardTypography.caption.fontSize, fontWeight: "700", lineHeight: dashboardTypography.caption.lineHeight },
+  todayButton: { alignItems: "center", height: 28, justifyContent: "center", minWidth: 60, paddingHorizontal: dashboardSpacing.scale.sm },
+  todayText: { fontSize: dashboardTypography.caption.fontSize, fontWeight: "700", lineHeight: dashboardTypography.caption.lineHeight },
 });

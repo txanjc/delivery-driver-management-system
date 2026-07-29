@@ -8,7 +8,7 @@ import { dashboardLiquidGlass, dashboardMaxFontSizeMultipliers } from "@/compone
 import { colors } from "@/theme/shared";
 import { triggerButtonHaptic } from "@/utils/haptics";
 
-export type GlassActionButtonVariant = "primaryAccent" | "secondaryNeutral" | "sectionAccent";
+export type GlassActionButtonVariant = "primaryAccent" | "secondaryNeutral" | "sectionAccent" | "neutralGrey";
 
 export type GlassActionButtonProps = {
   accessibilityLabel?: string;
@@ -69,6 +69,17 @@ function getVariantStyles(variant: GlassActionButtonVariant, disabled: boolean) 
       pressedBackgroundColor: alpha(colors.primaryDark, 0.46),
       pressedBorderColor: alpha(colors.primaryDark, 0.58),
       textColor: "#ffffff",
+    };
+  }
+
+  if (variant === "neutralGrey") {
+    return {
+      backgroundColor: disabled ? "rgba(99, 99, 104, 0.34)" : "rgba(99, 99, 104, 0.84)",
+      borderColor: disabled ? "rgba(174, 174, 178, 0.18)" : "rgba(174, 174, 178, 0.42)",
+      iconColor: "#FFFFFF",
+      pressedBackgroundColor: "rgba(72, 72, 74, 0.94)",
+      pressedBorderColor: "rgba(199, 199, 204, 0.44)",
+      textColor: "#FFFFFF",
     };
   }
 

@@ -17,3 +17,16 @@ export type Delivery = {
   created_at: string | null;
   updated_at: string | null;
 };
+
+export type DeliveryStatusHistory = {
+  created_at: string | null;
+  delivery_id: string;
+  location: string | null;
+  new_status: string | null;
+  notes: string | null;
+  previous_status: string | null;
+  status: string | null;
+  status_history_id: string;
+  updated_at: string | null;
+  updated_by: string | null;
+};
